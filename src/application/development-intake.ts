@@ -1,7 +1,7 @@
-import { resolve } from 'node:path'
 import type { Evidence, Gate, WorkUnit, WorkUnitState } from '../core/model.js'
 import type { AaopIntakeEnvelope } from '../intake/aaop-envelope.js'
 import {
+  createIntakeWorkUnit,
   prepareProjectDevelopmentIntake,
   type PrepareProjectIntakeOptions,
   type PreparedProjectIntake,
@@ -12,9 +12,10 @@ import {
   type RunAaopCoordinatorOptions,
 } from '../intake/coordinator.js'
 import {
-  loadWorkbenchProjectManifest,
-  type WorkbenchProjectManifest,
-} from '../projects/manifest.js'
+  resolveProjectOnboarding,
+  type ProjectOnboardingIdentity,
+  type ProjectOnboardingResult,
+} from '../projects/onboarding.js'
 
 export interface DevelopmentIntakeApplicationOptions {
   rawRequest: string
@@ -31,7 +32,7 @@ export interface DevelopmentIntakeApplicationOptions {
 }
 
 export interface DevelopmentIntakeApplicationDependencies {
-  loadManifest?: (projectRoot: string) => WorkbenchProjectManifest
+  resolveOnboarding?: (projectRoot: string) => ProjectOnboardingResult
   prepareProjectIntake?: (
     options: PrepareProjectIntakeOptions,
   ) => PreparedProjectIntake
@@ -77,6 +78,15 @@ export interface DevelopmentIntakeEnvelopeView {
 
 export type DevelopmentIntakeApplicationResult =
   | {
+      status: 'setup-required'
+      space: DevelopmentSpaceView
+      workUnit: WorkUnitDisplayView
+      setup: {
+        kind: 'aaop'
+        summary: string
+      }
+    }
+  | {
       status: 'blocked'
       space: DevelopmentSpaceView
       workUnit: WorkUnitDisplayView
@@ -90,16 +100,42 @@ export type DevelopmentIntakeApplicationResult =
     }
 
 function createDevelopmentSpaceView(
-  projectRoot: string,
-  manifest: WorkbenchProjectManifest,
+  project: ProjectOnboardingIdentity,
 ): DevelopmentSpaceView {
   return {
-    id: `SPACE-${manifest.project.id}`,
-    title: manifest.project.title,
-    projectId: manifest.project.id,
-    projectRoot: resolve(projectRoot),
+    id: `SPACE-${project.id}`,
+    title: project.title,
+    projectId: project.id,
+    projectRoot: project.root,
     domainPackId: 'development-aaop',
   }
+}
+
+function createOnboardingWorkUnit(
+  options: DevelopmentIntakeApplicationOptions,
+  space: DevelopmentSpaceView,
+  state: 'needs-human' | 'blocked',
+  summary: string,
+): WorkUnit {
+  const now = options.now ?? (() => new Date())
+  const unit = createIntakeWorkUnit(
+    options.rawRequest,
+    space.id,
+    now,
+    options.idFactory,
+  )
+  unit.state = state
+  unit.gate = state === 'needs-human'
+    ? {
+        kind: 'authorization',
+        open: true,
+        owner: 'human',
+        summary,
+      }
+    : { kind: 'none', open: false }
+  unit.nextFrontier = summary
+  unit.updatedAt = now().toISOString()
+  return unit
 }
 
 /**
@@ -140,35 +176,67 @@ export function toDevelopmentIntakeEnvelopeView(
 }
 
 /**
- * First desktop-product application slice:
+ * Desktop-product application slice:
  *
  * project + ordinary-language request
+ * -> read-only Workbench onboarding discovery
+ * -> explicit manifest OR derived installed-AAOP bridge OR setup Gate
  * -> trusted project AAOP bridge
  * -> hard read-only Developer Intake
  * -> Workbench-owned Space / Work Unit / Gate / Evidence view
  *
- * This surface deliberately does not issue a Provider Execution Grant or start
- * write execution. It is safe to use as the first product milestone before a
- * native shell or mutation UI exists.
+ * This surface deliberately does not install AAOP, issue a Provider Execution
+ * Grant, or start write execution. Project setup remains a separate authorized
+ * lifecycle action owned by AAOP's canonical bootstrap/installer.
  */
 export async function runDevelopmentIntakeApplication(
   options: DevelopmentIntakeApplicationOptions,
   dependencies: DevelopmentIntakeApplicationDependencies = {},
 ): Promise<DevelopmentIntakeApplicationResult> {
-  const loadManifest = dependencies.loadManifest ?? loadWorkbenchProjectManifest
+  const onboard = dependencies.resolveOnboarding ?? resolveProjectOnboarding
   const prepare = dependencies.prepareProjectIntake ?? prepareProjectDevelopmentIntake
   const coordinate = dependencies.runCoordinator ?? runProjectAaopCoordinator
   const now = options.now ?? (() => new Date())
 
-  const manifest = loadManifest(options.projectRoot)
-  const space = createDevelopmentSpaceView(options.projectRoot, manifest)
+  const onboarding = onboard(options.projectRoot)
+  const space = createDevelopmentSpaceView(onboarding.project)
+
+  if (onboarding.status === 'setup-required') {
+    const summary = 'Enable AAOP for this project to continue grounded development intake.'
+    const unit = createOnboardingWorkUnit(options, space, 'needs-human', summary)
+    return {
+      status: 'setup-required',
+      space,
+      workUnit: toWorkUnitDisplayView(unit),
+      setup: {
+        kind: 'aaop',
+        summary,
+      },
+    }
+  }
+
+  if (onboarding.status === 'blocked') {
+    const unit = createOnboardingWorkUnit(
+      options,
+      space,
+      'blocked',
+      onboarding.reason,
+    )
+    return {
+      status: 'blocked',
+      space,
+      workUnit: toWorkUnitDisplayView(unit),
+      blocker: onboarding.reason,
+    }
+  }
+
   const prepared = prepare({
     rawRequest: options.rawRequest,
     projectRoot: options.projectRoot,
     spaceId: space.id,
     trustedProject: options.trustedProject,
     authorizationBoundary: options.authorizationBoundary,
-    manifest,
+    manifest: onboarding.manifest,
     now,
     idFactory: options.idFactory,
   })
