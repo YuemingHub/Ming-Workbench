@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 import { resolveBackendScript, spawnBackend } from './backend.mjs'
 import { isAllowedBackendUrl, isTrustedDesktopSender, urlOrigin } from './validation.mjs'
-import { prepareHarnessRuntime } from './hosts/harness-runtime.js'
+import { prepareHarnessRuntime } from '../.tmp/hosts/harness-runtime.js'
 import {
   loadProviderSecret,
   saveProviderSecret,
@@ -125,7 +125,7 @@ async function startBackend(projectRoot) {
   // Resolve the exact reviewed Harness checkout automatically:
   // 1) env var (backward compat)
   // 2) bundled git bundle extraction + identity verification + deps install
-  let resolvedHarnessCheckout: string | undefined
+  let resolvedHarnessCheckout
   try {
     const runtime = await prepareHarnessRuntime({
       workbenchRoot,

@@ -21,7 +21,7 @@ function secretPath() {
   return join(app.getPath('userData'), SECRET_FILE_NAME)
 }
 
-export function loadProviderSecret(): string | null {
+export function loadProviderSecret() {
   try {
     const path = secretPath()
     if (!existsSync(path)) return null
@@ -32,7 +32,7 @@ export function loadProviderSecret(): string | null {
   }
 }
 
-export function saveProviderSecret(plaintext: string): void {
+export function saveProviderSecret(plaintext) {
   if (!safeStorage.isEncryptionAvailable()) {
     throw new Error(
       'Electron safeStorage is not available on this system. Cannot store provider secret securely.',
@@ -44,7 +44,7 @@ export function saveProviderSecret(plaintext: string): void {
   writeFileSync(secretPath(), encrypted)
 }
 
-export function clearProviderSecret(): void {
+export function clearProviderSecret() {
   try {
     const path = secretPath()
     if (existsSync(path)) {
@@ -58,6 +58,6 @@ export function clearProviderSecret(): void {
   }
 }
 
-export function hasProviderSecret(): boolean {
+export function hasProviderSecret() {
   return loadProviderSecret() !== null
 }
