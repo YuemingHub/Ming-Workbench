@@ -1,0 +1,237 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+import {
+  assertGrantWorkspace,
+  assertReviewedHarnessCheckout,
+  buildHarnessChildEnv,
+} from '../.tmp/transports/harness-acp.js'
+
+function run(cwd, args) {
+  return execFileSync('git', ['-C', cwd, ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim()
+}
+
+function createWorkspace({ repository = 'YuemingHub/Family-Space', branch = 'workbench/pilot-acp' } = {}) {
+  const cwd = mkdtempSync(join(tmpdir(), 'ming-workbench-git-'))
+  run(cwd, ['init'])
+  run(cwd, ['config', 'user.email', 'workbench@example.invalid'])
+  run(cwd, ['config', 'user.name', 'Ming Workbench Test'])
+  writeFileSync(join(cwd, 'README.md'), 'fixture\n')
+  run(cwd, ['add', 'README.md'])
+  run(cwd, ['commit', '-m', 'fixture'])
+  run(cwd, ['branch', 'production'])
+  run(cwd, ['checkout', '-b', branch])
+  run(cwd, ['remote', 'add', 'origin', `git@github.com:${repository}.git`])
+  return cwd
+}
+
+function grant(overrides = {}) {
+  return {
+    schema_version: '1.0',
+    grant_id: 'grant-acp-001',
+    work_unit_ref: 'WU-ACP-001',
+    provider: 'deepseek-harness',
+    route: 'feature-change',
+    working_contract_revision: 1,
+    goal: 'Execute one bounded ACP transport pilot.',
+    baseline: [],
+    execution_mode: 'single-agent',
+    task_pod: null,
+    tasks: [
+      {
+        id: 'T1',
+        action: 'Make the admitted change.',
+        verification: ['Read back the exact diff.'],
+        failure_path: 'Stop on conflict or denied authority.',
+      },
+    ],
+    authorization: {
+      mutation_boundary: 'write-authorized',
+      write_target: {
+        repository: 'YuemingHub/Family-Space',
+        base_ref: 'production',
+        working_ref: 'workbench/pilot-acp',
+        environment: null,
+      },
+      allowed_effects: ['working-branch repository write'],
+      protected_effects: ['production write', 'deployment', 'task credential use'],
+    },
+    acceptance_evidence: ['Exact branch diff is verified.'],
+    human_open_questions: [],
+    references: [],
+    issued_at: '2026-08-14T10:45:00+08:00',
+    ...overrides,
+  }
+}
+
+test('write-authorized grant must match workspace origin, branch, and resolvable base', () => {
+  const cwd = createWorkspace()
+  try {
+    assert.doesNotThrow(() => assertGrantWorkspace(grant(), cwd))
+
+    const wrongRepo = grant()
+    wrongRepo.authorization = {
+      ...wrongRepo.authorization,
+      write_target: {
+        ...wrongRepo.authorization.write_target,
+        repository: 'YuemingHub/Ming-Workbench',
+      },
+    }
+    assert.throws(() => assertGrantWorkspace(wrongRepo, cwd), /does not match workspace origin/)
+
+    const wrongBranch = grant()
+    wrongBranch.authorization = {
+      ...wrongBranch.authorization,
+      write_target: {
+        ...wrongBranch.authorization.write_target,
+        working_ref: 'workbench/another-branch',
+      },
+    }
+    assert.throws(() => assertGrantWorkspace(wrongBranch, cwd), /does not match current branch/)
+
+    const wrongBase = grant()
+    wrongBase.authorization = {
+      ...wrongBase.authorization,
+      write_target: {
+        ...wrongBase.authorization.write_target,
+        base_ref: 'missing-base',
+      },
+    }
+    assert.throws(() => assertGrantWorkspace(wrongBase, cwd), /does not resolve/)
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
+test('read-only grant still requires a git worktree but never invents a write target', () => {
+  const cwd = createWorkspace()
+  try {
+    const readOnly = grant({
+      authorization: {
+        mutation_boundary: 'read-only',
+        write_target: null,
+        allowed_effects: ['repository read'],
+        protected_effects: ['repository write'],
+      },
+    })
+    assert.doesNotThrow(() => assertGrantWorkspace(readOnly, cwd))
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
+test('ACP child environment forwards provider infrastructure but drops task secrets', () => {
+  const env = buildHarnessChildEnv(
+    {
+      PATH: '/usr/bin',
+      HOME: '/home/example',
+      DEEPSEEK_API_KEY: 'provider-key',
+      DEEPSEEK_BASE_URL: 'https://example.invalid',
+      GITHUB_TOKEN: 'must-not-forward',
+      ALIYUN_ACCESS_KEY_ID: 'must-not-forward',
+      DATABASE_URL: 'must-not-forward',
+    },
+    {
+      harnessCheckout: '/runtime/harness',
+      workbenchRoot: '/runtime/workbench',
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-pro',
+      sessionRoot: '/runtime/sessions',
+    },
+    grant(),
+  )
+
+  assert.equal(env.DEEPSEEK_API_KEY, 'provider-key')
+  assert.equal(env.DEEPSEEK_BASE_URL, 'https://example.invalid')
+  assert.equal(env.GITHUB_TOKEN, undefined)
+  assert.equal(env.ALIYUN_ACCESS_KEY_ID, undefined)
+  assert.equal(env.DATABASE_URL, undefined)
+  assert.equal(env.DSH_PERMISSION_MODE, 'workspace-write')
+})
+
+test('read-only grants map to a read-only Harness standing permission', () => {
+  const readOnly = grant({
+    authorization: {
+      mutation_boundary: 'read-only',
+      write_target: null,
+      allowed_effects: ['repository read'],
+      protected_effects: ['repository write'],
+    },
+  })
+  const env = buildHarnessChildEnv(
+    {},
+    { harnessCheckout: '/harness', workbenchRoot: '/workbench' },
+    readOnly,
+  )
+  assert.equal(env.DSH_PERMISSION_MODE, 'read-only')
+})
+
+test('unreviewed Harness source checkout fails before ACP execution', () => {
+  const checkout = mkdtempSync(join(tmpdir(), 'ming-workbench-harness-'))
+  try {
+    mkdirSync(join(checkout, 'apps', 'cli'), { recursive: true })
+    writeFileSync(
+      join(checkout, 'apps', 'cli', 'package.json'),
+      JSON.stringify({ version: '0.1.0-rc.5' }),
+    )
+    run(checkout, ['init'])
+    run(checkout, ['config', 'user.email', 'workbench@example.invalid'])
+    run(checkout, ['config', 'user.name', 'Ming Workbench Test'])
+    run(checkout, ['add', '.'])
+    run(checkout, ['commit', '-m', 'fake harness'])
+
+    assert.throws(
+      () => assertReviewedHarnessCheckout(checkout),
+      /Unreviewed DeepSeek Harness checkout/,
+    )
+  } finally {
+    rmSync(checkout, { recursive: true, force: true })
+  }
+})
+
+test('ACP composition remains single-agent and cross-platform', () => {
+  const config = readFileSync(
+    new URL('../harness/acp/workbench.cordis.yml', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(config, /@deepseek-ai\/dsh-acp-demo/)
+  assert.match(config, /maxParallelToolCalls: 1/)
+  assert.match(config, /goals: false/)
+  assert.match(config, /@deepseek-ai\/dsh-bash-sandbox/)
+  assert.match(config, /@deepseek-ai\/dsh-pwsh-sandbox/)
+  assert.match(config, /@deepseek-ai\/dsh-tool-pwsh/)
+  assert.match(config, /@deepseek-ai\/dsh-fs-sandbox/)
+  assert.match(config, /@deepseek-ai\/dsh-tool-fs-search/)
+  assert.match(config, /DSH_PERMISSION_MODE/)
+  assert.match(config, /policy: ask/)
+
+  for (const forbidden of [
+    '@deepseek-ai/dsh-tool-subagent',
+    '@deepseek-ai/dsh-tool-workflow',
+    '@deepseek-ai/dsh-tool-ralph',
+    '@deepseek-ai/dsh-tool-goal',
+  ]) {
+    assert.equal(config.includes(forbidden), false, `unexpected ACP capability: ${forbidden}`)
+  }
+})
+
+test('ACP launcher anchors bare plugins to Harness and does not load project .env', () => {
+  const launcher = readFileSync(
+    new URL('../harness/acp/launcher.mjs', import.meta.url),
+    'utf8',
+  )
+
+  assert.match(launcher, /MING_HARNESS_CHECKOUT/)
+  assert.match(launcher, /appBootUrl/)
+  assert.match(launcher, /boot\(NAME, configPath, undefined, undefined, appBootUrl\)/)
+  assert.equal(launcher.includes('loadEnv('), false)
+  assert.match(launcher, /ACP owns stdout/)
+})
