@@ -88,7 +88,31 @@ The tests prove:
 4. an unrelated `docs/evals/workbench-pilot.md` slice is allowed;
 5. Work Unit completion still fails until an acceptance criterion carries recorded evidence.
 
-GitHub CI is also configured to run Harness-pin verification, typecheck and these unit tests on pull requests.
+GitHub CI is configured to verify the Harness pin metadata, typecheck, and run these unit tests on pull requests.
+
+## CI found and corrected a false assumption
+
+The first GitHub CI run failed before typecheck because Workbench declared `@deepseek-ai/dsh@0.1.0-rc.5` as an npm dependency. The upstream source checkout reported that package version, but the registry path returned:
+
+```text
+npm ERR! code ETARGET
+No matching version found for @deepseek-ai/dsh@0.1.0-rc.5
+```
+
+This was treated as integration evidence, not hidden or bypassed.
+
+The corrected boundary is now:
+
+```text
+Workbench core
+→ ordinary npm project
+
+DeepSeek Harness
+→ external source checkout pinned to exact reviewed commit
+→ verified by harness.lock.json + npm run doctor:harness
+```
+
+Workbench does not claim an npm distribution exists until that distribution is independently verified.
 
 ## What this pilot does not prove yet
 
