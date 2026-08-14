@@ -65,7 +65,7 @@
     provider: !!js "process.env.MING_HARNESS_PROVIDER ?? 'deepseek-official'"
     model: !!js "process.env.MING_HARNESS_MODEL ?? 'deepseek-v4-pro'"
     maxParallelToolCalls: 1
-    persistenceRoot: !!js "process.env.MING_WORKBENCH_SESSION_ROOT ?? './.ming-workbench-sessions'"
+    persistenceRoot: !!js "process.env.MING_WORKBENCH_SESSION_ROOT ?? ((process.env.MING_WORKBENCH_ROOT ?? process.cwd()) + '/.workbench/runtime/harness-sessions')"
     workspaceContext:
       maxBytes: 65536
     goals: false
