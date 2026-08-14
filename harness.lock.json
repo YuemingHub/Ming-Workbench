@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "upstreamRepository": "https://github.com/deepseek-ai/deepseek-harness",
+  "reviewedCommit": "47f943859bef60e4160492346772ded9b24f765a",
+  "reviewedAt": "2026-08-14",
+  "sourcePackage": {
+    "name": "@deepseek-ai/dsh",
+    "version": "0.1.0-rc.5",
+    "path": "apps/cli/package.json"
+  },
+  "installMode": "external-source-checkout",
+  "distributionStatusAtReview": {
+    "npmInstallable": false,
+    "evidence": "Ming Workbench GitHub Actions run 2 returned npm ETARGET for @deepseek-ai/dsh@0.1.0-rc.5."
+  }
+}
