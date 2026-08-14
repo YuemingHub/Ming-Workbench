@@ -69,7 +69,20 @@ export interface PersistedGrant {
     workUnitId: string
     grantId: string
   }
-  /** Authorized file surface captured at authorize time (frontier overlap). */
+  /** Frozen human-authorized mutation boundary (P0-1). */
+  slice?: {
+    repository: string
+    baseRef: string
+    scope: {
+      kind: 'exact' | 'unknown' | 'whole-repository'
+      paths?: string[]
+    }
+  }
+  /**
+   * Legacy pre-P0-1 authorized surface. Older stores recorded
+   * `[projectRoot]` as a disguised whole-repository scope; the loader
+   * migrates that to an explicit whole-repository slice.
+   */
   intendedFiles?: string[]
 }
 

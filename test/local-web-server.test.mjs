@@ -496,12 +496,7 @@ test('local UI HTML and JS are DOM-consistent: every JS id exists in HTML, no st
 })
 
 // ===== Test A: execute button follows authorize -> execute flow =====
-test('execute flow uses authorize then execute body with only workUnitId', async () => {
-  let authCallCount = 0
-  let executeCallCount = 0
-  let capturedAuthBody = null
-  let capturedExecuteBody = null
-
+test('P0-1: authorize without a file surface is refused (scope-required), then authorize -> execute works', async () => {
   await withServer(
     {
       resolveOnboarding: () => readyOnboarding(),
@@ -524,15 +519,48 @@ test('execute flow uses authorize then execute body with only workUnitId', async
       assert.equal(intakeBody.status, 'ready')
       const workUnitId = intakeBody.workUnit.id
 
-      // Step 2: authorize
-      const authRes = await fetch(`${handle.url}/api/authorize`, {
+      // Step 2: P0-1 — authorize WITHOUT an exact file surface must be refused.
+      // There is no hidden default; the projectRoot is never an intended file.
+      const noSurface = await fetch(`${handle.url}/api/authorize`, {
         method: 'POST',
         headers: apiHeaders(handle, { 'content-type': 'application/json' }),
         body: JSON.stringify({ workUnitId, authorize: true }),
       })
-      assert.equal(authRes.status, 200)
+      assert.equal(noSurface.status, 400)
+      const noSurfaceBody = await noSurface.json()
+      assert.equal(noSurfaceBody.status, 'scope-required')
 
-      // Step 3: execute with only workUnitId — no grant, no binding
+      // Escaping paths are refused too.
+      const escaping = await fetch(`${handle.url}/api/authorize`, {
+        method: 'POST',
+        headers: apiHeaders(handle, { 'content-type': 'application/json' }),
+        body: JSON.stringify({ workUnitId, authorize: true, filePaths: ['../escape.mjs'] }),
+      })
+      assert.equal(escaping.status, 400)
+      assert.equal((await escaping.json()).status, 'invalid-surface')
+
+      // Step 3: exact human-confirmed file surface authorizes and freezes.
+      const authRes = await fetch(`${handle.url}/api/authorize`, {
+        method: 'POST',
+        headers: apiHeaders(handle, { 'content-type': 'application/json' }),
+        body: JSON.stringify({ workUnitId, authorize: true, filePaths: ['answer.mjs'] }),
+      })
+      assert.equal(authRes.status, 200)
+      const authBody = await authRes.json()
+      assert.equal(authBody.slice.scopeLabel, 'exact(1 path)')
+      assert.deepEqual(authBody.slice.paths, ['answer.mjs'])
+
+      // Step 4: explicit whole-repository authorization is a separate scope.
+      const whole = await fetch(`${handle.url}/api/authorize`, {
+        method: 'POST',
+        headers: apiHeaders(handle, { 'content-type': 'application/json' }),
+        body: JSON.stringify({ workUnitId, authorize: true, wholeRepository: true }),
+      })
+      assert.equal(whole.status, 200)
+      const wholeBody = await whole.json()
+      assert.equal(wholeBody.slice.scopeLabel, 'whole-repository')
+
+      // Step 5: execute with only workUnitId — no grant, no binding
       const execRes = await fetch(`${handle.url}/api/execute`, {
         method: 'POST',
         headers: apiHeaders(handle, { 'content-type': 'application/json' }),

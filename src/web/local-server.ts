@@ -29,6 +29,13 @@ import type { ProviderExecutionGrant } from '../execution/provider-grant.js'
 import { issueProviderExecutionGrant } from '../execution/grant-issuance.js'
 import { readRepositorySnapshot } from '../execution/repository.js'
 import {
+  buildExactSlice,
+  buildUnknownSlice,
+  buildWholeRepositorySlice,
+  sliceScopeLabel,
+  type MutationSlice,
+} from '../execution/mutation-slice.js'
+import {
   fromPersistedWorkUnit,
   noopWorkUnitStore,
   toPersistedWorkUnit,
@@ -547,19 +554,59 @@ export async function startLocalWorkbenchServer(
           return
         }
         const snapshot = readRepositorySnapshot(projectRoot)
-        const { grant, binding, intendedFiles } = issueProviderExecutionGrant({
+
+        // P0-1: the exact mutation boundary must come from the human-confirmed
+        // file surface. There is deliberately NO default: unknown surface
+        // refuses write authorization (read-only intake stays allowed).
+        let slice: MutationSlice
+        const filePaths = body?.filePaths
+        const wholeRepository = body?.wholeRepository === true
+        if (Array.isArray(filePaths)) {
+          if (filePaths.some((p) => typeof p !== 'string')) {
+            sendJson(response, 400, {
+              status: 'invalid-surface',
+              message: '受影响的文件必须是文件路径列表。',
+            })
+            return
+          }
+          try {
+            slice = buildExactSlice(projectRoot, snapshot.head || 'HEAD', filePaths as string[])
+          } catch (error) {
+            sendJson(response, 400, {
+              status: 'invalid-surface',
+              message: error instanceof Error ? error.message : '无法确定这次改动的文件范围。',
+            })
+            return
+          }
+        } else if (wholeRepository) {
+          slice = buildWholeRepositorySlice(projectRoot, snapshot.head || 'HEAD')
+        } else {
+          sendJson(response, 400, {
+            status: 'scope-required',
+            message: '还不清楚这次改动会影响哪些文件，不能生成写授权。请确认受影响的文件，或明确选择“整个仓库”后重新授权。',
+          })
+          return
+        }
+
+        const { grant, binding } = issueProviderExecutionGrant({
           workUnit: fromPersistedWorkUnit(record),
           projectRoot,
           snapshot,
+          slice,
         })
         const nextGrants = {
           ...loaded.grants,
-          // The authorized file surface is persisted with the grant so a later
-          // /api/execute can prove the frontier overlap without re-deriving it.
+          // The frozen slice is persisted with the grant so a later
+          // /api/execute can prove the frontier overlap and the post-execution
+          // delta without re-deriving it from a browser payload.
           [grant.grant_id]: {
             grant: grant as unknown as Record<string, unknown>,
             binding,
-            intendedFiles,
+            slice: {
+              repository: slice.repository,
+              baseRef: slice.baseRef,
+              scope: slice.scope,
+            },
           },
         }
         const currentFacts = readMutableFacts(projectRoot, options)
@@ -574,6 +621,12 @@ export async function startLocalWorkbenchServer(
           status: 'authorized',
           workUnitId,
           grantId: grant.grant_id,
+          slice: {
+            repository: slice.repository,
+            baseRef: slice.baseRef,
+            scopeLabel: sliceScopeLabel(slice),
+            paths: slice.scope.kind === 'exact' ? slice.scope.paths : [],
+          },
           writeTarget: grant.authorization.write_target,
           allowedEffects: grant.authorization.allowed_effects,
           protectedEffects: grant.authorization.protected_effects,
@@ -650,7 +703,11 @@ export async function startLocalWorkbenchServer(
           const workUnit = fromPersistedWorkUnit(record)
           const grant = grantEntry.grant as unknown as ProviderExecutionGrant
           const binding = grantEntry.binding
-          const intendedFiles = grantEntry.intendedFiles ?? []
+          // P0-1: the frozen slice is the only authorized surface. Legacy
+          // stores recorded `intendedFiles: [projectRoot]` as a disguised
+          // whole-repository scope; migrate it to an explicit whole-repository
+          // slice so no execution runs under a fake per-file boundary.
+          const slice = resolveGrantSlice(grantEntry, projectRoot)
 
           // Re-check mutable facts: stale authority must not be reused.
           const currentFacts = readMutableFacts(projectRoot, options)
@@ -669,6 +726,7 @@ export async function startLocalWorkbenchServer(
             workUnit,
             grant,
             binding,
+            slice,
             projectRoot,
             harnessCheckout,
             workbenchRoot,
@@ -676,8 +734,6 @@ export async function startLocalWorkbenchServer(
             model: options.model,
             sessionRoot: options.sessionRoot,
             testCommand: options.testCommand,
-            // The human-authorized file surface, persisted at authorize time.
-            intendedFiles,
             // P0-C write boundary: default-off safety rail. Normal UI keeps execution
             // disabled unless an operator explicitly enables write mutation.
             allowWrite: process.env.MING_WORKBENCH_ALLOW_WRITE === '1',
@@ -814,4 +870,44 @@ function mutableFactsChanged(a: MutableFacts, b: MutableFacts): boolean {
     a.providerAvailable !== b.providerAvailable ||
     a.harnessAvailable !== b.harnessAvailable
   )
+}
+
+/**
+ * Resolve the frozen MutationSlice from a persisted grant. New stores carry
+ * the explicit slice; legacy stores carried `intendedFiles` (where
+ * `[projectRoot]` was the old disguised whole-repository default). Migration
+ * is explicit: a single projectRoot entry becomes an explicit
+ * whole-repository slice, anything else becomes an exact slice. Fail-closed
+ * when neither is present.
+ */
+function resolveGrantSlice(
+  grantEntry: {
+    slice?: { repository: string; baseRef: string; scope: { kind: string; paths?: string[] } }
+    intendedFiles?: string[]
+  },
+  projectRoot: string,
+): MutationSlice {
+  if (grantEntry.slice) {
+    const scope = grantEntry.slice.scope
+    return {
+      repository: grantEntry.slice.repository,
+      baseRef: grantEntry.slice.baseRef,
+      scope:
+        scope.kind === 'exact'
+          ? { kind: 'exact', paths: scope.paths ?? [] }
+          : scope.kind === 'whole-repository'
+            ? { kind: 'whole-repository' }
+            : { kind: 'unknown' },
+    }
+  }
+  const legacy = grantEntry.intendedFiles
+  if (Array.isArray(legacy) && legacy.length > 0) {
+    const projectRootPath = resolve(projectRoot)
+    if (legacy.length === 1 && resolve(legacy[0]) === projectRootPath) {
+      // Old disguised whole-repository default -> explicit whole-repository.
+      return buildWholeRepositorySlice(projectRoot, '')
+    }
+    return buildExactSlice(projectRoot, '', legacy)
+  }
+  return buildUnknownSlice(projectRoot, '')
 }

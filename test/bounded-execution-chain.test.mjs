@@ -8,6 +8,7 @@ import { join } from 'node:path'
 import { readRepositorySnapshot } from '../.tmp/execution/repository.js'
 import { issueProviderExecutionGrant } from '../.tmp/execution/grant-issuance.js'
 import { runBoundedExecution } from '../.tmp/execution/bounded-execution.js'
+import { buildExactSlice } from '../.tmp/execution/mutation-slice.js'
 
 /**
  * P0-B: prove the full Intake -> Authorize -> Execute -> Evidence chain on an
@@ -72,7 +73,9 @@ test('full chain fixes a failing test with real git delta and evidence-backed su
     const workUnit = makeWorkUnit()
     const snapshot = readRepositorySnapshot(dir)
     // Authorize server-side: grant + binding are issued, never supplied by caller.
-    const { grant, binding } = issueProviderExecutionGrant({ workUnit, projectRoot: dir, snapshot })
+    // P0-1: the human-confirmed exact file surface freezes the mutation slice.
+    const slice = buildExactSlice(dir, snapshot.head, ['answer.mjs'])
+    const { grant, binding } = issueProviderExecutionGrant({ workUnit, projectRoot: dir, snapshot, slice })
     assert.ok(grant.authorization.write_target.base_ref)
 
     // Harness-run double: performs the REAL mutation the grant authorizes.
@@ -85,11 +88,11 @@ test('full chain fixes a failing test with real git delta and evidence-backed su
       workUnit,
       grant,
       binding,
+      slice,
       projectRoot: dir,
       harnessCheckout: dir, // unused by the double
       workbenchRoot: dir, // unused by the double
       testCommand: ['node', '--test', 'answer.test.mjs'],
-      intendedFiles: ['answer.mjs'],
       // Operator enabled write mutation for this chain exercise.
       allowWrite: true,
       dependencies: { runHarnessAcpGrant: fakeHarness },
@@ -116,7 +119,8 @@ test('chain reports failure when the harness produces no in-scope change', async
   try {
     const workUnit = makeWorkUnit('WU-P0B2')
     const snapshot = readRepositorySnapshot(dir)
-    const { grant, binding } = issueProviderExecutionGrant({ workUnit, projectRoot: dir, snapshot })
+    const slice = buildExactSlice(dir, snapshot.head, ['answer.mjs'])
+    const { grant, binding } = issueProviderExecutionGrant({ workUnit, projectRoot: dir, snapshot, slice })
 
     // Rogue double: writes outside the granted repo and reports "activity".
     const rogueHarness = async (opts) => {
@@ -128,10 +132,10 @@ test('chain reports failure when the harness produces no in-scope change', async
       workUnit,
       grant,
       binding,
+      slice,
       projectRoot: dir,
       harnessCheckout: dir,
       workbenchRoot: dir,
-      intendedFiles: ['answer.mjs'],
       // Operator enabled write mutation; this test checks scope enforcement, not the gate.
       allowWrite: true,
       dependencies: { runHarnessAcpGrant: rogueHarness },
@@ -159,7 +163,8 @@ test('P0-C write boundary blocks a write-authorized grant unless explicitly enab
   try {
     const workUnit = makeWorkUnit('WU-P0C')
     const snapshot = readRepositorySnapshot(dir)
-    const { grant, binding } = issueProviderExecutionGrant({ workUnit, projectRoot: dir, snapshot })
+    const slice = buildExactSlice(dir, snapshot.head, ['answer.mjs'])
+    const { grant, binding } = issueProviderExecutionGrant({ workUnit, projectRoot: dir, snapshot, slice })
 
     assert.equal(grant.authorization.mutation_boundary, 'write-authorized')
 
@@ -175,10 +180,10 @@ test('P0-C write boundary blocks a write-authorized grant unless explicitly enab
           workUnit,
           grant,
           binding,
+          slice,
           projectRoot: dir,
           harnessCheckout: dir,
           workbenchRoot: dir,
-          intendedFiles: ['answer.mjs'],
           dependencies: { runHarnessAcpGrant: gatedHarness },
         }),
       /Bounded write execution is disabled/,
@@ -196,11 +201,11 @@ test('P0-C write boundary blocks a write-authorized grant unless explicitly enab
       workUnit,
       grant,
       binding,
+      slice,
       projectRoot: dir,
       harnessCheckout: dir,
       workbenchRoot: dir,
       testCommand: ['node', '--test', 'answer.test.mjs'],
-      intendedFiles: ['answer.mjs'],
       allowWrite: true,
       dependencies: { runHarnessAcpGrant: fakeHarness },
     })

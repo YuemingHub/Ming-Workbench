@@ -58,8 +58,14 @@ export function renderLocalWorkbenchHtml(requestToken: string): string {
 
     <section class="execute-card card hidden" id="execute-card" aria-live="polite">
       <p class="label">执行变更</p>
-      <p class="muted" id="execute-message">只读理解已完成。如果你确认要执行，Workbench 会先做一次仓库冲突检查。</p>
+      <p class="muted" id="execute-message">只读理解已完成。执行授权只覆盖你确认的文件，不会默认放开整个仓库。</p>
       <div class="execute-actions">
+        <label for="execute-files" class="execute-label">这次改动涉及的文件（逗号分隔，仓库内相对路径）</label>
+        <input id="execute-files" type="text" placeholder="例如：app.js, test/app.test.mjs" autocomplete="off" />
+        <label class="execute-whole">
+          <input id="execute-whole" type="checkbox" />
+          整个仓库（显式授权，要求工作区干净）
+        </label>
         <button id="execute-button" class="primary" type="button">执行这个变更</button>
       </div>
       <p class="execute-status" id="execute-status"></p>
@@ -181,6 +187,10 @@ textarea:focus { border-color: #8da2c6; box-shadow: 0 0 0 4px rgba(103, 132, 184
   .request-actions .primary, .project-card button { width: 100%; }
 .execute-card { margin-top: 18px; }
 .execute-actions { margin-top: 12px; }
+.execute-label { display: block; margin: 10px 0 4px; font-size: 13px; color: #43506a; }
+.execute-actions input[type="text"] { width: 100%; padding: 10px 12px; border: 1px solid #d8deea; border-radius: 10px; background: #fbfcfe; color: #172033; }
+.execute-whole { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; font-size: 13px; color: #596579; }
+.execute-actions button { margin-top: 12px; }
 .execute-status { margin: 10px 0 0; font-size: 13px; color: #43506a; }
 .execute-status.ok { color: #19633f; }
 .execute-status.error { color: #963d35; }
@@ -520,7 +530,20 @@ $('execute-button').addEventListener('click', async () => {
     status.className = 'execute-status error'
     return
   }
-  const ok = window.confirm('Workbench 将在当前项目授权范围内执行这项变更。确认吗？')
+  // P0-1: the mutation boundary comes from the human-confirmed file surface.
+  // There is no default — unknown surface refuses write authorization.
+  const filesInput = $('execute-files')
+  const wholeRepo = $('execute-whole').checked
+  const rawFiles = filesInput.value.split(',').map((s) => s.trim()).filter(Boolean)
+  const filePaths = wholeRepo ? undefined : rawFiles
+  if (!wholeRepo && filePaths.length === 0) {
+    status.textContent = '请先填写这次改动涉及的文件（或明确勾选“整个仓库”）。'
+    status.className = 'execute-status error'
+    return
+  }
+  const ok = window.confirm(wholeRepo
+    ? '你选择了“整个仓库”范围。Workbench 要求工作区干净，并且允许在任何仓库内文件上执行。确认吗？'
+    : 'Workbench 将只在授权文件上执行：' + filePaths.join(', ') + '。确认吗？')
   if (!ok) return
   button.disabled = true
   status.textContent = '正在请求执行授权…'
@@ -528,7 +551,11 @@ $('execute-button').addEventListener('click', async () => {
   try {
     const authRes = await api('/api/authorize', {
       method: 'POST',
-      body: JSON.stringify({ workUnitId: currentWorkUnitId, authorize: true }),
+      body: JSON.stringify({
+        workUnitId: currentWorkUnitId,
+        authorize: true,
+        ...(wholeRepo ? { wholeRepository: true } : { filePaths }),
+      }),
     })
     if (!authRes.response.ok) {
       status.textContent = authRes.body.message || '授权失败。'

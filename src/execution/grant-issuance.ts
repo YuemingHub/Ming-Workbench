@@ -18,30 +18,53 @@ import type {
   WorkbenchExecutionBinding,
 } from './provider-grant.js'
 import type { RepositorySnapshot } from './repository.js'
+import {
+  assertSliceAllowsWrite,
+  sliceScopeLabel,
+  type MutationSlice,
+} from './mutation-slice.js'
 import { resolve } from 'node:path'
 
 export interface IssueGrantOptions {
   workUnit: WorkUnit
   projectRoot: string
   snapshot: RepositorySnapshot
+  /**
+   * The exact mutation boundary the human authorized. P0-1: an unknown surface
+   * must refuse write authorization instead of defaulting to a disguised
+   * whole-repository scope; a whole-repository scope must be modeled
+   * explicitly, never as `[projectRoot]` pretending to be one file.
+   */
+  slice: MutationSlice
   idFactory?: () => string
   now?: () => Date
-  /** Explicit file surface the human authorized. Defaults to the whole repo. */
-  intendedFiles?: string[]
 }
 
 export interface IssuedGrant {
   grant: ProviderExecutionGrant
   binding: WorkbenchExecutionBinding
-  intendedFiles: string[]
+  slice: MutationSlice
 }
 
 export function issueProviderExecutionGrant(options: IssueGrantOptions): IssuedGrant {
+  // Fail-closed: write authorization requires a known file surface.
+  assertSliceAllowsWrite(options.slice)
+
   const now = options.now ?? (() => new Date())
   const grantId = options.idFactory?.() ?? `GRANT-${randomUUID()}`
   const projectRoot = resolve(options.projectRoot)
   const baseRef = options.snapshot.head || 'HEAD'
-  const intendedFiles = options.intendedFiles ?? [projectRoot]
+
+  if (resolve(options.slice.repository) !== projectRoot) {
+    throw new Error(
+      `mutation slice repository ${options.slice.repository} does not match the authorized project ${projectRoot}.`,
+    )
+  }
+  if (options.slice.baseRef && options.slice.baseRef !== baseRef) {
+    throw new Error(
+      `mutation slice baseRef ${options.slice.baseRef} does not match the granted base_ref ${baseRef}; re-read the repository before authorizing.`,
+    )
+  }
 
   const grant: ProviderExecutionGrant = {
     schema_version: '1.0',
@@ -82,7 +105,10 @@ export function issueProviderExecutionGrant(options: IssueGrantOptions): IssuedG
         'production-api-post',
       ],
     },
-    acceptance_evidence: ['repository delta within granted scope', 'project tests pass'],
+    acceptance_evidence: [
+      `repository delta within granted scope (${sliceScopeLabel(options.slice)})`,
+      'project tests pass',
+    ],
     human_open_questions: [],
     references: [`work-unit:${options.workUnit.id}`],
     issued_at: now().toISOString(),
@@ -93,5 +119,5 @@ export function issueProviderExecutionGrant(options: IssueGrantOptions): IssuedG
     grantId,
   }
 
-  return { grant, binding, intendedFiles }
+  return { grant, binding, slice: options.slice }
 }

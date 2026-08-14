@@ -19,6 +19,11 @@ import {
   type ExternalEffectOutcome,
   type ExternalEffectStatus,
 } from './repository.js'
+import {
+  assertSliceAllowsWrite,
+  sliceScopeLabel,
+  type MutationSlice,
+} from './mutation-slice.js'
 import { execFileSync } from 'node:child_process'
 import { resolve } from 'node:path'
 
@@ -29,6 +34,11 @@ export interface BoundedExecutionOptions {
   grant: ProviderExecutionGrant
   /** Workbench-owned correlation resolved from the backend store. */
   binding: WorkbenchExecutionBinding
+  /**
+   * The frozen human-authorized mutation boundary. P0-1: never derived from a
+   * project-root fallback; unknown surfaces refuse write execution.
+   */
+  slice: MutationSlice
   /** Absolute project directory that the execution will operate on. */
   projectRoot: string
   /** Absolute reviewed DeepSeek Harness source checkout. */
@@ -40,8 +50,6 @@ export interface BoundedExecutionOptions {
   sessionRoot?: string
   /** Optional explicit project test command (default: `npm test`). */
   testCommand?: string[]
-  /** Intended file surface for frontier overlap detection. */
-  intendedFiles?: string[]
   /**
    * Explicit operator opt-in to perform a write mutation. Defaults to false so
    * the normal UI keeps execution disabled; an operator must enable it (e.g.
@@ -100,6 +108,14 @@ export function validateExecutionPreconditions(options: BoundedExecutionOptions)
       `grant write_target.repository ${target.repository} does not match the fixed project ${options.projectRoot}.`,
     )
   }
+  if (resolve(options.slice.repository) !== resolve(options.projectRoot)) {
+    throw new Error(
+      `mutation slice repository ${options.slice.repository} does not match the fixed project ${options.projectRoot}.`,
+    )
+  }
+  // P0-1: an unknown file surface must block write execution before any
+  // repository read or harness session.
+  assertSliceAllowsWrite(options.slice)
 
   // P0-C write boundary: a write-authorized grant may only mutate files when the
   // operator has explicitly opted in. The reviewed Harness sandbox is preferred;
@@ -176,7 +192,7 @@ export async function runBoundedExecution(
   const reconciliation = reconcileBeforeMutation(
     beforeSnapshot,
     options.grant,
-    options.intendedFiles ?? [],
+    options.slice,
   )
   if (!reconciliation.safeToStart) {
     throw new Error(`Execution blocked by repository frontier: ${reconciliation.reason}`)
@@ -198,7 +214,7 @@ export async function runBoundedExecution(
 
   // Step 3: read back the AFTER repository state.
   const afterSnapshot: RepositorySnapshot = readRepositorySnapshot(projectRoot)
-  const delta = computeExecutionDelta(beforeSnapshot, afterSnapshot, projectRoot)
+  const delta = computeExecutionDelta(beforeSnapshot, afterSnapshot, options.slice)
 
   const repositoryReadback: RepositoryReadback = {
     changedFiles: delta.changedFiles,
@@ -246,7 +262,7 @@ export async function runBoundedExecution(
       {
         id: evidenceId,
         kind: 'repository',
-        summary: `Harness session ${acpResult.stopReason}. Changes produced by this execution: ${repositoryReadback.executionProducedChanges.length}. Scope violations: ${repositoryReadback.scopeViolations.length}.`,
+        summary: `Harness session ${acpResult.stopReason}. Authorized surface: ${sliceScopeLabel(options.slice)}. Changes produced by this execution: ${repositoryReadback.executionProducedChanges.length}. Scope violations: ${repositoryReadback.scopeViolations.length}.`,
         uri: `deepseek-harness-acp:${acpResult.sessionId}`,
         observedAt: now,
         authoritative: false,

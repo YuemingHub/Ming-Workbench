@@ -13,6 +13,10 @@ import {
 } from '../.tmp/execution/repository.js'
 import { classifyExternalEffect } from '../.tmp/execution/bounded-execution.js'
 import { issueProviderExecutionGrant } from '../.tmp/execution/grant-issuance.js'
+import {
+  buildExactSlice,
+  buildWholeRepositorySlice,
+} from '../.tmp/execution/mutation-slice.js'
 
 function makeRepo() {
   const dir = mkdtempSync(join(tmpdir(), 'mw-repo-'))
@@ -57,7 +61,7 @@ test('computeExecutionDelta excludes pre-existing dirty files from execution-pro
     const before = readRepositorySnapshot(dir)
     writeFileSync(join(dir, 'post.txt'), 'produced-by-execution')
     const after = readRepositorySnapshot(dir)
-    const delta = computeExecutionDelta(before, after, dir)
+    const delta = computeExecutionDelta(before, after, buildWholeRepositorySlice(dir, before.head))
     assert.deepEqual(delta.executionProducedChanges.sort(), ['post.txt'])
     assert.deepEqual(delta.preExistingDirty.sort(), ['pre.txt'])
     assert.equal(delta.scopeViolations.length, 0)
@@ -74,7 +78,7 @@ test('computeExecutionDelta flags changes outside the granted repository root as
     const before = readRepositorySnapshot(dir)
     const after = readRepositorySnapshot(dir)
     // Grant scope is a DIFFERENT directory, so the change is out of scope.
-    const delta = computeExecutionDelta(before, after, outside)
+    const delta = computeExecutionDelta(before, after, buildWholeRepositorySlice(outside, ''))
     assert.ok(delta.scopeViolations.includes('inside.txt'))
   } finally {
     cleanup(dir)
@@ -90,7 +94,7 @@ test('computeExecutionDelta attributes a committed HEAD move to this execution',
     execFileSync('git', ['-C', dir, 'add', '.'])
     execFileSync('git', ['-C', dir, 'commit', '-qm', 'exec change'])
     const after = readRepositorySnapshot(dir)
-    const delta = computeExecutionDelta(before, after, dir)
+    const delta = computeExecutionDelta(before, after, buildWholeRepositorySlice(dir, before.head))
     assert.equal(delta.headChanged, true)
     assert.ok(delta.executionProducedChanges.includes('committed.txt'))
   } finally {
@@ -102,12 +106,13 @@ test('reconcileBeforeMutation blocks when HEAD diverges from the granted base_re
   const dir = makeRepo()
   try {
     const snapshot = readRepositorySnapshot(dir)
-    const { grant } = issueProviderExecutionGrant({ workUnit: minimalWorkUnit(), projectRoot: dir, snapshot })
+    const slice = buildExactSlice(dir, snapshot.head, ['seed.txt'])
+    const { grant } = issueProviderExecutionGrant({ workUnit: minimalWorkUnit(), projectRoot: dir, snapshot, slice })
     // Move HEAD away from the granted base_ref.
     writeFileSync(join(dir, 'second.txt'), 's')
     execFileSync('git', ['-C', dir, 'add', '.'])
     execFileSync('git', ['-C', dir, 'commit', '-qm', 'second'])
-    const rec = reconcileBeforeMutation(readRepositorySnapshot(dir), grant)
+    const rec = reconcileBeforeMutation(readRepositorySnapshot(dir), grant, slice)
     assert.equal(rec.safeToStart, false)
     assert.match(rec.reason, /base_ref/)
   } finally {
@@ -118,12 +123,15 @@ test('reconcileBeforeMutation blocks when HEAD diverges from the granted base_re
 test('reconcileBeforeMutation blocks a non-Git project', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mw-nogit-'))
   try {
+    const snapshot = { root: dir, head: '', isGit: false, dirtyFiles: [] }
+    const slice = buildWholeRepositorySlice(dir, '')
     const fakeGrant = issueProviderExecutionGrant({
       workUnit: minimalWorkUnit(),
       projectRoot: dir,
-      snapshot: { root: dir, head: '', isGit: false, dirtyFiles: [] },
+      snapshot,
+      slice,
     }).grant
-    const rec = reconcileBeforeMutation(readRepositorySnapshot(dir), fakeGrant)
+    const rec = reconcileBeforeMutation(readRepositorySnapshot(dir), fakeGrant, slice)
     assert.equal(rec.safeToStart, false)
   } finally {
     cleanup(dir)

@@ -287,12 +287,19 @@ async function main() {
     check(premature.status === 400, 'execute before authorize is rejected', `status=${premature.status}`)
 
     // --- explicit human authorization -> backend-owned grant ---
+    // P0-1: the grant boundary is the exact human-confirmed file surface.
+    // There is no default scope; the human confirms the grounded surface here.
     const auth = await httpJson(`${readyLine}/api/authorize`, {
-      method: 'POST', token, body: { workUnitId, authorize: true }, timeoutMs: 60_000,
+      method: 'POST', token, body: { workUnitId, authorize: true, filePaths: [SENTINEL_FILE] }, timeoutMs: 60_000,
     })
     const authBody = await auth.json()
     check(auth.status === 200, 'POST /api/authorize issues a backend-owned grant', `status=${auth.status}`)
     check(typeof authBody?.grantId === 'string', 'authorize returns a grantId', `grant=${authBody?.grantId ?? '<none>'}`)
+    check(
+      authBody?.slice?.scopeLabel === 'exact(1 path)' && (authBody?.slice?.paths ?? []).join(',') === SENTINEL_FILE,
+      'authorize freezes the exact authorized file surface',
+      `scope=${authBody?.slice?.scopeLabel ?? '<none>'}`,
+    )
     check(
       authBody?.writeTarget?.repository === scratch && authBody?.writeTarget?.base_ref === baselineHead && authBody?.writeTarget?.working_ref === baselineBranch,
       'grant binds to the exact scratch repository/branch/base',
@@ -392,7 +399,7 @@ async function main() {
 
     // Re-authorize binds to the NEW facts; the fresh grant executes.
     const reAuth = await (await httpJson(`${ready2}/api/authorize`, {
-      method: 'POST', token: token2, body: { workUnitId, authorize: true }, timeoutMs: 60_000,
+      method: 'POST', token: token2, body: { workUnitId, authorize: true, filePaths: [SENTINEL_FILE] }, timeoutMs: 60_000,
     })).json()
     check(typeof reAuth?.grantId === 'string', 're-authorize issues a fresh grant')
 
