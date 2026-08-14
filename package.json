@@ -37,6 +37,7 @@
       "src/**/*",
       "harness/**/*",
       ".tmp/**/*",
+      ".workbench/vendor/deepseek-harness-0.1.0-rc.5.bundle",
       "package.json",
       "harness.lock.json",
       "tsconfig.json",

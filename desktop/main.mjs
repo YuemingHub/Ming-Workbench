@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 import { resolveBackendScript, spawnBackend } from './backend.mjs'
 import { isAllowedBackendUrl, isTrustedDesktopSender, urlOrigin } from './validation.mjs'
+import { prepareHarnessRuntime } from './hosts/harness-runtime.js'
 
 const desktopDir = resolve(fileURLToPath(new URL('.', import.meta.url)))
 const repoRoot = resolve(desktopDir, '..')
@@ -105,15 +106,40 @@ async function startBackend(projectRoot) {
   const nodeBin = resolveNodeBin()
   const script = resolveBackendScriptPath(workbenchRoot)
   appendStartupLog(
-    `backend spawn nodeBin=${nodeBin} script=${script} project=${projectRoot} harnessCheckout=${harnessCheckout ?? 'default'}`,
+    `backend spawn nodeBin=${nodeBin} script=${script} project=${projectRoot} harnessCheckout=${harnessCheckout ?? 'auto-bundled'}`,
   )
+
+  // Resolve the exact reviewed Harness checkout automatically:
+  // 1) env var (backward compat)
+  // 2) bundled git bundle extraction + identity verification + deps install
+  let resolvedHarnessCheckout: string | undefined
+  try {
+    const runtime = await prepareHarnessRuntime({
+      workbenchRoot,
+      harnessCheckout,
+    })
+    resolvedHarnessCheckout = runtime.checkout
+    appendStartupLog(
+      `harness runtime ready source=${runtime.source} commit=${runtime.identity.commit}`,
+    )
+  } catch (error) {
+    appendStartupLog(
+      `harness runtime preparation failed: ${error instanceof Error ? error.message : String(error)}`,
+    )
+    dialog.showErrorBox(
+      'Ming Workbench 无法启动',
+      `Harness runtime 未准备好。\n\n${error instanceof Error ? error.message : String(error)}\n\n请检查网络连接或运行 \`npm run harness:prepare\`。`,
+    )
+    app.quit()
+    return
+  }
 
   backend = spawnBackend({
     nodeBin,
     script,
     projectRoot,
     workbenchRoot,
-    harnessCheckout,
+    harnessCheckout: resolvedHarnessCheckout,
   })
 
   backendUrl = await backend.ready
