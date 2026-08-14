@@ -404,3 +404,73 @@ test('oversized local API body is rejected before Intake execution', async () =>
     },
   )
 })
+
+test('local UI HTML and JS are DOM-consistent: every JS id exists in HTML, no stale provider-secret path', async () => {
+  // Import the actual HTML + JS source strings from the server module.
+  const { renderLocalWorkbenchHtml, LOCAL_WORKBENCH_APP_JS } = await import(
+    '../.tmp/index.js'
+  )
+
+  const html = renderLocalWorkbenchHtml('test-token')
+  const js = LOCAL_WORKBENCH_APP_JS
+
+  // --- HTML id extraction ---------------------------------------------------
+  // Matches id="...", id='...', or id=... (unquoted) inside HTML.
+  const htmlIdRe = /\bid\s*=\s*(?:"([^"]+)"|'([^']+)'|(\S+))/g
+  const htmlIds = new Set()
+  let match
+  while ((match = htmlIdRe.exec(html)) !== null) {
+    const id = match[1] ?? match[2] ?? match[3]
+    if (id && !id.includes(' ') && !id.includes('>')) {
+      htmlIds.add(id)
+    }
+  }
+
+  // --- JS id extraction -----------------------------------------------------
+  // Matches all getElementById('id') and getElementById("id") call sites.
+  const jsIdRe = /getElementById\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g
+  const jsIds = new Set()
+  while ((match = jsIdRe.exec(js)) !== null) {
+    jsIds.add(match[1])
+  }
+
+  // Every id referenced in JS must be present in the rendered HTML.
+  for (const id of jsIds) {
+    assert.ok(
+      htmlIds.has(id),
+      `JS references getElementById('${id}') but HTML has no id="${id}"`,
+    )
+  }
+
+  // --- No stale provider-secret browser path --------------------------------
+  // The single authority path is Electron preload -> safeStorage. The browser
+  // must not attempt to store or read a provider secret over HTTP.
+  assert.equal(js.includes('/api/provider/secret'), false)
+  assert.equal(html.includes('provider-secret'), false)
+
+  // Legacy DOM ids tied to the old browser secret form must not exist.
+  assert.ok(!htmlIds.has('provider-save-button'))
+  assert.ok(!htmlIds.has('provider-key-input'))
+  assert.ok(!htmlIds.has('provider-message'))
+  assert.ok(!htmlIds.has('provider-status'))
+
+  // The legacy provider-check in JS must not reference those ids either.
+  assert.ok(!js.includes('provider-save-button'))
+  assert.ok(!js.includes('provider-key-input'))
+  assert.ok(!js.includes('provider-message'))
+  assert.ok(!js.includes('provider-status'))
+
+  // The page must not crash on load: the JS string must not call methods on
+  // possibly-null $() results for ids that don't exist.
+  // We verify by checking the HTML includes all ids the JS calls methods on.
+  const methodCallRe = /\$\('[^']+'\)\.[a-zA-Z]+/g
+  while ((match = methodCallRe.exec(js)) !== null) {
+    const inner = match[0].match(/\$\('([^']+)'\)/)?.[1]
+    if (inner) {
+      assert.ok(
+        htmlIds.has(inner),
+        `JS calls method on $('${inner}') which has no id="${inner}" in HTML — would throw on load`,
+      )
+    }
+  }
+})
