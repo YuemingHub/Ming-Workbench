@@ -17,48 +17,60 @@ The reviewed upstream snapshot is recorded in `harness.lock.json`:
 source package metadata: @deepseek-ai/dsh@0.1.0-rc.5
 upstream commit: 47f943859bef60e4160492346772ded9b24f765a
 reviewed: 2026-08-14
-install mode: external source checkout
+install mode: exact external source checkout
 ```
 
 DeepSeek Harness is in developer preview. Do not silently float the commit.
 
-At the 2026-08-14 review point, the source repository reported `0.1.0-rc.5`, but Ming Workbench CI proved that exact version was not installable from npm (`ETARGET`). Workbench therefore treats Harness as an external pinned source runtime until a distribution channel is separately verified.
+At the 2026-08-14 review point, the source repository reported `0.1.0-rc.5`, but Ming Workbench CI proved that exact version was not installable from npm (`ETARGET`). Workbench therefore uses an exact source checkout until a distribution channel is separately verified.
 
-## Workbench core
+## Quick start
+
+Requirements: Git and Node `^22.19.0` or `>=24`.
 
 ```bash
 npm install
-npm run doctor
+npm run harness:prepare
+npm run doctor:harness
 npm run check
 npm test
 ```
 
-`npm run doctor` validates the reviewed Harness pin metadata without pretending the external runtime is installed.
+`harness:prepare` creates a Workbench-managed checkout under `.workbench/vendor/deepseek-harness`, fetches the exact reviewed commit, installs it with the reviewed pnpm version through `npx`, and verifies the source identity. No global pnpm installation or manual Harness clone is required.
 
-## Harness runtime
+See `docs/HARNESS_SETUP.md` for interactive Web and bring-your-own-checkout paths.
 
-Prepare a separate DeepSeek Harness source checkout at the exact commit recorded in `harness.lock.json`, install/build it using the upstream instructions, then point Workbench at that checkout.
+## What is already proven
 
-```bash
-export MING_HARNESS_CHECKOUT=/absolute/path/to/deepseek-harness
-npm run doctor:harness
+The repository now has hosted evidence for the real automation chain, not only local contract tests:
+
+```text
+harness.lock.json exact SHA
+→ exact DeepSeek Harness checkout
+→ reviewed Harness workspace install
+→ Workbench ACP launcher through Harness app-boot
+→ ACP initialize / session/new / prompt
+→ real DeepSeek adapter HTTP/SSE path
+→ official Harness mock LLM
+→ Harness Agent loop
+→ ACP end_turn + expected assistant text
 ```
 
-Workbench ships its own Harness overlay and the `development-aaop` Agent Preset under `harness/`. The preset is single-agent by default and deliberately omits subagents, dynamic Workflow, Ralph, and the model-facing Harness Goal tool.
+The production transport additionally verifies the AAOP Provider Execution Grant, exact repository/base/working ref for writes, read-only vs workspace-write sandbox mode, and strips task-specific GitHub/cloud/database secrets from the Harness child environment.
 
-See `docs/HARNESS_SETUP.md` for the exact reviewed-source and overlay launch procedure.
-
-Ming Workbench does not deep-fork Harness UI or runtime.
+Harness/session completion remains execution evidence, not final Work Unit completion.
 
 ## What exists in the first slice
 
 - a minimal evidence-bearing Work Unit model;
 - a completion invariant that rejects evidence-free `done` states;
-- an isolated Harness compatibility seam;
-- the first `development-aaop` Domain Pack and repository admission boundary;
-- conflict-aware repository-frontier intake grounded in a real Family Space pilot;
-- a repository-owned Harness overlay and single-agent Development Preset;
-- architecture boundaries for the first end-to-end development slice.
+- conflict-aware repository-frontier admission grounded in a real Family Space pilot;
+- a narrow Workbench→AAOP Developer Request boundary that does not duplicate AAOP's canonical Intake Envelope;
+- AAOP Provider Execution Grant consumption with exact authorization checks;
+- a repository-owned Harness overlay and single-agent `development-aaop` Preset;
+- a guarded cross-platform Harness ACP transport;
+- exact-upstream hosted ACP smoke coverage;
+- a one-command reviewed Harness source prepare path.
 
 ## What is intentionally not implemented yet
 
@@ -69,14 +81,16 @@ Ming Workbench does not deep-fork Harness UI or runtime.
 - Creator/Research/Family Service Packs;
 - a replacement Harness UI.
 
-The next milestone is a real vertical slice:
+The next milestone is the first real product-development Work Unit:
 
 ```text
 ordinary-language goal
 → Work Unit
 → repository-frontier admission
-→ AAOP Route / authorization / acceptance
-→ development-aaop Harness Preset
+→ grounded AAOP Developer Intake
+→ AAOP Provider Execution Grant
+→ guarded Harness ACP execution
 → repository + test/runtime readback
-→ evidence-backed completion
+→ AAOP acceptance
+→ evidence-backed Work Unit completion
 ```
