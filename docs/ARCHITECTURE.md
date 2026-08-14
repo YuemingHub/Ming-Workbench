@@ -34,6 +34,25 @@ Completion requires:
 
 `assertCompletionInvariant()` enforces this in the first core model.
 
+## Repository-frontier admission
+
+Before a development Work Unit starts implementation, Workbench may need current repository evidence about active work.
+
+The first real Family Space pilot proved three distinct states:
+
+```text
+intended file surface unknown
+→ scope-required
+
+known surface overlaps active work
+→ conflict
+
+known surface is proven non-overlapping
+→ safe
+```
+
+This is an admission fact, not an AAOP replacement. A `safe` repository-frontier result only allows the Work Unit to continue to AAOP's Route/authorization/acceptance gates.
+
 ## Authority map
 
 ### Ming Workbench owns
@@ -81,15 +100,31 @@ Harness completion is execution evidence, not final project truth.
 
 Only a proven durable execution-continuity gap that remains after Harness + AAOP are pressure-tested. It is not part of the default stack.
 
-## Compatibility policy
+## Compatibility and distribution policy
 
-DeepSeek Harness is in developer preview. The first reviewed snapshot is:
+DeepSeek Harness is in developer preview. The first reviewed source snapshot is:
 
-- package: `@deepseek-ai/dsh@0.1.0-rc.5`
+- source package metadata: `@deepseek-ai/dsh@0.1.0-rc.5`
 - commit: `47f943859bef60e4160492346772ded9b24f765a`
 - reviewed: `2026-08-14`
 
-All upstream-specific version/capability decisions belong under `src/hosts/` rather than domain logic.
+The authoritative Workbench pin is `harness.lock.json`.
+
+The first GitHub CI run intentionally tested the assumed npm path and failed with `ETARGET`: the source-reported `0.1.0-rc.5` was not installable from npm at that observation point. Workbench therefore does not declare Harness as an npm dependency yet.
+
+Current rule:
+
+```text
+Workbench core dependencies
+≠ Harness runtime distribution
+
+Harness runtime
+= external source checkout at reviewed exact commit
+```
+
+`npm run doctor:harness` verifies the configured checkout's source package version and exact Git SHA.
+
+All upstream-specific version/capability decisions belong under `src/hosts/` and `harness.lock.json` rather than domain logic.
 
 Do not deep-fork Harness merely to brand Ming Workbench. Prefer its documented plugin, profile, bundle, patch, preset, and UI-slot extension seams.
 
@@ -100,10 +135,11 @@ Wire one real development Space to one real repository and prove one Work Unit e
 ```text
 ordinary-language goal
 → Work Unit
+→ repository-frontier admission
 → AAOP Route / decision ownership / authorization
 → Harness execution
 → repository + test/runtime readback
 → evidence-backed completion
 ```
 
-The first pilot should use Family Space because it is a real active product, not a toy repository.
+Family Space remains the first real proving ground, but Workbench must respect its current active PR ownership before selecting a mutation slice.
