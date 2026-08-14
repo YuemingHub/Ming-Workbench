@@ -51,6 +51,8 @@ export interface PersistedWorkUnit {
     uri?: string
     observedAt: string
     authoritative: boolean
+    verifier?: string
+    verification?: string
   }>
   assets: Array<{
     id: string
@@ -161,6 +163,8 @@ export function fromPersistedWorkUnit(record: PersistedWorkUnit): WorkUnit {
     evidence: record.evidence.map((e) => ({
       ...e,
       kind: e.kind as WorkUnit['evidence'][number]['kind'],
+      verifier: e.verifier as WorkUnit['evidence'][number]['verifier'],
+      verification: e.verification as WorkUnit['evidence'][number]['verification'],
     })),
     assets: record.assets.map((a) => ({
       ...a,

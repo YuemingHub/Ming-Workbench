@@ -256,19 +256,26 @@ export async function runBoundedExecution(
       {
         id: evidenceId,
         kind: 'repository',
+        // P0-3: the run record is a harness-session claim. It documents the
+        // run but can never back Work Unit completion on its own.
         summary: `Harness session ${acpResult.stopReason}. Authorized surface: ${sliceScopeLabel(options.slice)}. Changes produced by this execution: ${repositoryReadback.executionProducedChanges.length}. Scope violations: ${repositoryReadback.scopeViolations.length}.`,
         uri: `deepseek-harness-acp:${acpResult.sessionId}`,
         observedAt: now,
         authoritative: false,
+        verifier: 'harness-session',
+        verification: 'pending',
       },
       {
         id: `EV-GIT-${acpResult.sessionId}`,
         kind: 'test',
+        // P0-3: real test-run evidence carries the verification verdict.
         summary: repositoryReadback.testResult?.passed
           ? 'Project tests passed after execution (authoritative evidence).'
           : 'Project tests did not pass after execution.',
         observedAt: now,
         authoritative: true,
+        verifier: 'test-run',
+        verification: outcome.verification,
       },
     ],
     updatedAt: now,

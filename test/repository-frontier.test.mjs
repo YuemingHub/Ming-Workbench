@@ -86,7 +86,7 @@ test('allows a proven non-overlapping slice to proceed', () => {
   assert.equal(decision.conflicts.length, 0)
 })
 
-test('a completed Work Unit still requires evidence-backed acceptance', () => {
+test('a completed Work Unit still requires verification-backed acceptance', () => {
   const unit = {
     id: 'WU-001',
     spaceId: 'family-space-development',
@@ -110,8 +110,10 @@ test('a completed Work Unit still requires evidence-backed acceptance', () => {
   }
 
   assert.equal(canMarkCompleted(unit), false)
-  assert.throws(() => assertCompletionInvariant(unit), /evidence-backed acceptance/)
+  assert.throws(() => assertCompletionInvariant(unit), /verification-backed acceptance/)
 
+  // A bare claim is still not enough under P0-3: real verification evidence
+  // with a verifier and a passed verdict is required.
   unit.evidence.push({
     id: 'E-1',
     kind: 'repository',
@@ -120,7 +122,13 @@ test('a completed Work Unit still requires evidence-backed acceptance', () => {
     authoritative: true,
   })
   unit.acceptance[0].evidenceIds.push('E-1')
+  assert.equal(canMarkCompleted(unit), false)
 
+  unit.evidence[0] = {
+    ...unit.evidence[0],
+    verifier: 'repository-observation',
+    verification: 'passed',
+  }
   assert.equal(canMarkCompleted(unit), true)
   assert.doesNotThrow(() => assertCompletionInvariant(unit))
 })
