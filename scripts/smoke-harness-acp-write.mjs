@@ -23,6 +23,17 @@ if (existsSync(absoluteFixture)) {
   rmSync(absoluteFixture)
 }
 
+const beforeStatus = execFileSync(
+  'git',
+  ['-C', workbenchRoot, 'status', '--porcelain', '--untracked-files=all'],
+  { encoding: 'utf8' },
+).trim().split(/\r?\n/).filter(Boolean)
+if (beforeStatus.length !== 0) {
+  throw new Error(
+    `write ACP smoke requires a clean baseline before Harness starts: ${JSON.stringify(beforeStatus)}`,
+  )
+}
+
 const grant = {
   schema_version: '1.0',
   grant_id: 'grant-upstream-acp-write-smoke',
@@ -32,6 +43,7 @@ const grant = {
   goal: 'Create exactly one isolated smoke-test fixture through the real Harness write tool.',
   baseline: [
     'This is an ephemeral GitHub Actions worktree for YuemingHub/Ming-Workbench.',
+    'Git status was verified clean immediately before this execution grant was consumed.',
     `Only ${fixturePath} may be created by this grant.`,
   ],
   execution_mode: 'single-agent',
@@ -123,6 +135,7 @@ console.log(
     sessionId: result.sessionId,
     stopReason: result.stopReason,
     fixturePath,
+    cleanBaselineObserved: true,
     exactContentObserved: true,
     exactMutationSurfaceObserved: true,
   }),
