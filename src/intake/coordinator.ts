@@ -1,6 +1,8 @@
 import type { WorkUnit } from '../core/model.js'
-import type { HarnessAcpRunResult } from '../transports/harness-acp.js'
-import { runHarnessAcpReadOnlyIntake } from '../transports/harness-acp-intake.js'
+import {
+  runHarnessAcpReadOnlyIntake,
+  type HarnessAcpRunResult,
+} from '../transports/harness-acp.js'
 import type { PreparedProjectIntake } from './project-aaop.js'
 import {
   parseAaopIntakeEnvelope,
@@ -64,7 +66,18 @@ export function renderAaopCoordinatorPrompt(
   ].join('\n')
 }
 
-function reconcileCoordinatorWorkUnit(
+export function assertAaopEnvelopeMatchesRequest(
+  envelope: AaopIntakeEnvelope,
+  rawRequest: string,
+): void {
+  if (envelope.raw_request !== rawRequest) {
+    throw new Error(
+      `AAOP Intake Envelope raw_request mismatch: expected ${JSON.stringify(rawRequest)}, received ${JSON.stringify(envelope.raw_request)}.`,
+    )
+  }
+}
+
+export function reconcileAaopCoordinatorWorkUnit(
   source: WorkUnit,
   envelope: AaopIntakeEnvelope,
   sessionId: string,
@@ -128,14 +141,10 @@ export async function runProjectAaopCoordinator(
   }
 
   const envelope = parseAaopIntakeEnvelope(result.assistantText)
-  if (envelope.raw_request !== options.prepared.aaopRequest.rawRequest) {
-    throw new Error(
-      `AAOP Intake Envelope raw_request mismatch: expected ${JSON.stringify(options.prepared.aaopRequest.rawRequest)}, received ${JSON.stringify(envelope.raw_request)}.`,
-    )
-  }
+  assertAaopEnvelopeMatchesRequest(envelope, options.prepared.aaopRequest.rawRequest)
 
   const now = (options.now ?? (() => new Date()))()
-  const workUnit = reconcileCoordinatorWorkUnit(
+  const workUnit = reconcileAaopCoordinatorWorkUnit(
     options.prepared.workUnit,
     envelope,
     result.sessionId,
