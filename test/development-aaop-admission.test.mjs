@@ -45,7 +45,7 @@ const frontier = {
 const authorizationBoundary =
   'Working branch + Draft PR only; no production write, deployment, credential use, paid service, or real-family-data access.'
 
-test('defers AAOP intake when the intended file surface is unknown', () => {
+test('defers AAOP request when the intended file surface is unknown', () => {
   const result = admitDevelopmentWorkUnit({
     unit,
     authorizationBoundary,
@@ -56,7 +56,7 @@ test('defers AAOP intake when the intended file surface is unknown', () => {
   assert.equal(result.frontierDecision.kind, 'scope-required')
 })
 
-test('defers AAOP intake when the slice conflicts with active work', () => {
+test('defers AAOP request when the slice conflicts with active work', () => {
   const result = admitDevelopmentWorkUnit({
     unit,
     authorizationBoundary,
@@ -71,9 +71,11 @@ test('defers AAOP intake when the slice conflicts with active work', () => {
   assert.deepEqual(result.frontierDecision.conflicts[0].workItemId, 'PR-268')
 })
 
-test('creates one bounded AAOP intake only after repository admission passes', () => {
+test('creates one Workbench-to-AAOP request only after repository admission passes', () => {
+  const rawRequest = 'Please take one safe next development slice in Family Space.'
   const result = admitDevelopmentWorkUnit({
     unit,
+    rawRequest,
     authorizationBoundary,
     repository: {
       frontier,
@@ -83,16 +85,24 @@ test('creates one bounded AAOP intake only after repository admission passes', (
 
   assert.equal(result.status, 'admitted')
   assert.equal(result.frontierDecision.kind, 'safe')
-  assert.equal(result.aaopIntake.workUnitId, 'WU-002')
-  assert.equal(result.aaopIntake.authorizationBoundary, authorizationBoundary)
-  assert.deepEqual(result.aaopIntake.acceptance, [
+  assert.equal(result.aaopRequest.workUnitId, 'WU-002')
+  assert.equal(result.aaopRequest.rawRequest, rawRequest)
+  assert.equal(result.aaopRequest.desiredOutcome, unit.outcome)
+  assert.equal(result.aaopRequest.authorizationBoundary, authorizationBoundary)
+  assert.deepEqual(result.aaopRequest.acceptanceExpectations, [
     'The selected slice does not overlap active repository work.',
   ])
+
+  // These belong to AAOP's canonical Developer Intake Envelope, not Workbench.
+  assert.equal('route' in result.aaopRequest, false)
+  assert.equal('routeConfidence' in result.aaopRequest, false)
+  assert.equal('questionNeeded' in result.aaopRequest, false)
 })
 
-test('does not invent a repository gate for an intake without an existing-repository target', () => {
+test('does not invent a repository gate for a request without an existing-repository target', () => {
   const result = admitDevelopmentWorkUnit({ unit, authorizationBoundary })
 
   assert.equal(result.status, 'admitted')
   assert.equal(result.frontierDecision, undefined)
+  assert.equal(result.aaopRequest.rawRequest, unit.outcome)
 })
