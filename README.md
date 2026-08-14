@@ -9,28 +9,53 @@ The first development profile is:
 - execution chassis: DeepSeek Harness
 - durable execution: LoopX only after a proven continuity gap
 
-## Reviewed runtime pin
+## Reviewed Harness pin
 
-This repository intentionally pins:
+The reviewed upstream snapshot is recorded in `harness.lock.json`:
 
 ```text
-@deepseek-ai/dsh@0.1.0-rc.5
-upstream commit 47f943859bef60e4160492346772ded9b24f765a
-reviewed 2026-08-14
+source package metadata: @deepseek-ai/dsh@0.1.0-rc.5
+upstream commit: 47f943859bef60e4160492346772ded9b24f765a
+reviewed: 2026-08-14
+install mode: external source checkout
 ```
 
-DeepSeek Harness is in developer preview. Do not silently float the version.
+DeepSeek Harness is in developer preview. Do not silently float the commit.
 
-## Start
+At the 2026-08-14 review point, the source repository reported `0.1.0-rc.5`, but Ming Workbench CI proved that exact version was not installable from npm (`ETARGET`). Workbench therefore treats Harness as an external pinned source runtime until a distribution channel is separately verified.
+
+## Workbench core
 
 ```bash
 npm install
 npm run doctor
 npm run check
-npx @deepseek-ai/dsh@0.1.0-rc.5 web
+npm test
 ```
 
-The Harness Web UI starts independently. Ming Workbench does not deep-fork its UI or runtime.
+`npm run doctor` validates the reviewed Harness pin metadata without pretending the external runtime is installed.
+
+## Harness runtime
+
+Prepare a separate DeepSeek Harness source checkout at the exact commit recorded in `harness.lock.json`, install/build it using the upstream instructions, then point Workbench at that checkout.
+
+macOS/Linux example:
+
+```bash
+export MING_HARNESS_CHECKOUT=/absolute/path/to/deepseek-harness
+npm run doctor:harness
+```
+
+PowerShell example:
+
+```powershell
+$env:MING_HARNESS_CHECKOUT = 'C:\path\to\deepseek-harness'
+npm run doctor:harness
+```
+
+The full doctor verifies both the source package version and exact Git commit. Start the Harness Web UI from that reviewed checkout using its own documented command surface.
+
+Ming Workbench does not deep-fork Harness UI or runtime.
 
 ## What exists in the first slice
 
@@ -38,7 +63,8 @@ The Harness Web UI starts independently. Ming Workbench does not deep-fork its U
 - a completion invariant that rejects evidence-free `done` states;
 - an isolated Harness compatibility seam;
 - the first `development-aaop` Domain Pack descriptor and AAOP intake envelope;
-- architecture boundaries for the first real development pilot.
+- conflict-aware repository-frontier intake grounded in a real Family Space pilot;
+- architecture boundaries for the first end-to-end development slice.
 
 ## What is intentionally not implemented yet
 
@@ -54,6 +80,7 @@ The next milestone is a real vertical slice:
 ```text
 ordinary-language goal
 → Work Unit
+→ repository-frontier admission
 → AAOP Route / authorization / acceptance
 → DeepSeek Harness execution
 → repository + test/runtime readback
