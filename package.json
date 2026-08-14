@@ -9,7 +9,8 @@
     "build:test": "tsc --noEmit false --outDir .tmp",
     "test": "npm run build:test && node --test test/*.test.mjs",
     "doctor": "node ./scripts/doctor.mjs",
-    "doctor:harness": "node ./scripts/doctor.mjs --require-harness"
+    "doctor:harness": "node ./scripts/doctor.mjs --require-harness",
+    "harness:prepare": "node ./scripts/prepare-harness.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.25.1"
