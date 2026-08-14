@@ -1,10 +1,12 @@
 node_modules/
+package-lock.json
 .env
 .env.*
 !.env.example
 .DS_Store
 coverage/
 dist/
+dist-desktop/
 .tmp/
 .workbench/runtime/
 .workbench/vendor/

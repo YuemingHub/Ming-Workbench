@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { request as httpRequest } from 'node:http'
+import { resolve } from 'node:path'
 
 import { startLocalWorkbenchServer } from '../.tmp/index.js'
 
@@ -221,7 +222,7 @@ test('setup cannot run without token and browser-supplied projectRoot cannot cha
       assert.equal(allowed.status, 200)
       assert.equal(calls, 1)
       assert.deepEqual(observed, {
-        projectRoot: '/workspace/fixture',
+        projectRoot: resolve('/workspace/fixture'),
         authorized: true,
       })
     },
@@ -248,11 +249,11 @@ test('read-only Intake always uses the server-fixed project and trusted project 
       assert.equal(response.status, 200)
       const body = await response.json()
       assert.equal(body.status, 'ready')
-      assert.equal(observed.projectRoot, '/workspace/fixture')
+      assert.equal(observed.projectRoot, resolve('/workspace/fixture'))
       assert.equal(observed.trustedProject, true)
       assert.equal(observed.rawRequest, requestText)
-      assert.equal(observed.workbenchRoot, '/workbench')
-      assert.equal(observed.harnessCheckout, '/harness')
+      assert.equal(observed.workbenchRoot, resolve('/workbench'))
+      assert.equal(observed.harnessCheckout, resolve('/harness'))
     },
   )
 })

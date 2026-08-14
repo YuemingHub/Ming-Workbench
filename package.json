@@ -4,6 +4,7 @@
   "private": true,
   "description": "Intent-to-evidence AI workbench built on DeepSeek Harness with domain control packs.",
   "type": "module",
+  "main": "desktop/main.mjs",
   "scripts": {
     "check": "tsc --noEmit",
     "build:test": "tsc --noEmit false --outDir .tmp",
@@ -11,13 +12,52 @@
     "doctor": "node ./scripts/doctor.mjs",
     "doctor:harness": "node ./scripts/doctor.mjs --require-harness",
     "harness:prepare": "node ./scripts/prepare-harness.mjs",
-    "web:local": "npm run build:test && node scripts/start-local-web.mjs"
+    "web:local": "npm run build:test && node scripts/start-local-web.mjs",
+    "desktop:dev": "npm run build:test && electron .",
+    "desktop:package": "npm run build:test && electron-builder --win",
+    "desktop:package:dir": "npm run build:test && electron-builder --win dir"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "0.25.1"
+    "@agentclientprotocol/sdk": "0.25.1",
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.0",
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
     "typescript": "^5.9.2"
+  },
+  "build": {
+    "appId": "ai.ming.workbench",
+    "productName": "Ming Workbench",
+    "asar": false,
+    "files": [
+      "desktop/**/*",
+      "scripts/**/*",
+      "src/**/*",
+      "harness/**/*",
+      ".tmp/**/*",
+      "package.json",
+      "harness.lock.json",
+      "tsconfig.json",
+      "README.md",
+      "LICENSE"
+    ],
+    "directories": {
+      "output": "dist-desktop"
+    },
+    "npmRebuild": false,
+    "electronDist": "node_modules/electron/dist",
+    "win": {
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "signAndEditExecutable": false
+    }
   }
 }

@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { resolve } from 'node:path'
 
 import {
   computeGitBlobSha,
@@ -187,7 +188,7 @@ test('authorized setup delegates to exact canonical bootstrap and re-discovers i
   assert.equal(result.aaopVersion, '1.2.0')
   assert.equal(result.onboarding.status, 'ready')
   assert.equal(onboardingReads, 2)
-  assert.equal(bootstrapInput.projectRoot, '/workspace/fixture')
+  assert.equal(bootstrapInput.projectRoot, resolve('/workspace/fixture'))
   assert.equal(bootstrapInput.pythonCommand, 'python3')
   assert.equal(bootstrapInput.source.revision, revision)
 })

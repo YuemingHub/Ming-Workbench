@@ -1,12 +1,14 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 
 import { resolveHarnessTsxCli } from '../.tmp/transports/harness-acp.js'
 
 test('Harness transport resolves the checkout-local tsx CLI without global pnpm', () => {
   const path = resolveHarnessTsxCli('/runtime/deepseek-harness').replaceAll('\\', '/')
-  assert.equal(path, '/runtime/deepseek-harness/node_modules/tsx/dist/cli.mjs')
+  const expected = resolve('/runtime/deepseek-harness', 'node_modules', 'tsx', 'dist', 'cli.mjs').replaceAll('\\', '/')
+  assert.equal(path, expected)
 })
 
 test('prepare script pins the reviewed source and refuses destructive checkout repair', () => {
