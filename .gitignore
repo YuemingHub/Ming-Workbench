@@ -9,4 +9,5 @@ dist/
 dist-desktop/
 .tmp/
 .workbench/runtime/
-.workbench/vendor/
+.workbench/vendor/deepseek-harness/
+!.workbench/vendor/deepseek-harness-*.bundle
