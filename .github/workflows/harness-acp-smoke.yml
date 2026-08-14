@@ -1,0 +1,167 @@
+name: harness-acp-smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'harness/**'
+      - 'harness.lock.json'
+      - 'src/transports/harness-acp.ts'
+      - 'src/execution/provider-grant.ts'
+      - 'scripts/prepare-harness.mjs'
+      - 'scripts/doctor.mjs'
+      - 'scripts/smoke-harness-acp.mjs'
+      - 'scripts/smoke-harness-acp-write.mjs'
+      - 'package.json'
+      - '.github/workflows/harness-acp-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'harness/**'
+      - 'harness.lock.json'
+      - 'src/transports/harness-acp.ts'
+      - 'src/execution/provider-grant.ts'
+      - 'scripts/prepare-harness.mjs'
+      - 'scripts/doctor.mjs'
+      - 'scripts/smoke-harness-acp.mjs'
+      - 'scripts/smoke-harness-acp-write.mjs'
+      - 'package.json'
+      - '.github/workflows/harness-acp-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  upstream-acp-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    steps:
+      - name: Checkout Ming Workbench
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.19.0
+          cache: npm
+          cache-dependency-path: package.json
+
+      - name: Install Workbench dependencies without mutating repository lock state
+        run: npm install --no-package-lock --no-audit --no-fund
+
+      - name: Compile Workbench transport
+        run: npm run build:test
+
+      - name: Prepare exact reviewed DeepSeek Harness source
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run harness:prepare
+          echo "MING_HARNESS_CHECKOUT=$GITHUB_WORKSPACE/.workbench/vendor/deepseek-harness" >> "$GITHUB_ENV"
+
+      - name: Verify exact Harness identity
+        run: npm run doctor:harness
+
+      - name: Run read-only ACP session through Harness with official mock LLM
+        shell: bash
+        env:
+          DEEPSEEK_API_KEY: mock-key
+          DEEPSEEK_BASE_URL: http://127.0.0.1:8000/v1
+        run: |
+          set -euo pipefail
+          MOCK_LOG="$RUNNER_TEMP/ming-workbench-mock-llm-read.jsonl"
+          MOCK_ERR="$RUNNER_TEMP/ming-workbench-mock-llm-read.stderr"
+          TSX_CLI="$MING_HARNESS_CHECKOUT/node_modules/tsx/dist/cli.mjs"
+
+          node "$TSX_CLI" \
+            --tsconfig "$MING_HARNESS_CHECKOUT/tsconfig.json" \
+            "$MING_HARNESS_CHECKOUT/packages/test-support/llm-mock-server/src/bin.ts" \
+            --port 8000 \
+            --api-key mock-key \
+            --sequence success \
+            --success-text WORKBENCH_ACP_SMOKE_OK \
+            >"$MOCK_LOG" 2>"$MOCK_ERR" &
+          MOCK_PID=$!
+          trap 'kill "$MOCK_PID" 2>/dev/null || true' EXIT
+
+          ready=0
+          for _ in $(seq 1 100); do
+            if grep -q '"ready"' "$MOCK_LOG" 2>/dev/null; then
+              ready=1
+              break
+            fi
+            if ! kill -0 "$MOCK_PID" 2>/dev/null; then
+              cat "$MOCK_LOG" || true
+              cat "$MOCK_ERR" >&2 || true
+              exit 1
+            fi
+            sleep 0.2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo 'read mock LLM did not become ready' >&2
+            cat "$MOCK_LOG" || true
+            cat "$MOCK_ERR" >&2 || true
+            exit 1
+          fi
+
+          node scripts/smoke-harness-acp.mjs
+
+          echo '--- read-only mock LLM request log ---'
+          cat "$MOCK_LOG"
+
+      - name: Run write-authorized ACP tool call in an ephemeral working branch
+        shell: bash
+        env:
+          DEEPSEEK_API_KEY: mock-key
+          DEEPSEEK_BASE_URL: http://127.0.0.1:8001/v1
+          MING_WRITE_SMOKE_BRANCH: workbench/harness-write-smoke
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 origin main:refs/remotes/origin/main
+          git checkout -b "$MING_WRITE_SMOKE_BRANCH"
+          test -z "$(git status --porcelain --untracked-files=all)"
+
+          MOCK_LOG="$RUNNER_TEMP/ming-workbench-mock-llm-write.jsonl"
+          MOCK_ERR="$RUNNER_TEMP/ming-workbench-mock-llm-write.stderr"
+          TSX_CLI="$MING_HARNESS_CHECKOUT/node_modules/tsx/dist/cli.mjs"
+
+          node "$TSX_CLI" \
+            --tsconfig "$MING_HARNESS_CHECKOUT/tsconfig.json" \
+            "$MING_HARNESS_CHECKOUT/packages/test-support/llm-mock-server/src/bin.ts" \
+            --port 8001 \
+            --api-key mock-key \
+            --sequence tool_call_success,success \
+            --tool-name write \
+            --tool-arguments '{"file_path":"test/fixtures/harness-write-smoke.txt","content":"WORKBENCH_HARNESS_WRITE_OK\n"}' \
+            --success-text WORKBENCH_HARNESS_WRITE_DONE \
+            >"$MOCK_LOG" 2>"$MOCK_ERR" &
+          MOCK_PID=$!
+          trap 'kill "$MOCK_PID" 2>/dev/null || true' EXIT
+
+          ready=0
+          for _ in $(seq 1 100); do
+            if grep -q '"ready"' "$MOCK_LOG" 2>/dev/null; then
+              ready=1
+              break
+            fi
+            if ! kill -0 "$MOCK_PID" 2>/dev/null; then
+              cat "$MOCK_LOG" || true
+              cat "$MOCK_ERR" >&2 || true
+              exit 1
+            fi
+            sleep 0.2
+          done
+          if [ "$ready" -ne 1 ]; then
+            echo 'write mock LLM did not become ready' >&2
+            cat "$MOCK_LOG" || true
+            cat "$MOCK_ERR" >&2 || true
+            exit 1
+          fi
+
+          node scripts/smoke-harness-acp-write.mjs
+
+          echo '--- write-authorized git status ---'
+          git status --short --untracked-files=all
+          echo '--- write-authorized mock LLM request log ---'
+          cat "$MOCK_LOG"
