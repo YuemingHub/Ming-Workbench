@@ -19,13 +19,17 @@ import {
 } from '../hosts/harness.js'
 import {
   assertHarnessExecutionGrant,
+  assertWorkbenchExecutionBinding,
   renderHarnessGrantMessage,
   type ProviderExecutionGrant,
+  type WorkbenchExecutionBinding,
 } from '../execution/provider-grant.js'
 import type { WorkUnit } from '../core/model.js'
 
 export interface HarnessAcpRunOptions {
   grant: ProviderExecutionGrant
+  /** Optional Workbench-owned correlation; supply both binding and Work Unit or neither. */
+  binding?: WorkbenchExecutionBinding
   workUnit?: WorkUnit
   /** Absolute local checkout that the Harness agent will operate on. */
   cwd: string
@@ -121,6 +125,23 @@ export function assertReviewedHarnessCheckout(harnessCheckout: string): void {
 
 export function resolveHarnessTsxCli(harnessCheckout: string): string {
   return join(resolve(harnessCheckout), 'node_modules', 'tsx', 'dist', 'cli.mjs')
+}
+
+export function assertHarnessAcpAdmission(
+  options: Pick<HarnessAcpRunOptions, 'grant' | 'binding' | 'workUnit'>,
+): void {
+  assertHarnessExecutionGrant(options.grant)
+
+  const hasBinding = options.binding !== undefined
+  const hasWorkUnit = options.workUnit !== undefined
+  if (hasBinding !== hasWorkUnit) {
+    throw new Error(
+      'Workbench execution correlation requires both binding and Work Unit, or neither.',
+    )
+  }
+  if (options.binding && options.workUnit) {
+    assertWorkbenchExecutionBinding(options.grant, options.binding, options.workUnit)
+  }
 }
 
 export function assertGrantWorkspace(
@@ -224,7 +245,7 @@ function waitForExit(child: ChildProcessWithoutNullStreams, graceMs: number): Pr
 export async function runHarnessAcpGrant(
   options: HarnessAcpRunOptions,
 ): Promise<HarnessAcpRunResult> {
-  assertHarnessExecutionGrant(options.grant, options.workUnit)
+  assertHarnessAcpAdmission(options)
   assertReviewedHarnessCheckout(options.harnessCheckout)
   assertGrantWorkspace(options.grant, options.cwd)
 
