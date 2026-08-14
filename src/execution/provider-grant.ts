@@ -44,13 +44,13 @@ export interface ProviderTaskPod {
 }
 
 /**
- * Workbench consumer view of AAOP's Provider Execution Grant schema.
- * The canonical schema is owned by AAOP, not by this repository.
+ * Workbench consumer view of AAOP's canonical Provider Execution Grant schema.
+ * The canonical schema is owned by AAOP, not by this repository. Product-owned
+ * correlation (for example, a Work Unit id) must stay outside this object.
  */
 export interface ProviderExecutionGrant {
   schema_version: '1.0'
   grant_id: string
-  work_unit_ref?: string | null
   provider: string
   route: AaopRoute
   working_contract_revision: number
@@ -66,20 +66,50 @@ export interface ProviderExecutionGrant {
   issued_at: string
 }
 
+/** Workbench-owned correlation. It is deliberately not part of the AAOP grant. */
+export interface WorkbenchExecutionBinding {
+  workUnitId: string
+  grantId: string
+}
+
 export interface GrantValidationResult {
   valid: boolean
   issues: string[]
 }
 
+const AAOP_GRANT_ROOT_FIELDS = new Set([
+  'schema_version',
+  'grant_id',
+  'provider',
+  'route',
+  'working_contract_revision',
+  'goal',
+  'baseline',
+  'execution_mode',
+  'task_pod',
+  'tasks',
+  'authorization',
+  'acceptance_evidence',
+  'human_open_questions',
+  'references',
+  'issued_at',
+])
+
 /**
  * Validate the subset of the canonical AAOP grant contract that is load-bearing
  * for Workbench's current single-agent DeepSeek Harness execution profile.
+ * Root fields remain closed to match AAOP's additionalProperties=false contract.
  */
 export function validateHarnessExecutionGrant(
   grant: ProviderExecutionGrant,
-  workUnit?: WorkUnit,
 ): GrantValidationResult {
   const issues: string[] = []
+
+  for (const field of Object.keys(grant)) {
+    if (!AAOP_GRANT_ROOT_FIELDS.has(field)) {
+      issues.push(`unexpected canonical grant field: ${field}`)
+    }
+  }
 
   if (grant.schema_version !== AAOP_PROVIDER_EXECUTION_GRANT_SCHEMA_VERSION) {
     issues.push(`unsupported grant schema version: ${grant.schema_version}`)
@@ -132,26 +162,48 @@ export function validateHarnessExecutionGrant(
     }
   }
 
-  if (workUnit) {
-    if (!grant.work_unit_ref) {
-      issues.push('grant must carry work_unit_ref when reconciling to a Work Unit')
-    } else if (grant.work_unit_ref !== workUnit.id) {
-      issues.push(
-        `grant work_unit_ref ${grant.work_unit_ref} does not match Work Unit ${workUnit.id}`,
-      )
-    }
+  return { valid: issues.length === 0, issues }
+}
+
+export function validateWorkbenchExecutionBinding(
+  grant: ProviderExecutionGrant,
+  binding: WorkbenchExecutionBinding,
+  workUnit: WorkUnit,
+): GrantValidationResult {
+  const issues: string[] = []
+
+  if (!binding.workUnitId.trim()) issues.push('binding workUnitId is required')
+  if (!binding.grantId.trim()) issues.push('binding grantId is required')
+
+  if (binding.workUnitId !== workUnit.id) {
+    issues.push(
+      `binding Work Unit ${binding.workUnitId} does not match Work Unit ${workUnit.id}`,
+    )
+  }
+  if (binding.grantId !== grant.grant_id) {
+    issues.push(
+      `binding grant ${binding.grantId} does not match AAOP grant ${grant.grant_id}`,
+    )
   }
 
   return { valid: issues.length === 0, issues }
 }
 
-export function assertHarnessExecutionGrant(
-  grant: ProviderExecutionGrant,
-  workUnit?: WorkUnit,
-): void {
-  const result = validateHarnessExecutionGrant(grant, workUnit)
+export function assertHarnessExecutionGrant(grant: ProviderExecutionGrant): void {
+  const result = validateHarnessExecutionGrant(grant)
   if (!result.valid) {
     throw new Error(`Invalid AAOP Provider Execution Grant:\n- ${result.issues.join('\n- ')}`)
+  }
+}
+
+export function assertWorkbenchExecutionBinding(
+  grant: ProviderExecutionGrant,
+  binding: WorkbenchExecutionBinding,
+  workUnit: WorkUnit,
+): void {
+  const result = validateWorkbenchExecutionBinding(grant, binding, workUnit)
+  if (!result.valid) {
+    throw new Error(`Invalid Workbench execution binding:\n- ${result.issues.join('\n- ')}`)
   }
 }
 
