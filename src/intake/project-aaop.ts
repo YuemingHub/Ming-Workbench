@@ -161,8 +161,8 @@ function titleFromRequest(rawRequest: string): string {
 export function createIntakeWorkUnit(
   rawRequest: string,
   spaceId: string,
-  now = () => new Date(),
-  idFactory = () => randomUUID(),
+  now: () => Date = () => new Date(),
+  idFactory: () => string = () => randomUUID(),
 ): WorkUnit {
   const request = rawRequest.trim()
   if (!request) throw new Error('Cannot create a development Work Unit from an empty request.')
