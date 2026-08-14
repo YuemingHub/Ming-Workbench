@@ -69,7 +69,16 @@ function parsePorcelain(out: string): string[] {
   if (!out) return []
   return out
     .split('\n')
-    .map((line) => line.slice(3).trim())
+    .map((line) => {
+      if (!line) return ''
+      // The first two characters are the status code; the path follows,
+      // optionally separated by a single space. Git builds differ: tracked
+      // modifications emit `XY<path>` (no separator) while untracked emits
+      // `?? <path>` (with a space). Handle both so the returned path is exact.
+      let rest = line.slice(2)
+      if (rest.startsWith(' ')) rest = rest.slice(1)
+      return rest
+    })
     .filter(Boolean)
 }
 

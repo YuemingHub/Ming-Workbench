@@ -8,6 +8,7 @@ import {
 import {
   runHarnessAcpGrant,
   type HarnessAcpRunOptions,
+  type HarnessAcpRunResult,
 } from '../transports/harness-acp.js'
 import {
   computeExecutionDelta,
@@ -41,6 +42,15 @@ export interface BoundedExecutionOptions {
   testCommand?: string[]
   /** Intended file surface for frontier overlap detection. */
   intendedFiles?: string[]
+  /**
+   * Test/operational seam. Defaults to the real reviewed-Harness ACP runner.
+   * Injected so the full Intake -> Authorize -> Execute -> Evidence chain can be
+   * exercised without the reviewed bundle + network (e.g. a harness-run double
+   * that performs a real mutation on the scratch project).
+   */
+  dependencies?: {
+    runHarnessAcpGrant?: (options: HarnessAcpRunOptions) => Promise<HarnessAcpRunResult>
+  }
 }
 
 export interface BoundedExecutionResult {
@@ -155,7 +165,8 @@ export async function runBoundedExecution(
   }
 
   // Step 2: run the reviewed Harness ACP execution under the granted scope.
-  const acpResult = await runHarnessAcpGrant({
+  const harnessRun = options.dependencies?.runHarnessAcpGrant ?? runHarnessAcpGrant
+  const acpResult = await harnessRun({
     grant: options.grant,
     binding: options.binding,
     workUnit: options.workUnit,
