@@ -5,13 +5,13 @@ import {
   assertHarnessExecutionGrant,
   renderHarnessGrantMessage,
   validateHarnessExecutionGrant,
+  validateWorkbenchExecutionBinding,
 } from '../.tmp/execution/provider-grant.js'
 
 function grant(overrides = {}) {
   return {
     schema_version: '1.0',
     grant_id: 'grant-family-space-001',
-    work_unit_ref: 'WU-003',
     provider: 'deepseek-harness',
     route: 'feature-change',
     working_contract_revision: 4,
@@ -82,9 +82,31 @@ const workUnit = {
 }
 
 test('accepts a bounded single-agent DeepSeek Harness grant', () => {
-  const result = validateHarnessExecutionGrant(grant(), workUnit)
+  const result = validateHarnessExecutionGrant(grant())
   assert.equal(result.valid, true)
   assert.deepEqual(result.issues, [])
+})
+
+test('keeps Work Unit correlation in a Workbench-owned binding', () => {
+  const candidate = grant()
+  const result = validateWorkbenchExecutionBinding(
+    candidate,
+    { workUnitId: 'WU-003', grantId: candidate.grant_id },
+    workUnit,
+  )
+
+  assert.equal(result.valid, true)
+  assert.deepEqual(result.issues, [])
+  assert.equal('work_unit_ref' in candidate, false)
+})
+
+test('rejects consumer-specific fields inside the canonical AAOP grant', () => {
+  const result = validateHarnessExecutionGrant(
+    grant({ work_unit_ref: 'WU-003' }),
+  )
+
+  assert.equal(result.valid, false)
+  assert.match(result.issues.join('\n'), /unexpected canonical grant field: work_unit_ref/)
 })
 
 test('rejects unresolved human-owned questions before execution', () => {
@@ -124,14 +146,28 @@ test('rejects a write-authorized grant without an exact write target', () => {
   assert.match(result.issues.join('\n'), /exact write_target/)
 })
 
-test('rejects a grant that points at another Work Unit', () => {
-  const result = validateHarnessExecutionGrant(
-    grant({ work_unit_ref: 'WU-other' }),
+test('rejects a Workbench binding that points at another Work Unit', () => {
+  const candidate = grant()
+  const result = validateWorkbenchExecutionBinding(
+    candidate,
+    { workUnitId: 'WU-other', grantId: candidate.grant_id },
     workUnit,
   )
 
   assert.equal(result.valid, false)
   assert.match(result.issues.join('\n'), /does not match Work Unit WU-003/)
+})
+
+test('rejects a Workbench binding that points at another grant', () => {
+  const candidate = grant()
+  const result = validateWorkbenchExecutionBinding(
+    candidate,
+    { workUnitId: 'WU-003', grantId: 'grant-other' },
+    workUnit,
+  )
+
+  assert.equal(result.valid, false)
+  assert.match(result.issues.join('\n'), /does not match AAOP grant grant-family-space-001/)
 })
 
 test('allows read-only execution only when write_target is null', () => {
