@@ -456,8 +456,8 @@ test('local UI HTML and JS are DOM-consistent: every JS id exists in HTML, no st
   // The browser must not attempt to store or read a provider secret over HTTP.
   assert.equal(js.includes('/api/provider/secret'), false)
 
-  // The Desktop-only provider affordance uses /api/provider/status (read-only).
-  assert.equal(js.includes('/api/provider/status'), true)
+  // The Desktop-only provider affordance uses preload IPC, not HTTP.
+  assert.equal(js.includes('/api/provider/status'), false)
 
   // Legacy DOM ids tied to the old browser secret form must not exist.
   assert.ok(!htmlIds.has('provider-save-button') === false)
@@ -546,18 +546,22 @@ test('execute flow uses authorize then execute body with only workUnitId', async
 })
 
 // ===== Test B: Desktop-only provider secret path =====
-test('provider secret uses preload IPC only in Desktop mode, no HTTP storage in local web', async () => {
+test('provider secret uses preload IPC only in Desktop mode, no HTTP storage or status endpoint in local web', async () => {
   const { LOCAL_WORKBENCH_APP_JS } = await import('../.tmp/index.js')
   const js = LOCAL_WORKBENCH_APP_JS
 
   // JS must not call /api/provider/secret (no HTTP secret storage).
   assert.equal(js.includes('/api/provider/secret'), false)
 
+  // JS must not call /api/provider/status (provider identity is not a
+  // credential; Desktop queries safeStorage via IPC instead).
+  assert.equal(js.includes('/api/provider/status'), false)
+
   // JS must use window.mingWorkbench.setProviderSecret (preload IPC).
   assert.ok(js.includes('window.mingWorkbench.setProviderSecret'))
 
-  // JS must check provider status via /api/provider/status (read-only).
-  assert.ok(js.includes('/api/provider/status'))
+  // JS must query secret availability via window.mingWorkbench.hasProviderSecret.
+  assert.ok(js.includes('window.mingWorkbench.hasProviderSecret'))
 
   // The preload exposes only the narrow Desktop API.
   const preloadSource = read('desktop/preload.cjs')
@@ -565,6 +569,21 @@ test('provider secret uses preload IPC only in Desktop mode, no HTTP storage in 
   assert.ok(preloadSource.includes('hasProviderSecret'))
   assert.ok(preloadSource.includes('isDesktop'))
   assert.ok(!preloadSource.includes('exposeInMainWorld("ipcRenderer"'))
+
+  // The local server must not expose a provider status/secret HTTP route.
+  await withServer(
+    { resolveOnboarding: () => readyOnboarding() },
+    async (handle) => {
+      const statusRes = await fetch(`${handle.url}/api/provider/status`, {
+        headers: apiHeaders(handle),
+      })
+      assert.equal(statusRes.status, 404)
+      const secretRes = await fetch(`${handle.url}/api/provider/secret`, {
+        headers: apiHeaders(handle),
+      })
+      assert.equal(secretRes.status, 404)
+    },
+  )
 })
 
 // ===== Test C: Resume UX — persisted Work Unit restored, mutable facts reconciliation =====

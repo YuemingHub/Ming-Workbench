@@ -393,14 +393,14 @@ async function loadResume() {
 }
 
 async function checkProviderStatus() {
-  if (!isDesktop) return
+  // Desktop mode queries the Electron main process via preload IPC (safeStorage).
+  // There is deliberately no HTTP secret/status endpoint in the local backend.
+  if (!isDesktop || !window.mingWorkbench?.hasProviderSecret) return
   try {
-    const { response, body } = await api('/api/provider/status')
-    if (response.ok) {
-      updateProviderUI(body.hasSecret)
-    }
+    const { hasSecret } = await window.mingWorkbench.hasProviderSecret()
+    updateProviderUI(Boolean(hasSecret))
   } catch {
-    // Ignore.
+    // Ignore provider check failures.
   }
 }
 

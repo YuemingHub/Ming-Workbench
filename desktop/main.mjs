@@ -34,6 +34,7 @@ let switching = false
 let cleanShutdownDone = false
 let providerSecret = null
 let workUnitStore = null
+let currentProjectRoot = ''
 
 function resolveWorkbenchRoot() {
   return app.isPackaged ? resolve(process.resourcesPath, 'app') : repoRoot
@@ -161,6 +162,7 @@ async function startBackend(projectRoot) {
   // Atomically set the exact backend origin BEFORE any renderer navigation or
   // IPC can observe it. Only the exact ready URL becomes trusted.
   activeBackendOrigin = urlOrigin(backendUrl) ?? ''
+  currentProjectRoot = projectRoot
   appendStartupLog(`backend ready ${backendUrl} origin=${activeBackendOrigin}`)
   writeLastProject(projectRoot)
   return backendUrl
@@ -324,6 +326,15 @@ function registerIpc() {
     try {
       saveProviderSecret(secret)
       providerSecret = secret
+      // Hot activation: restart the backend for the same fixed project so the
+      // new secret reaches the Harness child env without an app restart. The
+      // restart is fire-and-forget so the IPC response is not blocked; when the
+      // new backend is ready the window reloads and resumes persisted state.
+      void restartBackendForProviderActivation().catch((error) => {
+        appendStartupLog(
+          `provider activation failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      })
       return { ok: true }
     } catch {
       return { ok: false }
@@ -334,6 +345,29 @@ function registerIpc() {
     if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) return
     app.quit()
   })
+}
+
+/**
+ * Controlled backend restart after a provider secret change. The new child is
+ * spawned with the updated DEEPSEEK_API_KEY in its env; the exact backend
+ * origin is rotated atomically (same discipline as project switching). Once
+ * ready, the renderer reloads so it picks up the fresh per-process request
+ * token and resumes persisted Work Units with a fresh mutable-facts check.
+ */
+async function restartBackendForProviderActivation() {
+  if (!currentProjectRoot) return
+  if (switching) return
+  switching = true
+  try {
+    const url = await startBackend(currentProjectRoot)
+    if (win && !win.isDestroyed()) {
+      win.webContents.reload()
+    }
+    appendStartupLog('provider activation complete; backend restarted with updated provider secret')
+    return url
+  } finally {
+    switching = false
+  }
 }
 
 const gotLock = app.requestSingleInstanceLock()

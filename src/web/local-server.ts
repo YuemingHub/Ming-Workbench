@@ -332,16 +332,6 @@ export async function startLocalWorkbenchServer(
         return
       }
 
-      // Provider status: read-only check if a provider secret is configured.
-      // Never returns the secret itself.
-      if (method === 'GET' && url.pathname === '/api/provider/status') {
-        sendJson(response, 200, {
-          status: 'ok',
-          hasSecret: Boolean(options.provider || process.env.DEEPSEEK_API_KEY),
-        })
-        return
-      }
-
       // Resume: re-read mutable facts for a persisted Work Unit and return
       // reconciliation status. The caller must re-authorize if facts changed.
       if (method === 'POST' && url.pathname === '/api/resume') {
