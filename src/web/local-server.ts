@@ -18,6 +18,12 @@ import {
   LOCAL_WORKBENCH_CSS,
   renderLocalWorkbenchHtml,
 } from './local-ui.js'
+import {
+  runBoundedExecution,
+  validateExecutionPreconditions,
+  type BoundedExecutionResult,
+  type BoundedExecutionOptions,
+} from '../execution/bounded-execution.js'
 
 const LOOPBACK_HOST = '127.0.0.1'
 const MAX_JSON_BODY_BYTES = 64 * 1024
@@ -412,6 +418,119 @@ export async function startLocalWorkbenchServer(
         }
         options.providerSecret = secret
         sendJson(response, 200, { hasSecret: true })
+        return
+      }
+
+      // Phase 4: bounded execution API (requires valid grant + provider secret).
+      if (method === 'POST' && url.pathname === '/api/execute') {
+        let parsed: unknown
+        try {
+          parsed = await readJsonBody(request)
+        } catch (error) {
+          const code = error instanceof Error ? error.message : ''
+          sendJson(response, code === 'request-body-too-large' ? 413 : 400, {
+            status: 'bad-request',
+            message: 'Workbench 无法读取这次执行请求。',
+          })
+          return
+        }
+        const body = objectBody(parsed)
+        const grant = typeof body?.grant === 'object' && body.grant !== null ? body.grant : null
+        const binding = typeof body?.binding === 'object' && body.binding !== null ? body.binding : null
+
+        if (!grant || !binding) {
+          sendJson(response, 400, {
+            status: 'bad-request',
+            message: '执行需要有效的 Provider Execution Grant 和 Workbench Binding。',
+          })
+          return
+        }
+
+        // Provider secret must be configured for execution.
+        if (!options.providerSecret) {
+          sendJson(response, 402, {
+            status: 'provider-required',
+            message: '执行需要模型服务密钥。请先在下方配置 API Key。',
+          })
+          return
+        }
+
+        let executionResult: BoundedExecutionResult
+        try {
+          // Type-safe extraction from parsed JSON body.
+          const typedGrant = grant as {
+            schema_version: string
+            grant_id: string
+            provider: string
+            route: string
+            working_contract_revision: number
+            goal: string
+            baseline: string[]
+            execution_mode: string
+            task_pod: unknown
+            tasks: { id: string; action: string; failure_path: string }[]
+            authorization: {
+              mutation_boundary: string
+              write_target: { repository: string; base_ref: string; working_ref: string; environment?: string | null } | null
+              allowed_effects: string[]
+              protected_effects: string[]
+            }
+            acceptance_evidence: string[]
+            human_open_questions: string[]
+            references: string[]
+            issued_at: string
+          }
+          const typedBinding = binding as { workUnitId: string; grantId: string }
+          const executionOptions: BoundedExecutionOptions = {
+            workUnit: {
+              id: typedBinding.workUnitId,
+              spaceId: 'SPACE-unknown',
+              title: 'Execution Work Unit',
+              outcome: typedGrant.goal,
+              state: 'ready',
+              owner: 'development-aaop',
+              gate: { kind: 'none', open: false },
+              acceptance: [],
+              evidence: [],
+              assets: [],
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            } as any,
+            grant: typedGrant as any,
+            binding: typedBinding as any,
+            projectRoot,
+            harnessCheckout,
+            workbenchRoot,
+            provider: options.provider,
+            model: options.model,
+            sessionRoot: options.sessionRoot,
+          }
+          validateExecutionPreconditions(executionOptions)
+          executionResult = await runBoundedExecution(executionOptions)
+        } catch (error) {
+          logError(error)
+          sendJson(response, 502, {
+            status: 'execution-failed',
+            message: error instanceof Error ? error.message : '执行过程中发生未知错误。',
+            retryable: false,
+          })
+          return
+        }
+
+        sendJson(response, 200, {
+          status: 'executed',
+          workUnit: {
+            id: executionResult.workUnit.id,
+            state: executionResult.workUnit.state,
+            evidence: executionResult.workUnit.evidence,
+            nextFrontier: executionResult.workUnit.nextFrontier,
+          },
+          sessionId: executionResult.sessionId,
+          stopReason: executionResult.stopReason,
+          assistantText: executionResult.assistantText,
+          frontierDecision: executionResult.frontierDecision,
+          repositoryReadback: executionResult.repositoryReadback,
+        })
         return
       }
 

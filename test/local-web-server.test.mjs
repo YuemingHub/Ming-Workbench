@@ -287,16 +287,25 @@ test('Intake/provider outage returns recoverable 503, preserves the request, and
   )
 })
 
-test('Stage B exposes no execution endpoint', async () => {
+test('Stage B execution endpoint requires grant and provider secret', async () => {
   await withServer(
     { resolveOnboarding: () => readyOnboarding() },
     async (handle) => {
-      const response = await fetch(`${handle.url}/api/execute`, {
+      // No grant → 400 (bad request) before provider secret check.
+      const response1 = await fetch(`${handle.url}/api/execute`, {
         method: 'POST',
         headers: apiHeaders(handle, { 'content-type': 'application/json' }),
         body: '{}',
       })
-      assert.equal(response.status, 404)
+      assert.equal(response1.status, 400)
+
+      // With provider secret but still no grant → 400.
+      const response2 = await fetch(`${handle.url}/api/execute`, {
+        method: 'POST',
+        headers: apiHeaders(handle, { 'content-type': 'application/json' }),
+        body: JSON.stringify({ providerSecret: 'test-secret' }),
+      })
+      assert.equal(response2.status, 400)
     },
   )
 })
