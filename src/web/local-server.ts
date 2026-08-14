@@ -589,6 +589,9 @@ export async function startLocalWorkbenchServer(
             model: options.model,
             sessionRoot: options.sessionRoot,
             testCommand: options.testCommand,
+            // P0-C write boundary: default-off safety rail. Normal UI keeps execution
+            // disabled unless an operator explicitly enables write mutation.
+            allowWrite: process.env.MING_WORKBENCH_ALLOW_WRITE === '1',
           }
           executionResult = await runBoundedExecution(executionOptions)
 

@@ -90,6 +90,8 @@ test('full chain fixes a failing test with real git delta and evidence-backed su
       workbenchRoot: dir, // unused by the double
       testCommand: ['node', '--test', 'answer.test.mjs'],
       intendedFiles: ['answer.mjs'],
+      // Operator enabled write mutation for this chain exercise.
+      allowWrite: true,
       dependencies: { runHarnessAcpGrant: fakeHarness },
     })
 
@@ -130,6 +132,8 @@ test('chain reports failure when the harness produces no in-scope change', async
       harnessCheckout: dir,
       workbenchRoot: dir,
       intendedFiles: ['answer.mjs'],
+      // Operator enabled write mutation; this test checks scope enforcement, not the gate.
+      allowWrite: true,
       dependencies: { runHarnessAcpGrant: rogueHarness },
     })
 
@@ -139,5 +143,70 @@ test('chain reports failure when the harness produces no in-scope change', async
   } finally {
     cleanup(dir)
     cleanup(outside)
+  }
+})
+
+/**
+ * P0-C: the write boundary is OFF by default. A write-authorized grant must NOT
+ * mutate the project unless the operator explicitly enables it (allowWrite=true).
+ * This is the safety rail that keeps bounded mutation disabled in the normal UI
+ * when an OS-level write sandbox (e.g. the reviewed Harness sandbox) cannot be
+ * guaranteed. The harness double is never reached when the gate holds.
+ */
+test('P0-C write boundary blocks a write-authorized grant unless explicitly enabled', async () => {
+  const dir = makeScratchRepo()
+  let harnessInvoked = false
+  try {
+    const workUnit = makeWorkUnit('WU-P0C')
+    const snapshot = readRepositorySnapshot(dir)
+    const { grant, binding } = issueProviderExecutionGrant({ workUnit, projectRoot: dir, snapshot })
+
+    assert.equal(grant.authorization.mutation_boundary, 'write-authorized')
+
+    const gatedHarness = async () => {
+      harnessInvoked = true
+      return { sessionId: 'gated', stopReason: 'stop', assistantText: 'should not run' }
+    }
+
+    // Default (allowWrite omitted): execution must be refused before any mutation.
+    await assert.rejects(
+      () =>
+        runBoundedExecution({
+          workUnit,
+          grant,
+          binding,
+          projectRoot: dir,
+          harnessCheckout: dir,
+          workbenchRoot: dir,
+          intendedFiles: ['answer.mjs'],
+          dependencies: { runHarnessAcpGrant: gatedHarness },
+        }),
+      /Bounded write execution is disabled/,
+    )
+    assert.equal(harnessInvoked, false, 'harness must not run when the gate holds')
+    // The guarded repo is untouched.
+    assert.equal(readRepositorySnapshot(dir).dirtyFiles.length, 0)
+
+    // Explicit opt-in: the same grant now executes and the harness double mutates.
+    const fakeHarness = async (opts) => {
+      writeFileSync(join(opts.cwd, 'answer.mjs'), 'export function answer() { return 42 }\n')
+      return { sessionId: 'enabled', stopReason: 'stop', assistantText: 'fixed answer' }
+    }
+    const ok = await runBoundedExecution({
+      workUnit,
+      grant,
+      binding,
+      projectRoot: dir,
+      harnessCheckout: dir,
+      workbenchRoot: dir,
+      testCommand: ['node', '--test', 'answer.test.mjs'],
+      intendedFiles: ['answer.mjs'],
+      allowWrite: true,
+      dependencies: { runHarnessAcpGrant: fakeHarness },
+    })
+    assert.equal(ok.effectOutcome.status, 'success')
+    assert.ok(ok.repositoryReadback.executionProducedChanges.includes('answer.mjs'))
+  } finally {
+    cleanup(dir)
   }
 })

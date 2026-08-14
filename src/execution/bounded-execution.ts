@@ -43,6 +43,14 @@ export interface BoundedExecutionOptions {
   /** Intended file surface for frontier overlap detection. */
   intendedFiles?: string[]
   /**
+   * Explicit operator opt-in to perform a write mutation. Defaults to false so
+   * the normal UI keeps execution disabled; an operator must enable it (e.g.
+   * `MING_WORKBENCH_ALLOW_WRITE=1`). The reviewed Harness sandbox is preferred;
+   * on platforms where an OS-level write sandbox cannot be enforced, this gate
+   * is the safety rail that keeps bounded mutation off by default.
+   */
+  allowWrite?: boolean
+  /**
    * Test/operational seam. Defaults to the real reviewed-Harness ACP runner.
    * Injected so the full Intake -> Authorize -> Execute -> Evidence chain can be
    * exercised without the reviewed bundle + network (e.g. a harness-run double
@@ -90,6 +98,16 @@ export function validateExecutionPreconditions(options: BoundedExecutionOptions)
   if (resolve(target.repository) !== resolve(options.projectRoot)) {
     throw new Error(
       `grant write_target.repository ${target.repository} does not match the fixed project ${options.projectRoot}.`,
+    )
+  }
+
+  // P0-C write boundary: a write-authorized grant may only mutate files when the
+  // operator has explicitly opted in. The reviewed Harness sandbox is preferred;
+  // when an OS-level write sandbox cannot be guaranteed (e.g. Windows), this gate
+  // is the safety rail that keeps bounded mutation OFF by default in the normal UI.
+  if (options.grant.authorization.mutation_boundary === 'write-authorized' && options.allowWrite !== true) {
+    throw new Error(
+      'Bounded write execution is disabled; enable via MING_WORKBENCH_ALLOW_WRITE=1 or run inside the reviewed Harness sandbox.',
     )
   }
 }
