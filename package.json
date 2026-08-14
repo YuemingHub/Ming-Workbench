@@ -10,7 +10,8 @@
     "test": "npm run build:test && node --test test/*.test.mjs",
     "doctor": "node ./scripts/doctor.mjs",
     "doctor:harness": "node ./scripts/doctor.mjs --require-harness",
-    "harness:prepare": "node ./scripts/prepare-harness.mjs"
+    "harness:prepare": "node ./scripts/prepare-harness.mjs",
+    "web:local": "npm run build:test && node scripts/start-local-web.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.25.1"
