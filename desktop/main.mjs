@@ -7,6 +7,12 @@ import { fileURLToPath } from 'node:url'
 import { resolveBackendScript, spawnBackend } from './backend.mjs'
 import { isAllowedBackendUrl, isTrustedDesktopSender, urlOrigin } from './validation.mjs'
 import { prepareHarnessRuntime } from './hosts/harness-runtime.js'
+import {
+  loadProviderSecret,
+  saveProviderSecret,
+  clearProviderSecret,
+  hasProviderSecret,
+} from './provider-secret.mjs'
 
 const desktopDir = resolve(fileURLToPath(new URL('.', import.meta.url)))
 const repoRoot = resolve(desktopDir, '..')
@@ -21,6 +27,7 @@ let backendUrl = ''
 let activeBackendOrigin = ''
 let switching = false
 let cleanShutdownDone = false
+let providerSecret = null
 
 function resolveWorkbenchRoot() {
   return app.isPackaged ? resolve(process.resourcesPath, 'app') : repoRoot
@@ -140,6 +147,7 @@ async function startBackend(projectRoot) {
     projectRoot,
     workbenchRoot,
     harnessCheckout: resolvedHarnessCheckout,
+    extraEnv: providerSecret ? { DEEPSEEK_API_KEY: providerSecret } : undefined,
   })
 
   backendUrl = await backend.ready
@@ -291,6 +299,30 @@ function registerIpc() {
       switching = false
     }
   })
+
+  ipcMain.handle('desktop:has-provider-secret', async (event) => {
+    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) {
+      return { hasSecret: false }
+    }
+    return { hasSecret: hasProviderSecret() }
+  })
+
+  ipcMain.handle('desktop:set-provider-secret', async (event, secret) => {
+    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) {
+      return { ok: false }
+    }
+    if (typeof secret !== 'string' || secret.length > 10_000) {
+      return { ok: false }
+    }
+    try {
+      saveProviderSecret(secret)
+      providerSecret = secret
+      return { ok: true }
+    } catch {
+      return { ok: false }
+    }
+  })
+
   ipcMain.on('desktop:quit', (event) => {
     if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) return
     app.quit()

@@ -1,6 +1,7 @@
 export * from './core/model.js'
 export * from './hosts/harness.js'
 export * from './hosts/harness-runtime.js'
+export * from './secrets/provider-secret.js'
 export * from './domain-packs/development-aaop.js'
 export * from './domain-packs/repository-frontier.js'
 export * from './execution/provider-grant.js'

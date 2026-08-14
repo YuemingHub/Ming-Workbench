@@ -20,7 +20,7 @@ function readArgs(argv) {
       options.help = true
       continue
     }
-    if (arg === '--project' || arg === '--port' || arg === '--harness-checkout' || arg === '--workbench-root') {
+    if (arg === '--project' || arg === '--port' || arg === '--harness-checkout' || arg === '--workbench-root' || arg === '--provider-secret') {
       const value = argv[index + 1]
       if (!value || value.startsWith('--')) {
         throw new Error(`${arg} requires a value`)
@@ -61,7 +61,15 @@ const harnessCheckout = resolve(
     ?? process.env.MING_HARNESS_CHECKOUT
     ?? `${workbenchRoot}/.workbench/vendor/deepseek-harness`,
 )
+const providerSecret = args['provider-secret'] ?? process.env.MING_HARNESS_PROVIDER_SECRET ?? undefined
 const port = args.port === undefined ? 0 : Number(args.port)
+
+// Inject provider secret into backend env so the Harness child inherits it
+// via SAFE_INHERITED_ENV. This is the web-mode equivalent of the Electron
+// extraEnv path. The secret is not logged.
+if (providerSecret) {
+  process.env.DEEPSEEK_API_KEY = providerSecret
+}
 
 if (!existsSync(projectRoot)) {
   console.error(`Project directory does not exist: ${projectRoot}`)

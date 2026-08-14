@@ -32,6 +32,7 @@ export interface LocalWorkbenchServerOptions {
   model?: string
   sessionRoot?: string
   port?: number
+  providerSecret?: string
 }
 
 export interface LocalWorkbenchServerDependencies {
@@ -373,6 +374,44 @@ export async function startLocalWorkbenchServer(
           return
         }
         sendJson(response, 200, result)
+        return
+      }
+
+      if (method === 'GET' && url.pathname === '/api/provider/secret') {
+        sendJson(response, 200, { hasSecret: Boolean(options.providerSecret) })
+        return
+      }
+
+      if (method === 'POST' && url.pathname === '/api/provider/secret') {
+        let parsed: unknown
+        try {
+          parsed = await readJsonBody(request)
+        } catch (error) {
+          const code = error instanceof Error ? error.message : ''
+          sendJson(response, code === 'request-body-too-large' ? 413 : 400, {
+            status: 'bad-request',
+            message: 'Workbench 无法读取这个密钥。',
+          })
+          return
+        }
+        const body = objectBody(parsed)
+        const secret = typeof body?.secret === 'string' ? body.secret.trim() : ''
+        if (!secret) {
+          sendJson(response, 400, {
+            status: 'bad-request',
+            message: '请输入有效的 API Key。',
+          })
+          return
+        }
+        if (secret.length > 10_000) {
+          sendJson(response, 413, {
+            status: 'bad-request',
+            message: '密钥内容过长。',
+          })
+          return
+        }
+        options.providerSecret = secret
+        sendJson(response, 200, { hasSecret: true })
         return
       }
 

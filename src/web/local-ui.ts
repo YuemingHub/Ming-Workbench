@@ -46,6 +46,16 @@ export function renderLocalWorkbenchHtml(requestToken: string): string {
       </div>
     </section>
 
+    <section class="provider-card card" aria-live="polite">
+      <p class="label">模型服务</p>
+      <p class="muted" id="provider-message">Workbench 需要一个模型服务密钥才能完成真正的项目理解。</p>
+      <div class="provider-actions">
+        <input id="provider-key-input" type="password" placeholder="输入 API Key" autocomplete="off" class="provider-input">
+        <button id="provider-save-button" class="secondary" type="button">保存密钥</button>
+      </div>
+      <p class="provider-status" id="provider-status"></p>
+    </section>
+
     <section id="notice" class="notice hidden" aria-live="polite"></section>
 
     <section id="result" class="result-grid hidden" aria-live="polite">
@@ -143,6 +153,20 @@ textarea:focus { border-color: #8da2c6; box-shadow: 0 0 0 4px rgba(103, 132, 184
   .result-grid { grid-template-columns: 1fr; }
   .span-two { grid-column: span 1; }
   .request-actions .primary, .project-card button { width: 100%; }
+.provider-card { margin-top: 18px; }
+.provider-actions { display: flex; gap: 10px; margin-top: 12px; align-items: center; }
+.provider-input { flex: 1; border: 1px solid #d8deea; border-radius: 12px; padding: 11px 14px; background: #fbfcfe; color: #172033; font: inherit; }
+.provider-input:focus { border-color: #8da2c6; box-shadow: 0 0 0 4px rgba(103, 132, 184, .11); outline: none; }
+.provider-status { margin: 10px 0 0; font-size: 13px; color: #43506a; }
+.provider-status.ok { color: #19633f; }
+.provider-status.error { color: #963d35; }
+@media (max-width: 720px) {
+  .shell { width: min(100% - 22px, 980px); padding-top: 28px; }
+  .hero, .project-card, .request-actions, .provider-actions { flex-direction: column; align-items: stretch; }
+  .status-pill { align-self: flex-start; }
+  .result-grid { grid-template-columns: 1fr; }
+  .span-two { grid-column: span 1; }
+}
 }
 `
 
@@ -167,6 +191,79 @@ const stateNames = {
   verifying: '正在验证',
   done: '已完成并有证据',
 }
+
+let providerHasSecret = false
+
+async function checkProviderSecret() {
+  try {
+    const res = await api('/api/provider/secret')
+    if (res.response.ok) {
+      providerHasSecret = res.body.hasSecret
+      updateProviderUI()
+    }
+  } catch {
+    // Ignore provider check failures.
+  }
+}
+
+function updateProviderUI() {
+  const msg = $('provider-message')
+  const status = $('provider-status')
+  const input = $('provider-key-input')
+  const button = $('provider-save-button')
+
+  if (providerHasSecret) {
+    msg.textContent = '模型服务密钥已保存。Workbench 可以完成真正的项目理解了。'
+    status.textContent = '已配置'
+    status.className = 'provider-status ok'
+    input.value = ''
+    button.disabled = true
+    input.disabled = true
+  } else {
+    msg.textContent = 'Workbench 需要一个模型服务密钥才能完成真正的项目理解。'
+    status.textContent = ''
+    status.className = 'provider-status'
+    input.disabled = false
+    button.disabled = false
+  }
+}
+
+async function saveProviderSecret() {
+  const input = $('provider-key-input')
+  const button = $('provider-save-button')
+  const status = $('provider-status')
+  const secret = input.value.trim()
+  if (!secret) {
+    status.textContent = '请输入有效的 API Key。'
+    status.className = 'provider-status error'
+    return
+  }
+  button.disabled = true
+  status.textContent = '正在保存…'
+  status.className = 'provider-status'
+  try {
+    const res = await api('/api/provider/secret', {
+      method: 'POST',
+      body: JSON.stringify({ secret }),
+    })
+    if (!res.response.ok) {
+      const msg = res.body?.message || '保存失败，请稍后重试。'
+      status.textContent = msg
+      status.className = 'provider-status error'
+      return
+    }
+    providerHasSecret = true
+    updateProviderUI()
+    status.textContent = '密钥已保存'
+    status.className = 'provider-status ok'
+  } finally {
+    button.disabled = false
+  }
+}
+
+$('provider-save-button').addEventListener('click', saveProviderSecret)
+
+checkProviderSecret().catch(() => {})
 
 async function api(path, options = {}) {
   const response = await fetch(path, {

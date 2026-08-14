@@ -77,6 +77,7 @@ export function spawnBackend({
   workbenchRoot,
   harnessCheckout,
   extraArgs = [],
+  extraEnv,
 }) {
   if (!existsSync(script)) {
     throw new Error(
@@ -97,13 +98,13 @@ export function spawnBackend({
     ...extraArgs,
   ]
 
+  const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
+  if (extraEnv) {
+    Object.assign(env, extraEnv)
+  }
+
   const child = spawn(nodeBin, args, {
-    // ELECTRON_RUN_AS_NODE lets the Electron executable act as a plain Node
-    // runtime for the Workbench backend sidecar. This is a bounded host-shell
-    // decision: the renderer never sees it, and the transport forwards it only
-    // to the reviewed Harness tsx runner. The backend is not a generic Node
-    // escape hatch for arbitrary work.
-    env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+    env,
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   })

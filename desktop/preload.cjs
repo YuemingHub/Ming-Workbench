@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld('mingWorkbench', {
   selectProject: () => ipcRenderer.invoke('desktop:select-project'),
   // Ask the main process to shut the desktop app down cleanly.
   quit: () => ipcRenderer.send('desktop:quit'),
+  // Provider secret management. The renderer never sees the plaintext key.
+  hasProviderSecret: () => ipcRenderer.invoke('desktop:has-provider-secret'),
+  setProviderSecret: (secret) => ipcRenderer.invoke('desktop:set-provider-secret', secret),
 })
 
 // Small desktop-only affordance so a normal user can switch the fixed project
