@@ -11,3 +11,6 @@ dist-desktop/
 .workbench/runtime/
 .workbench/vendor/deepseek-harness/
 !.workbench/vendor/deepseek-harness-*.bundle
+# Throwaway local build verification artifacts (P0-D headless build check)
+p0d-build/
+p0d-build.log
