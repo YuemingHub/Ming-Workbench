@@ -47,8 +47,8 @@ jobs:
           cache: npm
           cache-dependency-path: package.json
 
-      - name: Install Workbench dependencies
-        run: npm install --no-audit --no-fund
+      - name: Install Workbench dependencies without mutating repository lock state
+        run: npm install --no-package-lock --no-audit --no-fund
 
       - name: Compile Workbench transport
         run: npm run build:test
@@ -120,6 +120,7 @@ jobs:
           set -euo pipefail
           git fetch --depth=1 origin main:refs/remotes/origin/main
           git checkout -b "$MING_WRITE_SMOKE_BRANCH"
+          test -z "$(git status --porcelain --untracked-files=all)"
 
           MOCK_LOG="$RUNNER_TEMP/ming-workbench-mock-llm-write.jsonl"
           MOCK_ERR="$RUNNER_TEMP/ming-workbench-mock-llm-write.stderr"
