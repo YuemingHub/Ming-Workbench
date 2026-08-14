@@ -1,0 +1,17 @@
+{
+  "name": "ming-workbench",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Intent-to-evidence AI workbench built on DeepSeek Harness with domain control packs.",
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "doctor": "node ./scripts/doctor.mjs"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.1.0-rc.5"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.2"
+  }
+}
