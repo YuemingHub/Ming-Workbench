@@ -340,6 +340,12 @@ async function main() {
     )
 
     // --- phase 2: resume/stale-authority pressure on the same Work Unit ---
+    // P0-1 frontier semantics: the phase-1 output (uncommitted app.js) now
+    // overlaps the re-authorized exact slice, so re-execution would be blocked
+    // (pre-existing dirty file overlapping the slice). The correct product flow
+    // hands the in-flight output over explicitly: the human commits it.
+    run(scratch, ['add', 'app.js'])
+    run(scratch, ['commit', '-m', 'phase-1 granted output accepted'])
     await stopBackend()
 
     // Mutate scratch repo HEAD while the app is down.
@@ -409,9 +415,11 @@ async function main() {
     const reExecBody = await reExec.json()
     check(reExec.status === 200, 're-authorized execution completes', `status=${reExec.status}`)
 
-    // The phase-1 file stays dirty on purpose: pre-existing dirty files are
-    // never counted as NEW execution evidence. Success here comes from the
-    // authoritative test pass, not from re-claiming the old dirty file.
+    // The phase-1 file was committed as the accepted hand-off, so the
+    // re-execution rewrites it with identical content: no NEW dirty file, and
+    // success comes from the authoritative test pass, not from re-claiming old
+    // dirt. (Pre-existing dirty files are never counted as new execution
+    // evidence — the overlap-blocking path is covered by P0-1 scenario 4.)
     const reEvidence = reExecBody?.workUnit?.evidence ?? []
     check(
       reEvidence.some((e) => e.kind === 'test' && e.summary.includes('tests passed')),
