@@ -1,8 +1,6 @@
 import type { WorkUnit } from '../core/model.js'
-import {
-  runHarnessAcpReadOnlyIntake,
-  type HarnessAcpRunResult,
-} from '../transports/harness-acp.js'
+import type { HarnessAcpRunResult } from '../transports/harness-acp.js'
+import { runHarnessAcpReadOnlyIntake } from '../transports/harness-acp-intake.js'
 import type { PreparedProjectIntake } from './project-aaop.js'
 import {
   parseAaopIntakeEnvelope,
@@ -92,7 +90,7 @@ function reconcileCoordinatorWorkUnit(
         id: evidenceId,
         kind: 'session',
         summary: `Read-only AAOP Developer Intake session derived route ${envelope.route} at confidence ${envelope.route_confidence}. This is coordination evidence, not product truth or completion evidence.`,
-        source: `deepseek-harness-acp:${sessionId}`,
+        uri: `deepseek-harness-acp:${sessionId}`,
         observedAt: now.toISOString(),
         authoritative: false,
       },
