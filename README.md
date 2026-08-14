@@ -39,21 +39,14 @@ npm test
 
 Prepare a separate DeepSeek Harness source checkout at the exact commit recorded in `harness.lock.json`, install/build it using the upstream instructions, then point Workbench at that checkout.
 
-macOS/Linux example:
-
 ```bash
 export MING_HARNESS_CHECKOUT=/absolute/path/to/deepseek-harness
 npm run doctor:harness
 ```
 
-PowerShell example:
+Workbench ships its own Harness overlay and the `development-aaop` Agent Preset under `harness/`. The preset is single-agent by default and deliberately omits subagents, dynamic Workflow, Ralph, and the model-facing Harness Goal tool.
 
-```powershell
-$env:MING_HARNESS_CHECKOUT = 'C:\path\to\deepseek-harness'
-npm run doctor:harness
-```
-
-The full doctor verifies both the source package version and exact Git commit. Start the Harness Web UI from that reviewed checkout using its own documented command surface.
+See `docs/HARNESS_SETUP.md` for the exact reviewed-source and overlay launch procedure.
 
 Ming Workbench does not deep-fork Harness UI or runtime.
 
@@ -62,8 +55,9 @@ Ming Workbench does not deep-fork Harness UI or runtime.
 - a minimal evidence-bearing Work Unit model;
 - a completion invariant that rejects evidence-free `done` states;
 - an isolated Harness compatibility seam;
-- the first `development-aaop` Domain Pack descriptor and AAOP intake envelope;
+- the first `development-aaop` Domain Pack and repository admission boundary;
 - conflict-aware repository-frontier intake grounded in a real Family Space pilot;
+- a repository-owned Harness overlay and single-agent Development Preset;
 - architecture boundaries for the first end-to-end development slice.
 
 ## What is intentionally not implemented yet
@@ -82,7 +76,7 @@ ordinary-language goal
 → Work Unit
 → repository-frontier admission
 → AAOP Route / authorization / acceptance
-→ DeepSeek Harness execution
+→ development-aaop Harness Preset
 → repository + test/runtime readback
 → evidence-backed completion
 ```

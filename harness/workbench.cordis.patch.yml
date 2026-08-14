@@ -1,0 +1,17 @@
+# Ming Workbench overlay for the reviewed DeepSeek Harness Web profile.
+#
+# The upstream Web bundle already inserts `agent-presets`. Harness patch rows
+# replace a row's complete config rather than merge it, so this file restates
+# every setting Workbench owns for that row.
+#
+# Set MING_WORKBENCH_ROOT to this repository's absolute path when launching the
+# reviewed Harness checkout. The fallback is useful only when Harness itself is
+# launched with Ming-Workbench as its working directory.
+
+- id: agent-presets
+  config:
+    default: development-aaop
+    roots:
+      - path: !!js '(process.env.MING_WORKBENCH_ROOT ?? process.cwd()) + "/harness/presets"'
+        trust: user
+    includeUserRoot: true
