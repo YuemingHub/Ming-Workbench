@@ -1,7 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 
-import { admitDevelopmentWorkUnit } from '../.tmp/domain-packs/development-aaop.js'
+import {
+  assessDevelopmentExecutionFrontier,
+  prepareDevelopmentIntake,
+} from '../.tmp/domain-packs/development-aaop.js'
 
 const unit = {
   id: 'WU-002',
@@ -45,19 +48,21 @@ const frontier = {
 const authorizationBoundary =
   'Working branch + Draft PR only; no production write, deployment, credential use, paid service, or real-family-data access.'
 
-test('defers AAOP request when the intended file surface is unknown', () => {
-  const result = admitDevelopmentWorkUnit({
+test('unknown file scope does not block read-only AAOP Developer Intake', () => {
+  const result = prepareDevelopmentIntake({
     unit,
     authorizationBoundary,
-    repository: { frontier, intendedFiles: [] },
+    repository: { frontier },
   })
 
-  assert.equal(result.status, 'deferred')
-  assert.equal(result.frontierDecision.kind, 'scope-required')
+  assert.equal(result.status, 'ready-for-aaop-intake')
+  assert.equal(result.frontierContext.kind, 'scope-required')
+  assert.equal(result.executionRequiresFreshFrontier, true)
+  assert.equal(result.aaopRequest.workUnitId, 'WU-002')
 })
 
-test('defers AAOP request when the slice conflicts with active work', () => {
-  const result = admitDevelopmentWorkUnit({
+test('known active-work conflict is intake context, not a reason to ask the human for files first', () => {
+  const result = prepareDevelopmentIntake({
     unit,
     authorizationBoundary,
     repository: {
@@ -66,14 +71,15 @@ test('defers AAOP request when the slice conflicts with active work', () => {
     },
   })
 
-  assert.equal(result.status, 'deferred')
-  assert.equal(result.frontierDecision.kind, 'conflict')
-  assert.deepEqual(result.frontierDecision.conflicts[0].workItemId, 'PR-268')
+  assert.equal(result.status, 'ready-for-aaop-intake')
+  assert.equal(result.frontierContext.kind, 'conflict')
+  assert.deepEqual(result.frontierContext.conflicts[0].workItemId, 'PR-268')
+  assert.match(result.reason, /continue read-only Developer Intake/)
 })
 
-test('creates one Workbench-to-AAOP request only after repository admission passes', () => {
+test('even an intake-time safe frontier must be re-read before execution', () => {
   const rawRequest = 'Please take one safe next development slice in Family Space.'
-  const result = admitDevelopmentWorkUnit({
+  const result = prepareDevelopmentIntake({
     unit,
     rawRequest,
     authorizationBoundary,
@@ -83,9 +89,9 @@ test('creates one Workbench-to-AAOP request only after repository admission pass
     },
   })
 
-  assert.equal(result.status, 'admitted')
-  assert.equal(result.frontierDecision.kind, 'safe')
-  assert.equal(result.aaopRequest.workUnitId, 'WU-002')
+  assert.equal(result.status, 'ready-for-aaop-intake')
+  assert.equal(result.frontierContext.kind, 'safe')
+  assert.equal(result.executionRequiresFreshFrontier, true)
   assert.equal(result.aaopRequest.rawRequest, rawRequest)
   assert.equal(result.aaopRequest.desiredOutcome, unit.outcome)
   assert.equal(result.aaopRequest.authorizationBoundary, authorizationBoundary)
@@ -99,10 +105,41 @@ test('creates one Workbench-to-AAOP request only after repository admission pass
   assert.equal('questionNeeded' in result.aaopRequest, false)
 })
 
-test('does not invent a repository gate for a request without an existing-repository target', () => {
-  const result = admitDevelopmentWorkUnit({ unit, authorizationBoundary })
+test('non-repository intake does not invent a mutation-frontier requirement', () => {
+  const result = prepareDevelopmentIntake({ unit, authorizationBoundary })
 
-  assert.equal(result.status, 'admitted')
-  assert.equal(result.frontierDecision, undefined)
+  assert.equal(result.status, 'ready-for-aaop-intake')
+  assert.equal(result.frontierContext, undefined)
+  assert.equal(result.executionRequiresFreshFrontier, false)
   assert.equal(result.aaopRequest.rawRequest, unit.outcome)
+})
+
+test('hard execution gate still rejects unknown mutation scope', () => {
+  const decision = assessDevelopmentExecutionFrontier({
+    frontier,
+    intendedFiles: [],
+  })
+
+  assert.equal(decision.kind, 'scope-required')
+  assert.equal(decision.safeToStart, false)
+})
+
+test('hard execution gate rejects overlap with current active work', () => {
+  const decision = assessDevelopmentExecutionFrontier({
+    frontier,
+    intendedFiles: ['src/services/ai-engine-core.js'],
+  })
+
+  assert.equal(decision.kind, 'conflict')
+  assert.equal(decision.safeToStart, false)
+})
+
+test('hard execution gate passes only a known non-overlapping file surface', () => {
+  const decision = assessDevelopmentExecutionFrontier({
+    frontier,
+    intendedFiles: ['workbench.project.json'],
+  })
+
+  assert.equal(decision.kind, 'safe')
+  assert.equal(decision.safeToStart, true)
 })
