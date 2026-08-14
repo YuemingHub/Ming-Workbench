@@ -1084,10 +1084,10 @@ Ming Workbench 应越来越薄，而不是成为所有 AI 技术的收集箱。
 
 | Priority | Milestone | Status | Merge/Done Gate |
 |---|---|---|---|
-| P0-1 | Exact `MutationSlice` / file-bounded mutation | TODO | unknown scope blocked; out-of-slice writes hard-fail; scratch-repo proofs |
-| P0-2 | Split run/effect/verification/acceptance semantics | TODO | no-op/pre-green and mutation/failing-test regressions covered |
-| P0-3 | Strong completion/evidence invariant | TODO | session claim alone can never complete Work Unit |
-| P0-4 | Packaged Windows exact-artifact smoke | TODO | activated GitHub workflow green on exact head |
+| P0-1 | Exact `MutationSlice` / file-bounded mutation | DONE (a33fafa) | unknown scope blocked; out-of-slice writes hard-fail; scratch-repo proofs |
+| P0-2 | Split run/effect/verification/acceptance semantics | DONE (a33fafa) | no-op/pre-green and mutation/failing-test regressions covered |
+| P0-3 | Strong completion/evidence invariant | DONE (a33fafa) | session claim alone can never complete Work Unit |
+| P0-4 | Packaged Windows exact-artifact smoke | LOCAL DONE, CI BLOCKED (HUMAN_AUTHORIZATION_REQUIRED) | activated GitHub workflow green on exact head |
 | P1-1 | `ExecutionRun` | TODO | multiple runs per Work Unit, durable persistence |
 | P1-2 | `ExecutionFingerprint` | TODO | runtime/profile/model/config identity traceable |
 | P1-3 | Evidence Spine | TODO | Session → projection → Run → Work Unit trace works |
@@ -1165,3 +1165,27 @@ Ming Workbench 不是因为拥有很多 Agent 能力而成功。
 - 已确认：现有 `ci` / `aaop-setup-smoke` / `harness-acp-smoke` 在当前研究时点为 green。
 - 新发现的 merge-blocking 风险：file-bounded mutation 尚未真正闭环；run/effect/verification/acceptance 语义仍混合；completion invariant 仍过弱；packaged Windows exact-artifact workflow 尚未正式激活。
 - 下一动作：从 P0-1 开始，按顺序推进，不提前开启 P1/P2。
+
+## 2026-08-15 — P0-1 / P0-2 / P0-3 完成（PR #22, branch `agent/desktop-p0-reconciliation`）
+
+- **P0-1 真实 file-bounded MutationSlice** — exact SHA `87a9ca5`（含 `ff1c13e` smoke 交接修复）：
+  - 新 `MutationSlice { repository, baseRef, scope }`（`src/execution/mutation-slice.ts`），scope = `exact(paths)` / `unknown` / `whole-repository`；projectRoot 字符串不再是 intended file。
+  - unknown surface：只读 intake 保留，写授权在签发层（`issueProviderExecutionGrant`）、API 层（`/api/authorize` → 400 `scope-required`）、执行层（`reconcileBeforeMutation`/`validateExecutionPreconditions`）三层 fail-closed。
+  - `/api/authorize` 只接受 human 确认的 `filePaths[]` 或显式 `wholeRepository:true`；slice 随 grant 持久化（legacy `intendedFiles=[projectRoot]` 显式迁移为 whole-repository）。
+  - 执行后 delta 必须是授权路径子集（`computeExecutionDelta` 按 slice 判 scope violations；pre-existing dirty 只在前沿重叠时阻止，永不记为 violation）。
+  - whole-repository 是显式独立 scope，且要求工作区干净。
+  - UI 执行卡片改为要求填写影响文件或显式勾选整个仓库。
+  - 真实 scratch Git repo 6 场景测试（`test/mutation-slice.test.mjs`，走真实 authorize→execute 链）。
+- **P0-2 四轴状态** — exact SHA `f9fc651`：
+  - 新 `src/execution/run-outcome.ts`：`RunStatus`（started/running/completed/failed/interrupted/orphaned）、`EffectObservation`（mutation-observed/no-mutation/external-observed/external-unknown）、`VerificationVerdict`（pending/passed/failed/inconclusive）、`AcceptanceVerdict`（pending/accepted/rejected，accepted 只能由人给出）。
+  - 执行前也跑真实测试（`beforeTestResult`），`deriveRunOutcome` 从真实证据推导四轴；Harness 完成最多证明 `runStatus: completed`。
+  - Regression A：pre-green + no-op → `no-mutation` + verification `inconclusive` → Work Unit 回到 `needs-human`（旧逻辑误判 success）。Regression B：mutation + tests fail → verification `failed` / acceptance `rejected`（旧逻辑误判 success）。Regression C：run 完成永不完成 Work Unit。
+  - 顺带修掉一个真实证据 bug：外层 node:test 向子进程传播 `NODE_TEST_CONTEXT`，导致嵌套 `node --test` 静默 exit 0；spawn 项目测试时剥离该变量。
+- **P0-3 completion invariant** — exact SHA `a33fafa`：
+  - Evidence 增加 `verifier`（harness-session/repository-observation/test-run/independent-verification/human-confirmation）与 `verification` 判定；`canMarkCompleted` 不再信任自由 `satisfied` boolean。
+  - completion 要求每个被引用证据：authoritative + 真实 verifier（harness-session 永不满足）+ verification `passed`。
+  - 执行路径：run 记录证据 = harness-session claim（pending），测试证据 = test-run 真实验证判定。
+  - 5 个必需用例 + 边界用例在 `test/completion-invariant.test.mjs`。
+- **测试与真实入口证据**：151 unit pass / 0 fail / 2 skip；`SCRATCH MUTATION RESULT: PASS`（真实 reviewed Harness + mock LLM + 真实 scratch Git repo，P0-1/P0-2 后各跑一轮，P0-3 后重跑中）；CI `ci`/`aaop-setup-smoke`/`harness-acp-smoke` 在 `ff1c13e` 与 `f9fc651` 全绿，`a33fafa` 运行中。
+- **P0-4 状态**：本地 packaged smoke 在跑；workflow 激活 commit 被 GitHub 拒绝：`refusing to allow an OAuth App to create or update workflow ... without 'workflow' scope` → `HUMAN_AUTHORIZATION_REQUIRED`（见 docs/P0-4_ACTIVATION_GATE.md）。
+- 下一动作：P0-4 owner 授权（`gh auth refresh -s workflow`）→ 激活 workflow → exact head 跑绿 → PR #22 review/merge。之后 P1-1 ExecutionRun。
