@@ -37,30 +37,40 @@ export interface AaopDeveloperRequest {
   authorizationBoundary: string
 }
 
-export interface RepositoryAdmissionTarget {
+/**
+ * Repository evidence available while AAOP is still understanding the task.
+ * `intendedFiles` may be absent because discovering the correct mutation scope
+ * is often part of Developer Intake itself.
+ */
+export interface RepositoryIntakeContext {
   frontier: RepositoryFrontier
-  intendedFiles: string[]
+  intendedFiles?: string[]
 }
 
-export interface DevelopmentAdmissionRequest {
+export interface DevelopmentIntakePreparationRequest {
   unit: WorkUnit
   rawRequest?: string
   authorizationBoundary: string
-  repository?: RepositoryAdmissionTarget
+  repository?: RepositoryIntakeContext
 }
 
-export type DevelopmentAdmissionResult =
-  | {
-      status: 'admitted'
-      aaopRequest: AaopDeveloperRequest
-      frontierDecision?: FrontierDecision
-      reason: string
-    }
-  | {
-      status: 'deferred'
-      frontierDecision: FrontierDecision
-      reason: string
-    }
+export interface DevelopmentIntakePreparationResult {
+  status: 'ready-for-aaop-intake'
+  aaopRequest: AaopDeveloperRequest
+  /**
+   * Advisory intake-time evidence only. It never authorizes execution because
+   * active repository work may change while AAOP is reasoning.
+   */
+  frontierContext?: FrontierDecision
+  /** Existing-repository mutation must always re-read frontier before execution. */
+  executionRequiresFreshFrontier: boolean
+  reason: string
+}
+
+export interface DevelopmentExecutionFrontierRequest {
+  frontier: RepositoryFrontier
+  intendedFiles: string[]
+}
 
 /**
  * Build only the Workbench-owned request AAOP needs to begin Developer Intake.
@@ -83,48 +93,56 @@ export function toAaopDeveloperRequest(
 }
 
 /**
- * Admit a development Work Unit to AAOP only after any known repository target
- * has a proven non-conflicting file surface. A deferred result is not a human
- * gate by itself: the orchestrator may narrow, reroute, wait for handoff, or
- * inspect fresher repository evidence before involving the user.
+ * Prepare a Work Unit for grounded AAOP Developer Intake.
+ *
+ * Repository conflict evidence may constrain or redirect the eventual plan, but
+ * it must not prevent the read-only reasoning needed to discover the correct
+ * file scope. This preserves the ordinary-language user experience: the human
+ * states the goal; AAOP inspects the project before asking them to name files.
  */
-export function admitDevelopmentWorkUnit(
-  request: DevelopmentAdmissionRequest,
-): DevelopmentAdmissionResult {
-  const buildAaopRequest = () =>
-    toAaopDeveloperRequest(
-      request.unit,
-      request.authorizationBoundary,
-      request.rawRequest,
-    )
+export function prepareDevelopmentIntake(
+  request: DevelopmentIntakePreparationRequest,
+): DevelopmentIntakePreparationResult {
+  const aaopRequest = toAaopDeveloperRequest(
+    request.unit,
+    request.authorizationBoundary,
+    request.rawRequest,
+  )
 
   if (!request.repository) {
     return {
-      status: 'admitted',
-      aaopRequest: buildAaopRequest(),
+      status: 'ready-for-aaop-intake',
+      aaopRequest,
+      executionRequiresFreshFrontier: false,
       reason:
-        'No existing-repository target was supplied; repository-frontier admission is not applicable to this request.',
+        'No existing-repository context was supplied; AAOP Developer Intake may inspect the situation before any execution target exists.',
     }
   }
 
-  const frontierDecision = assessRepositoryFrontier(
+  const frontierContext = assessRepositoryFrontier(
     request.repository.frontier,
-    request.repository.intendedFiles,
+    request.repository.intendedFiles ?? [],
   )
 
-  if (!frontierDecision.safeToStart) {
-    return {
-      status: 'deferred',
-      frontierDecision,
-      reason: frontierDecision.reason,
-    }
-  }
-
   return {
-    status: 'admitted',
-    aaopRequest: buildAaopRequest(),
-    frontierDecision,
-    reason:
-      'Repository-frontier admission passed; AAOP Developer Intake may now determine Situation, Route, decision ownership, provider selection and acceptance.',
+    status: 'ready-for-aaop-intake',
+    aaopRequest,
+    frontierContext,
+    executionRequiresFreshFrontier: true,
+    reason: frontierContext.safeToStart
+      ? 'Current repository evidence shows no known overlap, but AAOP may only treat this as intake context; execution still requires a fresh frontier read.'
+      : 'Current repository evidence is unresolved or conflicting. AAOP may continue read-only Developer Intake to narrow/reroute the plan, but execution remains blocked until a fresh frontier check passes.',
   }
+}
+
+/**
+ * Hard pre-execution gate for an existing repository mutation.
+ *
+ * Call this with fresh active-work evidence AFTER AAOP has determined the exact
+ * intended file surface and BEFORE issuing/consuming a write execution grant.
+ */
+export function assessDevelopmentExecutionFrontier(
+  request: DevelopmentExecutionFrontierRequest,
+): FrontierDecision {
+  return assessRepositoryFrontier(request.frontier, request.intendedFiles)
 }

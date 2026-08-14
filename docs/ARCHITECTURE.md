@@ -34,24 +34,46 @@ Completion requires:
 
 `assertCompletionInvariant()` enforces this in the first core model.
 
-## Repository-frontier admission
+## Developer Intake before mutation admission
 
-Before a development Work Unit starts implementation, Workbench may need current repository evidence about active work.
+A normal user should be able to state an outcome without naming implementation files. Discovering the correct file surface is often part of grounded AAOP Developer Intake.
 
-The first real Family Space pilot proved three distinct states:
+Therefore current repository-frontier evidence has two different roles:
+
+### During Developer Intake
+
+It is **context**, not an execution authorization gate.
 
 ```text
 intended file surface unknown
-→ scope-required
+→ AAOP may continue read-only intake and inspect the project
 
 known surface overlaps active work
-→ conflict
+→ AAOP may narrow, reroute, wait for handoff, or choose another slice
 
-known surface is proven non-overlapping
-→ safe
+known surface appears non-overlapping
+→ useful evidence, but still not durable execution authority
 ```
 
-This is an admission fact, not an AAOP replacement. A `safe` repository-frontier result only allows the Work Unit to continue to AAOP's Route/authorization/acceptance gates.
+Even a safe-looking intake-time frontier may become stale while reasoning continues.
+
+### Immediately before mutation
+
+Workbench requires fresh active-work evidence and the exact intended file surface:
+
+```text
+fresh file surface unknown
+→ scope-required → no mutation
+
+fresh surface overlaps active work
+→ conflict → no mutation
+
+fresh surface is proven non-overlapping
+→ frontier gate passes
+→ AAOP may issue/consume the bounded write execution grant
+```
+
+This separation preserves both goals: ordinary-language intake for the human and fail-closed repository concurrency for execution.
 
 ## Authority map
 
@@ -70,11 +92,12 @@ Domain-specific interpretation and control semantics. The first pack is `develop
 ### AAOP owns for software development
 
 - Human-Agent Working Contract;
-- current software-development Route;
+- grounded Developer Intake and current software-development Route;
 - decision ownership;
 - Task Pod responsibility;
 - provider selection;
 - authorization boundaries;
+- Provider Execution Grant;
 - final engineering acceptance and rerouting.
 
 Workbench must not duplicate these state machines.
@@ -128,18 +151,19 @@ All upstream-specific version/capability decisions belong under `src/hosts/` and
 
 Do not deep-fork Harness merely to brand Ming Workbench. Prefer its documented plugin, profile, bundle, patch, preset, and UI-slot extension seams.
 
-## Next executable slice
-
-Wire one real development Space to one real repository and prove one Work Unit end-to-end:
+## Current executable chain
 
 ```text
 ordinary-language goal
 → Work Unit
-→ repository-frontier admission
-→ AAOP Route / decision ownership / authorization
-→ Harness execution
+→ read-only AAOP Developer Intake
+→ proposed exact mutation scope
+→ fresh repository-frontier execution gate
+→ AAOP Provider Execution Grant
+→ guarded Harness ACP execution
 → repository + test/runtime readback
-→ evidence-backed completion
+→ AAOP engineering acceptance
+→ evidence-backed Work Unit completion
 ```
 
-Family Space remains the first real proving ground, but Workbench must respect its current active PR ownership before selecting a mutation slice.
+Family Space remains the first real proving ground, but Workbench must respect its current active PR ownership before selecting any mutation slice.
