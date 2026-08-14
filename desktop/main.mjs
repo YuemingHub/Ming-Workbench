@@ -5,17 +5,19 @@ import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { resolveBackendScript, spawnBackend } from './backend.mjs'
+import { isAllowedBackendUrl, isTrustedDesktopSender, urlOrigin } from './validation.mjs'
 
 const desktopDir = resolve(fileURLToPath(new URL('.', import.meta.url)))
 const repoRoot = resolve(desktopDir, '..')
 
 // The renderer may only ever talk to a loopback Workbench backend. Everything
 // else is denied by the navigation/window/permission guards below.
-const LOOPBACK_ORIGIN = /^http:\/\/127\.0\.0\.1:\d+$/
+const LOOPBACK_ORIGIN_RE = /^http:\/\/127\.0\.0\.1:\d+$/
 
 let win = null
 let backend = null
 let backendUrl = ''
+let activeBackendOrigin = ''
 let switching = false
 let cleanShutdownDone = false
 
@@ -91,6 +93,10 @@ async function startBackend(projectRoot) {
     await previous.kill()
   }
 
+  // Clear origin atomically before spawning so no stale origin is accepted
+  // while a new backend is starting.
+  activeBackendOrigin = ''
+
   const workbenchRoot = resolveWorkbenchRoot()
   const harnessCheckout = process.env.MING_HARNESS_CHECKOUT
     ? resolve(process.env.MING_HARNESS_CHECKOUT)
@@ -111,13 +117,16 @@ async function startBackend(projectRoot) {
   })
 
   backendUrl = await backend.ready
-  appendStartupLog(`backend ready ${backendUrl}`)
+  // Atomically set the exact backend origin BEFORE any renderer navigation or
+  // IPC can observe it. Only the exact ready URL becomes trusted.
+  activeBackendOrigin = urlOrigin(backendUrl) ?? ''
+  appendStartupLog(`backend ready ${backendUrl} origin=${activeBackendOrigin}`)
   writeLastProject(projectRoot)
   return backendUrl
 }
 
-function isAllowedBackendUrl(url) {
-  return LOOPBACK_ORIGIN.test(url)
+function checkNavigationAllowed(url) {
+  return isAllowedBackendUrl(url, activeBackendOrigin)
 }
 
 function cliArgValue(name) {
@@ -132,7 +141,7 @@ function hardenWindow(targetWin) {
   targetWin.webContents.on('will-attach-webview', (event) => event.preventDefault())
   // Navigation is limited to the Workbench-owned loopback backend.
   targetWin.webContents.on('will-navigate', (event, targetUrl) => {
-    if (!isAllowedBackendUrl(targetUrl)) event.preventDefault()
+    if (!checkNavigationAllowed(targetUrl)) event.preventDefault()
   })
   // No browser permission (geolocation, media, notifications, etc.).
   targetWin.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
@@ -215,6 +224,7 @@ async function pickProjectViaDialog() {
 }
 
 async function switchBackend(projectRoot) {
+  // startBackend sets activeBackendOrigin atomically after backend.ready.
   const url = await startBackend(projectRoot)
   if (win && !win.isDestroyed()) {
     void win.loadURL(url)
@@ -240,7 +250,10 @@ async function requestProjectSwitch() {
 }
 
 function registerIpc() {
-  ipcMain.handle('desktop:select-project', async () => {
+  ipcMain.handle('desktop:select-project', async (event) => {
+    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) {
+      return { canceled: true }
+    }
     if (switching) return { canceled: true }
     switching = true
     try {
@@ -252,7 +265,10 @@ function registerIpc() {
       switching = false
     }
   })
-  ipcMain.on('desktop:quit', () => app.quit())
+  ipcMain.on('desktop:quit', (event) => {
+    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) return
+    app.quit()
+  })
 }
 
 const gotLock = app.requestSingleInstanceLock()

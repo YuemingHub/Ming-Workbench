@@ -46,6 +46,40 @@ test('main keeps the renderer sandboxed with no Node surface', () => {
   assert.match(source, /preload: join\(desktopDir, 'preload\.cjs'\)/)
 })
 
+test('navigation handler uses exact-backend-origin check, not any loopback port', () => {
+  const source = read('desktop/main.mjs')
+  // The will-navigate handler must call checkNavigationAllowed (which delegates
+  // to the exact-origin validator), not the old broad loopback regex.
+  assert.match(source, /will-navigate.*\n.*checkNavigationAllowed/s)
+  // The old LOOPBACK_ORIGIN_RE constant must not be used for navigation.
+  assert.match(source, /LOOPBACK_ORIGIN_RE/)
+  // Navigation must not accept any 127.0.0.1:<port> pattern.
+  assert.doesNotMatch(
+    source,
+    /will-navigate.*\n.*LOOPBACK_ORIGIN_RE/s,
+  )
+})
+
+test('IPC handlers validate sender origin', () => {
+  const source = read('desktop/main.mjs')
+  // Both privileged IPC handlers must call isTrustedDesktopSender.
+  assert.match(source, /isTrustedDesktopSender.*event\.sender\.getURL\(\)/s)
+  // The sender URL is checked against the active backend origin, not just
+  // accepted unconditionally.
+  assert.match(source, /isTrustedDesktopSender\(event\.sender\.getURL\(\),\s*activeBackendOrigin\)/s)
+})
+
+test('backend origin is set atomically after ready, not before', () => {
+  const source = read('desktop/main.mjs')
+  // activeBackendOrigin must be cleared before spawning and set only after
+  // backend.ready resolves.
+  assert.match(source, /activeBackendOrigin\s*=\s*''/)
+  assert.match(source, /activeBackendOrigin\s*=\s*urlOrigin\(backendUrl\)/)
+  // The origin assignment must happen inside startBackend, not at module load.
+  assert.match(source, /async function startBackend\(/)
+  assert.match(source, /activeBackendOrigin = urlOrigin\(backendUrl\)/)
+})
+
 test('preload exposes only the narrow Workbench Desktop API', () => {
   const source = read('desktop/preload.cjs')
   assert.match(source, /contextBridge\.exposeInMainWorld\(/)
