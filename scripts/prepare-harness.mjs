@@ -15,9 +15,11 @@ const target = resolve(
 const PNPM_VERSION = '11.7.0'
 
 function run(command, args, options = {}) {
+  const shell = options.shell ?? (process.platform === 'win32' && /\.cmd$/i.test(command))
   return execFileSync(command, args, {
     encoding: 'utf8',
     stdio: options.capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
+    shell,
     ...options,
   })?.trim?.() ?? ''
 }

@@ -72,6 +72,67 @@ Harness/session completion remains execution evidence, not final Work Unit compl
 - exact-upstream hosted ACP smoke coverage;
 - a one-command reviewed Harness source prepare path.
 
+## Desktop v0.1 (Electron shell)
+
+Ming Workbench Desktop is the first installable human-facing shell. Electron is
+only a delivery shell; it owns no product/domain semantics. The Workbench
+backend keeps owning project / AAOP / Harness / application semantics, and the
+renderer is a plain human interface over the same loopback, token-protected,
+fixed-project API as the Stage B local Web slice.
+
+Chain proven on `agent/electron-desktop-v0-1`:
+
+```text
+launch desktop
+→ choose/open one local project (native directory picker or --project)
+→ Workbench fixes that project for the process lifetime
+→ AAOP onboarding discovery (setup-required / ready / blocked)
+→ explicit human authorization Gate before AAOP setup
+→ canonical exact-stable AAOP bootstrap adapter
+→ ordinary-language request
+→ read-only AAOP Developer Intake over the reviewed Harness ACP transport
+→ Work Unit / Gate / Evidence / next frontier in human language
+→ clean close without residual Workbench/Harness child processes
+```
+
+Run in development:
+
+```bash
+npm install
+npm run harness:prepare
+npm run check
+npm test
+npm run desktop:dev              # builds .tmp, then opens the desktop shell
+```
+
+The desktop shell keeps the Stage B security boundary:
+
+- `nodeIntegration: false`, `contextIsolation: true`, renderer `sandbox: true`;
+- the preload exposes only a narrow Workbench Desktop API (`selectProject`,
+  `quit`), never `fs`, `child_process`, `shell`, or raw `ipcRenderer`;
+- navigation is limited to the Workbench-owned loopback backend, new windows and
+  webviews are denied, and browser permission requests are refused;
+- the backend still binds only to `127.0.0.1`, fixes one project, and ignores
+  browser-supplied project roots.
+
+Package on Windows:
+
+```bash
+npm run desktop:package          # portable single exe in dist-desktop/
+npm run desktop:package:dir      # unpacked app in dist-desktop/win-unpacked/
+```
+
+The packaged app prefers the system `node` runtime for the backend sidecar and
+falls back to Electron-as-node. A real read-only Intake needs the reviewed
+Harness checkout, which is a runtime environment dependency: pass
+`MING_HARNESS_CHECKOUT` (and the provider credentials the transport already
+inherits, e.g. `DEEPSEEK_API_KEY`). Harness/session completion remains execution
+evidence, never Work Unit completion. The first slice deliberately exposes no
+write/execution UI.
+
+See `docs/DESKTOP_V0_1_VERIFICATION.md` for the machine-level verification record
+of this slice.
+
 ## What is intentionally not implemented yet
 
 - a duplicate agent loop;

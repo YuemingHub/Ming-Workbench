@@ -87,6 +87,10 @@ console.log(`  project: ${projectRoot}`)
 console.log(`  open: ${handle.url}`)
 console.log('  first step: read-only project understanding')
 console.log('Press Ctrl+C to stop.')
+// Machine-readable handshake for host shells (desktop/main.mjs). The token is
+// deliberately not printed: the browser/desktop renderer reads it from the HTML
+// meta tag served by the backend itself.
+console.log(`MING_WORKBENCH_READY ${handle.url}`)
 
 let closing = false
 async function close(code = 0) {

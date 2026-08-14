@@ -92,6 +92,12 @@ const SAFE_INHERITED_ENV = [
   'http_proxy',
   'https_proxy',
   'no_proxy',
+  // When the Workbench backend sidecar runs as `electron.exe` with
+  // ELECTRON_RUN_AS_NODE, the ACP child runner must inherit the same mode so
+  // `process.execPath` behaves as Node instead of opening a GUI. This is only
+  // present when the desktop shell explicitly set it; it never weakens what the
+  // Harness child is allowed to run.
+  'ELECTRON_RUN_AS_NODE',
   // Provider infrastructure credentials only. Task-specific credentials
   // (GitHub, cloud deploy keys, databases, etc.) are deliberately not inherited.
   'DEEPSEEK_API_KEY',
