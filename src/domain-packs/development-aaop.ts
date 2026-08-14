@@ -21,11 +21,19 @@ export const developmentAaopPack: DomainPackDescriptor = {
   durableExecutionPolicy: 'loopx-only-after-proven-execution-continuity-gap',
 }
 
-export interface AaopIntakeEnvelope {
-  userOutcome: string
-  currentState: WorkUnit['state']
+/**
+ * Workbench-owned input handed TO AAOP Developer Intake.
+ *
+ * This is intentionally NOT AAOP's canonical `intake-envelope.schema.json`.
+ * AAOP must inspect project evidence and determine situation, Route,
+ * confidence, ambiguities, and whether a human question is actually needed.
+ */
+export interface AaopDeveloperRequest {
+  rawRequest: string
+  desiredOutcome: string
+  currentWorkbenchState: WorkUnit['state']
   workUnitId: string
-  acceptance: string[]
+  acceptanceExpectations: string[]
   authorizationBoundary: string
 }
 
@@ -36,6 +44,7 @@ export interface RepositoryAdmissionTarget {
 
 export interface DevelopmentAdmissionRequest {
   unit: WorkUnit
+  rawRequest?: string
   authorizationBoundary: string
   repository?: RepositoryAdmissionTarget
 }
@@ -43,7 +52,7 @@ export interface DevelopmentAdmissionRequest {
 export type DevelopmentAdmissionResult =
   | {
       status: 'admitted'
-      aaopIntake: AaopIntakeEnvelope
+      aaopRequest: AaopDeveloperRequest
       frontierDecision?: FrontierDecision
       reason: string
     }
@@ -54,19 +63,21 @@ export type DevelopmentAdmissionResult =
     }
 
 /**
- * This is deliberately a narrow seam. AAOP remains authoritative for Route,
- * Working Contract, authorization, Task Pod responsibility and acceptance.
- * Workbench does not recreate those state machines.
+ * Build only the Workbench-owned request AAOP needs to begin Developer Intake.
+ * Do not add situation, Route, route confidence, question-needed, Task Pod, or
+ * provider decisions here; those are AAOP-owned outputs of grounded intake.
  */
-export function toAaopIntake(
+export function toAaopDeveloperRequest(
   unit: WorkUnit,
   authorizationBoundary: string,
-): AaopIntakeEnvelope {
+  rawRequest = unit.outcome,
+): AaopDeveloperRequest {
   return {
-    userOutcome: unit.outcome,
-    currentState: unit.state,
+    rawRequest,
+    desiredOutcome: unit.outcome,
+    currentWorkbenchState: unit.state,
     workUnitId: unit.id,
-    acceptance: unit.acceptance.map((criterion) => criterion.statement),
+    acceptanceExpectations: unit.acceptance.map((criterion) => criterion.statement),
     authorizationBoundary,
   }
 }
@@ -80,12 +91,19 @@ export function toAaopIntake(
 export function admitDevelopmentWorkUnit(
   request: DevelopmentAdmissionRequest,
 ): DevelopmentAdmissionResult {
+  const buildAaopRequest = () =>
+    toAaopDeveloperRequest(
+      request.unit,
+      request.authorizationBoundary,
+      request.rawRequest,
+    )
+
   if (!request.repository) {
     return {
       status: 'admitted',
-      aaopIntake: toAaopIntake(request.unit, request.authorizationBoundary),
+      aaopRequest: buildAaopRequest(),
       reason:
-        'No existing-repository target was supplied; repository-frontier admission is not applicable to this intake.',
+        'No existing-repository target was supplied; repository-frontier admission is not applicable to this request.',
     }
   }
 
@@ -104,9 +122,9 @@ export function admitDevelopmentWorkUnit(
 
   return {
     status: 'admitted',
-    aaopIntake: toAaopIntake(request.unit, request.authorizationBoundary),
+    aaopRequest: buildAaopRequest(),
     frontierDecision,
     reason:
-      'Repository-frontier admission passed; AAOP may now evaluate Route, authorization, provider selection and acceptance.',
+      'Repository-frontier admission passed; AAOP Developer Intake may now determine Situation, Route, decision ownership, provider selection and acceptance.',
   }
 }
