@@ -98,8 +98,11 @@ test('full chain fixes a failing test with real git delta and evidence-backed su
       dependencies: { runHarnessAcpGrant: fakeHarness },
     })
 
-    // Success is decided by real repository evidence, not Harness chatter.
-    assert.equal(result.effectOutcome.status, 'success')
+    // Success is decided by real repository evidence, not Harness chatter:
+    // mutation observed AND verification passed; acceptance stays pending.
+    assert.equal(result.runOutcome.effect, 'mutation-observed')
+    assert.equal(result.runOutcome.verification, 'passed')
+    assert.equal(result.runOutcome.acceptance, 'pending')
     assert.ok(result.repositoryReadback.executionProducedChanges.includes('answer.mjs'))
     assert.equal(result.repositoryReadback.scopeViolations.length, 0)
     // The Work Unit advanced and carries delta + test evidence.
@@ -142,7 +145,8 @@ test('chain reports failure when the harness produces no in-scope change', async
     })
 
     // A harness that changes nothing inside the granted scope is NOT success.
-    assert.equal(result.effectOutcome.status, 'failure')
+    assert.equal(result.runOutcome.effect, 'no-mutation')
+    assert.equal(result.runOutcome.verification, 'failed')
     assert.equal(result.repositoryReadback.executionProducedChanges.length, 0)
   } finally {
     cleanup(dir)
@@ -209,8 +213,98 @@ test('P0-C write boundary blocks a write-authorized grant unless explicitly enab
       allowWrite: true,
       dependencies: { runHarnessAcpGrant: fakeHarness },
     })
-    assert.equal(ok.effectOutcome.status, 'success')
+    assert.equal(ok.runOutcome.effect, 'mutation-observed')
+    assert.equal(ok.runOutcome.verification, 'passed')
     assert.ok(ok.repositoryReadback.executionProducedChanges.includes('answer.mjs'))
+  } finally {
+    cleanup(dir)
+  }
+})
+
+/**
+ * P0-2 regression A (real chain): tests green BEFORE execution + agent no-op +
+ * tests still green AFTER must NOT be judged task success. The Work Unit goes
+ * back to the human (needs-human), never to verifying.
+ */
+test('P0-2 A: pre-green no-op run is not task success', async () => {
+  const dir = makeScratchRepo()
+  try {
+    // Make the project ALREADY green before execution (committed, clean tree).
+    writeFileSync(join(dir, 'answer.mjs'), 'export function answer() { return 42 }\n')
+    execFileSync('git', ['-C', dir, 'add', 'answer.mjs'])
+    execFileSync('git', ['-C', dir, 'commit', '-qm', 'already green'])
+    const workUnit = makeWorkUnit('WU-P02A')
+    const snapshot = readRepositorySnapshot(dir)
+    const slice = buildExactSlice(dir, snapshot.head, ['answer.mjs'])
+    const { grant, binding } = issueProviderExecutionGrant({ workUnit, projectRoot: dir, snapshot, slice })
+
+    // Harness session completes but changes nothing.
+    const noopHarness = async () => {
+      return { sessionId: 'noop', stopReason: 'end_turn', assistantText: 'nothing to do' }
+    }
+
+    const result = await runBoundedExecution({
+      workUnit,
+      grant,
+      binding,
+      slice,
+      projectRoot: dir,
+      harnessCheckout: dir,
+      workbenchRoot: dir,
+      testCommand: ['node', '--test', 'answer.test.mjs'],
+      allowWrite: true,
+      dependencies: { runHarnessAcpGrant: noopHarness },
+    })
+
+    // The four axes say it clearly: nothing was produced and nothing new
+    // could be verified — this is NOT success.
+    assert.equal(result.runOutcome.effect, 'no-mutation')
+    assert.equal(result.runOutcome.verification, 'inconclusive')
+    assert.equal(result.runOutcome.acceptance, 'pending')
+    assert.equal(result.repositoryReadback.beforeTestResult.passed, true)
+    assert.equal(result.workUnit.state, 'needs-human')
+  } finally {
+    cleanup(dir)
+  }
+})
+
+/**
+ * P0-2 regression B (real chain): agent mutates files but tests FAIL. The old
+ * `producedChange || testsPassed` rule wrongly called this success; the four
+ * axes call it verification failed / acceptance rejected.
+ */
+test('P0-2 B: mutation with failing tests is verification failure, not success', async () => {
+  const dir = makeScratchRepo()
+  try {
+    const workUnit = makeWorkUnit('WU-P02B')
+    const snapshot = readRepositorySnapshot(dir)
+    const slice = buildExactSlice(dir, snapshot.head, ['answer.mjs'])
+    const { grant, binding } = issueProviderExecutionGrant({ workUnit, projectRoot: dir, snapshot, slice })
+
+    // Harness changes the file but leaves the test failing.
+    const badHarness = async (opts) => {
+      writeFileSync(join(opts.cwd, 'answer.mjs'), 'export function answer() { return 40 }\n')
+      return { sessionId: 'bad', stopReason: 'end_turn', assistantText: 'changed it' }
+    }
+
+    const result = await runBoundedExecution({
+      workUnit,
+      grant,
+      binding,
+      slice,
+      projectRoot: dir,
+      harnessCheckout: dir,
+      workbenchRoot: dir,
+      testCommand: ['node', '--test', 'answer.test.mjs'],
+      allowWrite: true,
+      dependencies: { runHarnessAcpGrant: badHarness },
+    })
+
+    assert.equal(result.runOutcome.effect, 'mutation-observed')
+    assert.equal(result.runOutcome.verification, 'failed')
+    assert.equal(result.runOutcome.acceptance, 'rejected')
+    assert.ok(result.repositoryReadback.executionProducedChanges.includes('answer.mjs'))
+    assert.equal(result.workUnit.state, 'blocked')
   } finally {
     cleanup(dir)
   }

@@ -40,8 +40,16 @@ function makeScratchRepo() {
   writeFileSync(join(dir, 'seed.txt'), 'seed')
   execFileSync('git', ['-C', dir, 'add', '.'])
   execFileSync('git', ['-C', dir, 'commit', '-qm', 'init'])
+  // Buggy source + failing test (the bug to fix), plus an unrelated file.
   writeFileSync(join(dir, 'answer.mjs'), 'export function answer() { return 41 }\n')
   writeFileSync(join(dir, 'other.mjs'), 'export const other = "untouched"\n')
+  writeFileSync(
+    join(dir, 'answer.test.mjs'),
+    "import test from 'node:test'\n" +
+      "import assert from 'node:assert/strict'\n" +
+      "import { answer } from './answer.mjs'\n" +
+      "test('answer is 42', () => { assert.equal(answer(), 42) })\n",
+  )
   execFileSync('git', ['-C', dir, 'add', '.'])
   execFileSync('git', ['-C', dir, 'commit', '-qm', 'baseline'])
   return dir
@@ -171,7 +179,8 @@ test('P0-1 scenario 2: exact authorized mutation succeeds and delta is a subset 
       dependencies: { runHarnessAcpGrant: mutatingHarness('answer.mjs') },
     })
 
-    assert.equal(result.effectOutcome.status, 'success')
+    assert.equal(result.runOutcome.effect, 'mutation-observed')
+    assert.equal(result.runOutcome.verification, 'passed')
     assert.deepEqual(result.repositoryReadback.executionProducedChanges, ['answer.mjs'])
     assert.equal(result.repositoryReadback.scopeViolations.length, 0)
     // The after-execution delta is exactly the authorized surface.
@@ -215,9 +224,10 @@ test('P0-1 scenario 3: mutation outside the authorized files is a hard failure',
     })
 
     // Hard failure: scope violations are never success, regardless of tests.
-    assert.equal(result.effectOutcome.status, 'failure')
+    assert.equal(result.runOutcome.verification, 'failed')
+    assert.equal(result.runOutcome.acceptance, 'rejected')
     assert.ok(result.repositoryReadback.scopeViolations.includes('other.mjs'))
-    assert.match(result.effectOutcome.reason, /outside the granted scope/)
+    assert.match(result.runOutcome.reason, /outside the granted scope/)
     // The Work Unit must not advance to verifying.
     assert.equal(result.workUnit.state, 'blocked')
   } finally {
@@ -295,7 +305,8 @@ test('P0-1 scenario 5: pre-existing dirty file outside the slice does not block 
       dependencies: { runHarnessAcpGrant: mutatingHarness('answer.mjs') },
     })
 
-    assert.equal(result.effectOutcome.status, 'success')
+    assert.equal(result.runOutcome.effect, 'mutation-observed')
+    assert.equal(result.runOutcome.verification, 'passed')
     // The dirty file outside the slice is never counted as execution success.
     assert.ok(result.repositoryReadback.preExistingDirty.includes('notes.txt'))
     assert.deepEqual(result.repositoryReadback.executionProducedChanges, ['answer.mjs'])
@@ -339,6 +350,7 @@ test('P0-1 scenario 6b: whole-repository execution allows any in-repo mutation',
     const slice = buildWholeRepositorySlice(dir, snapshot.head)
     const { grant, binding } = issueProviderExecutionGrant({ workUnit, projectRoot: dir, snapshot, slice })
 
+    // Whole-repo scope: mutate an unrelated file AND the buggy source.
     const result = await runBoundedExecution({
       workUnit,
       grant,
@@ -347,13 +359,21 @@ test('P0-1 scenario 6b: whole-repository execution allows any in-repo mutation',
       projectRoot: dir,
       harnessCheckout: dir,
       workbenchRoot: dir,
+      testCommand: ['node', '--test', 'answer.test.mjs'],
       allowWrite: true,
-      dependencies: { runHarnessAcpGrant: mutatingHarness('other.mjs', 'export const other = "whole-repo"\n') },
+      dependencies: {
+        runHarnessAcpGrant: async (opts) => {
+          writeFileSync(join(opts.cwd, 'other.mjs'), 'export const other = "whole-repo"\n')
+          writeFileSync(join(opts.cwd, 'answer.mjs'), 'export function answer() { return 42 }\n')
+          return { sessionId: 'whole', stopReason: 'stop', assistantText: 'done' }
+        },
+      },
     })
 
-    // In-repo mutation is within a whole-repository slice.
-    assert.equal(result.effectOutcome.status, 'success')
-    assert.deepEqual(result.repositoryReadback.executionProducedChanges, ['other.mjs'])
+    // Any in-repo mutation is within a whole-repository slice.
+    assert.equal(result.runOutcome.effect, 'mutation-observed')
+    assert.equal(result.runOutcome.verification, 'passed')
+    assert.deepEqual(result.repositoryReadback.executionProducedChanges.sort(), ['answer.mjs', 'other.mjs'])
     assert.equal(result.repositoryReadback.scopeViolations.length, 0)
   } finally {
     cleanup(dir)

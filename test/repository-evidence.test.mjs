@@ -12,6 +12,7 @@ import {
   reconcileExternalEffect,
 } from '../.tmp/execution/repository.js'
 import { classifyExternalEffect } from '../.tmp/execution/bounded-execution.js'
+import { deriveRunOutcome } from '../.tmp/execution/run-outcome.js'
 import { issueProviderExecutionGrant } from '../.tmp/execution/grant-issuance.js'
 import {
   buildExactSlice,
@@ -153,44 +154,94 @@ test('reconcileExternalEffect inspects the real target repo via git -C, not the 
   }
 })
 
-test('classifyExternalEffect does NOT count pre-existing dirty files as execution success', () => {
-  const grant = { authorization: { allowed_effects: ['local-file-write'], protected_effects: [] } }
+test('deriveRunOutcome does NOT count pre-existing dirty files as execution success', () => {
   const readback = {
     changedFiles: ['pre.txt'],
     executionProducedChanges: [],
     preExistingDirty: ['pre.txt'],
     scopeViolations: [],
     testResult: { passed: false, output: '' },
+    beforeTestResult: { passed: false, output: '' },
     gitStatus: 'modified',
   }
-  const outcome = classifyExternalEffect(readback, grant)
-  assert.equal(outcome.status, 'failure')
+  const outcome = deriveRunOutcome({
+    producedChanges: readback.executionProducedChanges,
+    scopeViolations: readback.scopeViolations,
+    testsPassedAfter: readback.testResult.passed,
+    testsPassedBefore: readback.beforeTestResult.passed,
+    hasExternalEffects: false,
+  })
+  assert.equal(outcome.effect, 'no-mutation')
+  assert.equal(outcome.verification, 'failed')
+  assert.notEqual(outcome.acceptance, 'accepted')
 })
 
-test('classifyExternalEffect succeeds when THIS execution produced changes', () => {
+test('deriveRunOutcome: mutation with failing tests is verification failure, never success (P0-2 B)', () => {
+  const outcome = deriveRunOutcome({
+    producedChanges: ['post.txt'],
+    scopeViolations: [],
+    testsPassedAfter: false,
+    testsPassedBefore: false,
+    hasExternalEffects: false,
+  })
+  assert.equal(outcome.effect, 'mutation-observed')
+  assert.equal(outcome.verification, 'failed')
+  assert.equal(outcome.acceptance, 'rejected')
+})
+
+test('deriveRunOutcome: mutation with passing tests is verification passed, acceptance stays pending (P0-2 C)', () => {
+  const outcome = deriveRunOutcome({
+    producedChanges: ['post.txt'],
+    scopeViolations: [],
+    testsPassedAfter: true,
+    testsPassedBefore: false,
+    hasExternalEffects: false,
+  })
+  assert.equal(outcome.effect, 'mutation-observed')
+  assert.equal(outcome.verification, 'passed')
+  // A completed run never yields acceptance — accepted is human-owned.
+  assert.equal(outcome.acceptance, 'pending')
+  assert.equal(outcome.runStatus, 'completed')
+})
+
+test('deriveRunOutcome: pre-green no-op run is not task success (P0-2 A)', () => {
+  const outcome = deriveRunOutcome({
+    producedChanges: [],
+    scopeViolations: [],
+    testsPassedAfter: true,
+    testsPassedBefore: true,
+    hasExternalEffects: false,
+  })
+  assert.equal(outcome.effect, 'no-mutation')
+  assert.equal(outcome.verification, 'inconclusive')
+  assert.equal(outcome.acceptance, 'pending')
+})
+
+test('deriveRunOutcome fails on scope violations', () => {
+  const outcome = deriveRunOutcome({
+    producedChanges: ['evil.txt'],
+    scopeViolations: ['evil.txt'],
+    testsPassedAfter: false,
+    testsPassedBefore: false,
+    hasExternalEffects: false,
+  })
+  assert.equal(outcome.verification, 'failed')
+  assert.equal(outcome.acceptance, 'rejected')
+})
+
+test('classifyExternalEffect is a thin four-axis wrapper over deriveRunOutcome', () => {
   const grant = { authorization: { allowed_effects: ['local-file-write'], protected_effects: [] } }
   const readback = {
     changedFiles: ['post.txt'],
     executionProducedChanges: ['post.txt'],
     preExistingDirty: [],
     scopeViolations: [],
-    testResult: { passed: false, output: '' },
+    testResult: { passed: true, output: '' },
+    beforeTestResult: { passed: false, output: '' },
     gitStatus: 'modified',
   }
   const outcome = classifyExternalEffect(readback, grant)
-  assert.equal(outcome.status, 'success')
-})
-
-test('classifyExternalEffect fails on scope violations', () => {
-  const grant = { authorization: { allowed_effects: ['local-file-write'], protected_effects: [] } }
-  const readback = {
-    changedFiles: ['evil.txt'],
-    executionProducedChanges: ['evil.txt'],
-    preExistingDirty: [],
-    scopeViolations: ['evil.txt'],
-    testResult: { passed: false, output: '' },
-    gitStatus: 'modified',
-  }
-  const outcome = classifyExternalEffect(readback, grant)
-  assert.equal(outcome.status, 'failure')
+  assert.equal(outcome.runStatus, 'completed')
+  assert.equal(outcome.effect, 'mutation-observed')
+  assert.equal(outcome.verification, 'passed')
 })

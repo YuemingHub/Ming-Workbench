@@ -771,6 +771,7 @@ export async function startLocalWorkbenchServer(
           assistantText: executionResult.assistantText,
           frontierDecision: executionResult.frontierDecision,
           repositoryReadback: executionResult.repositoryReadback,
+          runOutcome: executionResult.runOutcome,
         })
         return
       }
