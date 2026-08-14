@@ -13,6 +13,11 @@ import {
   clearProviderSecret,
   hasProviderSecret,
 } from './provider-secret.mjs'
+import {
+  loadWorkUnitStore,
+  saveWorkUnitStore,
+  clearWorkUnitStore,
+} from './work-unit-store.mjs'
 
 const desktopDir = resolve(fileURLToPath(new URL('.', import.meta.url)))
 const repoRoot = resolve(desktopDir, '..')
@@ -28,6 +33,7 @@ let activeBackendOrigin = ''
 let switching = false
 let cleanShutdownDone = false
 let providerSecret = null
+let workUnitStore = null
 
 function resolveWorkbenchRoot() {
   return app.isPackaged ? resolve(process.resourcesPath, 'app') : repoRoot
@@ -366,6 +372,9 @@ if (!gotLock) {
     app.setName('Ming Workbench')
     buildMenu()
     registerIpc()
+
+    // Load persisted Work Unit state for resume.
+    workUnitStore = loadWorkUnitStore()
 
     appendStartupLog(`app ready packaged=${app.isPackaged} node=${process.version} execPath=${process.execPath}`)
 
