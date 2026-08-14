@@ -234,11 +234,14 @@ export async function runHarnessAcpGrant(
     ['--dir', harnessCheckout, 'exec', 'tsx', launcher],
     {
       cwd: workspace,
-      stdio: ['pipe', 'pipe', 'inherit'],
+      // Keep all streams piped so ACP gets exclusive stdout while diagnostics
+      // can be forwarded verbatim from stderr without weakening the type/lifetime contract.
+      stdio: ['pipe', 'pipe', 'pipe'],
       env: buildHarnessChildEnv(process.env, options, options.grant),
       windowsHide: true,
     },
   )
+  child.stderr.pipe(process.stderr)
 
   const chunks: string[] = []
   const makeClient = (_agent: AcpAgent): Client => ({
