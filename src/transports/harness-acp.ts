@@ -1,5 +1,5 @@
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve, join } from 'node:path'
 import { Readable as NodeReadable, Writable as NodeWritable } from 'node:stream'
 import {
@@ -119,6 +119,10 @@ export function assertReviewedHarnessCheckout(harnessCheckout: string): void {
   }
 }
 
+export function resolveHarnessTsxCli(harnessCheckout: string): string {
+  return join(resolve(harnessCheckout), 'node_modules', 'tsx', 'dist', 'cli.mjs')
+}
+
 export function assertGrantWorkspace(
   grant: ProviderExecutionGrant,
   cwd: string,
@@ -228,10 +232,20 @@ export async function runHarnessAcpGrant(
   const harnessCheckout = resolve(options.harnessCheckout)
   const workspace = resolve(options.cwd)
   const launcher = join(workbenchRoot, 'harness', 'acp', 'launcher.mjs')
-  const pnpm = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
+  const tsxCli = resolveHarnessTsxCli(harnessCheckout)
+  const harnessTsconfig = join(harnessCheckout, 'tsconfig.json')
+  if (!existsSync(tsxCli)) {
+    throw new Error(
+      `Harness tsx runner is missing at ${tsxCli}. Run \`npm run harness:prepare\` or reinstall the reviewed Harness checkout.`,
+    )
+  }
+  if (!existsSync(harnessTsconfig)) {
+    throw new Error(`Harness root tsconfig is missing at ${harnessTsconfig}.`)
+  }
+
   const child = spawn(
-    pnpm,
-    ['--dir', harnessCheckout, 'exec', 'tsx', launcher],
+    process.execPath,
+    [tsxCli, '--tsconfig', harnessTsconfig, launcher],
     {
       cwd: workspace,
       // Keep all streams piped so ACP gets exclusive stdout while diagnostics

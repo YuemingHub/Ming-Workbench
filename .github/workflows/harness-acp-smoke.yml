@@ -8,6 +8,8 @@ on:
       - 'harness.lock.json'
       - 'src/transports/harness-acp.ts'
       - 'src/execution/provider-grant.ts'
+      - 'scripts/prepare-harness.mjs'
+      - 'scripts/doctor.mjs'
       - 'scripts/smoke-harness-acp.mjs'
       - 'package.json'
       - '.github/workflows/harness-acp-smoke.yml'
@@ -18,6 +20,8 @@ on:
       - 'harness.lock.json'
       - 'src/transports/harness-acp.ts'
       - 'src/execution/provider-grant.ts'
+      - 'scripts/prepare-harness.mjs'
+      - 'scripts/doctor.mjs'
       - 'scripts/smoke-harness-acp.mjs'
       - 'package.json'
       - '.github/workflows/harness-acp-smoke.yml'
@@ -47,26 +51,12 @@ jobs:
       - name: Compile Workbench transport
         run: npm run build:test
 
-      - name: Checkout exact reviewed DeepSeek Harness source
+      - name: Prepare exact reviewed DeepSeek Harness source
         shell: bash
         run: |
           set -euo pipefail
-          HARNESS_SHA="$(node -p "JSON.parse(require('fs').readFileSync('harness.lock.json','utf8')).reviewedCommit")"
-          HARNESS_REPO="$(node -p "JSON.parse(require('fs').readFileSync('harness.lock.json','utf8')).upstreamRepository")"
-          mkdir .harness
-          git -C .harness init
-          git -C .harness remote add origin "$HARNESS_REPO"
-          git -C .harness fetch --depth=1 origin "$HARNESS_SHA"
-          git -C .harness checkout --detach FETCH_HEAD
-          test "$(git -C .harness rev-parse HEAD)" = "$HARNESS_SHA"
-          echo "MING_HARNESS_CHECKOUT=$GITHUB_WORKSPACE/.harness" >> "$GITHUB_ENV"
-
-      - name: Install reviewed Harness workspace
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm install --global pnpm@11.7.0 --no-audit --no-fund
-          pnpm --dir "$MING_HARNESS_CHECKOUT" install --frozen-lockfile
+          npm run harness:prepare
+          echo "MING_HARNESS_CHECKOUT=$GITHUB_WORKSPACE/.workbench/vendor/deepseek-harness" >> "$GITHUB_ENV"
 
       - name: Verify exact Harness identity
         run: npm run doctor:harness
@@ -80,8 +70,10 @@ jobs:
           set -euo pipefail
           MOCK_LOG="$RUNNER_TEMP/ming-workbench-mock-llm.jsonl"
           MOCK_ERR="$RUNNER_TEMP/ming-workbench-mock-llm.stderr"
+          TSX_CLI="$MING_HARNESS_CHECKOUT/node_modules/tsx/dist/cli.mjs"
 
-          pnpm --dir "$MING_HARNESS_CHECKOUT" run mock:llm \
+          node "$TSX_CLI" \
+            "$MING_HARNESS_CHECKOUT/packages/test-support/llm-mock-server/src/bin.ts" \
             --port 8000 \
             --api-key mock-key \
             --sequence success \
