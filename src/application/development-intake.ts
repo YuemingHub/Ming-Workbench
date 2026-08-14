@@ -41,7 +41,6 @@ export interface DevelopmentIntakeApplicationDependencies {
 }
 
 export interface WorkUnitDisplayEvidence {
-  id: string
   kind: Evidence['kind']
   summary: string
   observedAt: string
@@ -105,9 +104,9 @@ function createDevelopmentSpaceView(
 
 /**
  * Build the normal human-facing Work Unit projection used by the future local
- * Web/Desktop shell. Raw ACP payloads, Harness plugin details, and session IDs
- * stay below this boundary. Advanced diagnostics can be added through a
- * separate explicit inspector surface later.
+ * Web/Desktop shell. Raw ACP payloads, provider-specific URIs, Harness plugin
+ * details, and session identities stay below this boundary. Advanced
+ * diagnostics can be added through a separate explicit inspector surface later.
  */
 export function toWorkUnitDisplayView(unit: WorkUnit): WorkUnitDisplayView {
   return {
@@ -117,7 +116,6 @@ export function toWorkUnitDisplayView(unit: WorkUnit): WorkUnitDisplayView {
     state: unit.state,
     gate: { ...unit.gate },
     evidence: unit.evidence.map((evidence) => ({
-      id: evidence.id,
       kind: evidence.kind,
       summary: evidence.summary,
       observedAt: evidence.observedAt,
