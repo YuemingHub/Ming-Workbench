@@ -1,5 +1,5 @@
 import { resolve } from 'node:path'
-import type { Evidence, Gate, Space, WorkUnit, WorkUnitState } from '../core/model.js'
+import type { Evidence, Gate, WorkUnit, WorkUnitState } from '../core/model.js'
 import type { AaopIntakeEnvelope } from '../intake/aaop-envelope.js'
 import {
   prepareProjectDevelopmentIntake,
@@ -11,6 +11,10 @@ import {
   type AaopCoordinatorResult,
   type RunAaopCoordinatorOptions,
 } from '../intake/coordinator.js'
+import {
+  loadWorkbenchProjectManifest,
+  type WorkbenchProjectManifest,
+} from '../projects/manifest.js'
 
 export interface DevelopmentIntakeApplicationOptions {
   rawRequest: string
@@ -27,6 +31,7 @@ export interface DevelopmentIntakeApplicationOptions {
 }
 
 export interface DevelopmentIntakeApplicationDependencies {
+  loadManifest?: (projectRoot: string) => WorkbenchProjectManifest
   prepareProjectIntake?: (
     options: PrepareProjectIntakeOptions,
   ) => PreparedProjectIntake
@@ -53,10 +58,11 @@ export interface WorkUnitDisplayView {
   nextFrontier?: string
 }
 
-export interface DevelopmentIntakeProjectView {
+export interface DevelopmentSpaceView {
   id: string
   title: string
-  root: string
+  projectId: string
+  projectRoot: string
   domainPackId: 'development-aaop'
 }
 
@@ -73,39 +79,26 @@ export interface DevelopmentIntakeEnvelopeView {
 export type DevelopmentIntakeApplicationResult =
   | {
       status: 'blocked'
-      project: DevelopmentIntakeProjectView
+      space: DevelopmentSpaceView
       workUnit: WorkUnitDisplayView
       blocker: string
     }
   | {
       status: 'ready' | 'needs-human'
-      project: DevelopmentIntakeProjectView
+      space: DevelopmentSpaceView
       workUnit: WorkUnitDisplayView
       intake: DevelopmentIntakeEnvelopeView
     }
 
-function createSpace(
-  projectId: string,
-  projectTitle: string,
-  now: Date,
-): Space {
-  return {
-    id: `SPACE-${projectId}`,
-    title: projectTitle,
-    domainPackId: 'development-aaop',
-    createdAt: now.toISOString(),
-  }
-}
-
-function projectView(
+function createDevelopmentSpaceView(
   projectRoot: string,
-  projectId: string,
-  projectTitle: string,
-): DevelopmentIntakeProjectView {
+  manifest: WorkbenchProjectManifest,
+): DevelopmentSpaceView {
   return {
-    id: projectId,
-    title: projectTitle,
-    root: resolve(projectRoot),
+    id: `SPACE-${manifest.project.id}`,
+    title: manifest.project.title,
+    projectId: manifest.project.id,
+    projectRoot: resolve(projectRoot),
     domainPackId: 'development-aaop',
   }
 }
@@ -154,7 +147,7 @@ export function toDevelopmentIntakeEnvelopeView(
  * project + ordinary-language request
  * -> trusted project AAOP bridge
  * -> hard read-only Developer Intake
- * -> Workbench-owned Work Unit / Gate / Evidence view
+ * -> Workbench-owned Space / Work Unit / Gate / Evidence view
  *
  * This surface deliberately does not issue a Provider Execution Grant or start
  * write execution. It is safe to use as the first product milestone before a
@@ -164,35 +157,28 @@ export async function runDevelopmentIntakeApplication(
   options: DevelopmentIntakeApplicationOptions,
   dependencies: DevelopmentIntakeApplicationDependencies = {},
 ): Promise<DevelopmentIntakeApplicationResult> {
+  const loadManifest = dependencies.loadManifest ?? loadWorkbenchProjectManifest
   const prepare = dependencies.prepareProjectIntake ?? prepareProjectDevelopmentIntake
   const coordinate = dependencies.runCoordinator ?? runProjectAaopCoordinator
   const now = options.now ?? (() => new Date())
+
+  const manifest = loadManifest(options.projectRoot)
+  const space = createDevelopmentSpaceView(options.projectRoot, manifest)
   const prepared = prepare({
     rawRequest: options.rawRequest,
     projectRoot: options.projectRoot,
-    spaceId: 'SPACE-pending-project-manifest',
+    spaceId: space.id,
     trustedProject: options.trustedProject,
     authorizationBoundary: options.authorizationBoundary,
+    manifest,
     now,
     idFactory: options.idFactory,
   })
 
-  const space = createSpace(
-    prepared.manifest.project.id,
-    prepared.manifest.project.title,
-    now(),
-  )
-  prepared.workUnit.spaceId = space.id
-  const project = projectView(
-    options.projectRoot,
-    prepared.manifest.project.id,
-    prepared.manifest.project.title,
-  )
-
   if (prepared.status === 'project-aaop-blocked') {
     return {
       status: 'blocked',
-      project,
+      space,
       workUnit: toWorkUnitDisplayView(prepared.workUnit),
       blocker: prepared.reason,
     }
@@ -211,7 +197,7 @@ export async function runDevelopmentIntakeApplication(
 
   return {
     status: coordinated.workUnit.gate.open ? 'needs-human' : 'ready',
-    project,
+    space,
     workUnit: toWorkUnitDisplayView(coordinated.workUnit),
     intake: toDevelopmentIntakeEnvelopeView(coordinated.envelope),
   }
