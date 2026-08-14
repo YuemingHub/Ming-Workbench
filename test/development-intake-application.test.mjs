@@ -22,6 +22,22 @@ const manifest = {
   },
 }
 
+const projectIdentity = {
+  id: 'fixture-project',
+  title: 'Fixture Project',
+  root: '/workspace/fixture',
+  domainPackId: 'development-aaop',
+}
+
+function onboardingReady() {
+  return {
+    status: 'ready',
+    project: projectIdentity,
+    manifest,
+    source: 'workbench-manifest',
+  }
+}
+
 function workUnit(overrides = {}) {
   return {
     id: 'WU-desktop-intake-001',
@@ -91,7 +107,7 @@ const baseOptions = {
   idFactory: () => 'desktop-intake-001',
 }
 
-test('desktop intake application derives Space identity before entering project Intake', async () => {
+test('desktop intake application uses onboarding identity before entering project Intake', async () => {
   let preparedOptions
   let coordinatorOptions
   const prepared = readyPrepared()
@@ -111,7 +127,7 @@ test('desktop intake application derives Space identity before entering project 
   })
 
   const result = await runDevelopmentIntakeApplication(baseOptions, {
-    loadManifest: () => manifest,
+    resolveOnboarding: () => onboardingReady(),
     prepareProjectIntake: (options) => {
       preparedOptions = options
       return prepared
@@ -150,10 +166,40 @@ test('desktop intake application derives Space identity before entering project 
   assert.match(result.workUnit.evidence[0].summary, /Read-only AAOP Developer Intake/)
 })
 
+test('project without AAOP returns one setup authorization Gate without running project commands', async () => {
+  let preparedCalled = false
+  let coordinatorCalled = false
+  const result = await runDevelopmentIntakeApplication(baseOptions, {
+    resolveOnboarding: () => ({
+      status: 'setup-required',
+      project: projectIdentity,
+      reason: 'AAOP is not installed.',
+    }),
+    prepareProjectIntake: () => {
+      preparedCalled = true
+      throw new Error('must not prepare')
+    },
+    runCoordinator: async () => {
+      coordinatorCalled = true
+      throw new Error('must not coordinate')
+    },
+  })
+
+  assert.equal(result.status, 'setup-required')
+  assert.equal(result.setup.kind, 'aaop')
+  assert.equal(result.workUnit.state, 'needs-human')
+  assert.equal(result.workUnit.gate.kind, 'authorization')
+  assert.equal(result.workUnit.gate.open, true)
+  assert.equal(result.workUnit.gate.owner, 'human')
+  assert.equal(preparedCalled, false)
+  assert.equal(coordinatorCalled, false)
+  assert.equal(result.setup.summary.includes('workbench.project.json'), false)
+})
+
 test('desktop intake application surfaces a genuine human decision as needs-human', async () => {
   const question = 'Should this intentionally remove the public compatibility endpoint?'
   const result = await runDevelopmentIntakeApplication(baseOptions, {
-    loadManifest: () => manifest,
+    resolveOnboarding: () => onboardingReady(),
     prepareProjectIntake: () => readyPrepared(),
     runCoordinator: async () => ({
       workUnit: workUnit({
@@ -199,7 +245,7 @@ test('blocked project AAOP bridge stays blocked and never starts the coordinator
   }
 
   const result = await runDevelopmentIntakeApplication(baseOptions, {
-    loadManifest: () => manifest,
+    resolveOnboarding: () => onboardingReady(),
     prepareProjectIntake: () => blocked,
     runCoordinator: async () => {
       coordinatorCalled = true
@@ -211,6 +257,27 @@ test('blocked project AAOP bridge stays blocked and never starts the coordinator
   assert.equal(result.blocker, blocked.reason)
   assert.equal(result.workUnit.state, 'blocked')
   assert.equal(coordinatorCalled, false)
+})
+
+test('blocked onboarding stays blocked and does not enter the project bridge', async () => {
+  let preparedCalled = false
+  const reason = 'Workbench found an .aaop directory but cannot prove a usable AAOP installation.'
+  const result = await runDevelopmentIntakeApplication(baseOptions, {
+    resolveOnboarding: () => ({
+      status: 'blocked',
+      project: projectIdentity,
+      reason,
+    }),
+    prepareProjectIntake: () => {
+      preparedCalled = true
+      throw new Error('must not prepare')
+    },
+  })
+
+  assert.equal(result.status, 'blocked')
+  assert.equal(result.blocker, reason)
+  assert.equal(result.workUnit.state, 'blocked')
+  assert.equal(preparedCalled, false)
 })
 
 test('normal Work Unit display projection does not expose provider-specific evidence identity', () => {
