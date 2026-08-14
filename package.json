@@ -8,10 +8,8 @@
     "check": "tsc --noEmit",
     "build:test": "tsc --noEmit false --outDir .tmp",
     "test": "npm run build:test && node --test test/*.test.mjs",
-    "doctor": "node ./scripts/doctor.mjs"
-  },
-  "dependencies": {
-    "@deepseek-ai/dsh": "0.1.0-rc.5"
+    "doctor": "node ./scripts/doctor.mjs",
+    "doctor:harness": "node ./scripts/doctor.mjs --require-harness"
   },
   "devDependencies": {
     "typescript": "^5.9.2"
