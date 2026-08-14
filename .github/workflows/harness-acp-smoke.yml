@@ -81,7 +81,7 @@ jobs:
           MOCK_LOG="$RUNNER_TEMP/ming-workbench-mock-llm.jsonl"
           MOCK_ERR="$RUNNER_TEMP/ming-workbench-mock-llm.stderr"
 
-          pnpm --dir "$MING_HARNESS_CHECKOUT" run mock:llm -- \
+          pnpm --dir "$MING_HARNESS_CHECKOUT" run mock:llm \
             --port 8000 \
             --api-key mock-key \
             --sequence success \
