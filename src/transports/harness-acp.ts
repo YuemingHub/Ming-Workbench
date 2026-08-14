@@ -233,15 +233,19 @@ export async function runHarnessAcpGrant(
   const workspace = resolve(options.cwd)
   const launcher = join(workbenchRoot, 'harness', 'acp', 'launcher.mjs')
   const tsxCli = resolveHarnessTsxCli(harnessCheckout)
+  const harnessTsconfig = join(harnessCheckout, 'tsconfig.json')
   if (!existsSync(tsxCli)) {
     throw new Error(
       `Harness tsx runner is missing at ${tsxCli}. Run \`npm run harness:prepare\` or reinstall the reviewed Harness checkout.`,
     )
   }
+  if (!existsSync(harnessTsconfig)) {
+    throw new Error(`Harness root tsconfig is missing at ${harnessTsconfig}.`)
+  }
 
   const child = spawn(
     process.execPath,
-    [tsxCli, launcher],
+    [tsxCli, '--tsconfig', harnessTsconfig, launcher],
     {
       cwd: workspace,
       // Keep all streams piped so ACP gets exclusive stdout while diagnostics
