@@ -16,6 +16,15 @@ import type { WorkUnit } from '../core/model.js'
 export const WORK_UNIT_STORE_VERSION = 1
 export const WORK_UNIT_STORE_FILE_NAME = 'work-units.json'
 
+export interface MutableFacts {
+  projectId: string
+  gitHead: string
+  gitBranch: string
+  gitDirty: boolean
+  providerAvailable: boolean
+  harnessAvailable: boolean
+}
+
 export interface PersistedWorkUnit {
   id: string
   spaceId: string
@@ -68,6 +77,7 @@ export interface WorkUnitStore {
   workUnits: PersistedWorkUnit[]
   grants: Record<string, PersistedGrant>
   lastProjectRoot?: string
+  lastMutableFacts?: MutableFacts
 }
 
 export interface WorkUnitStoreApi {
@@ -83,6 +93,20 @@ export function emptyStore(projectRoot = ''): WorkUnitStore {
     workUnits: [],
     grants: {},
     lastProjectRoot: projectRoot || undefined,
+  }
+}
+
+export function toMutableFacts(
+  projectRoot: string,
+  workUnit: PersistedWorkUnit,
+): MutableFacts {
+  return {
+    projectId: workUnit.spaceId,
+    gitHead: '',
+    gitBranch: '',
+    gitDirty: false,
+    providerAvailable: false,
+    harnessAvailable: false,
   }
 }
 

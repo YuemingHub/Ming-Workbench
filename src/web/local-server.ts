@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { existsSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import {
   runDevelopmentIntakeApplication,
   type DevelopmentIntakeApplicationResult,
@@ -30,6 +32,7 @@ import {
   fromPersistedWorkUnit,
   noopWorkUnitStore,
   toPersistedWorkUnit,
+  type MutableFacts,
   type WorkUnitStoreApi,
 } from '../persistence/work-unit-store.js'
 import { createFileWorkUnitStore } from '../persistence/file-work-unit-store.js'
@@ -329,6 +332,70 @@ export async function startLocalWorkbenchServer(
         return
       }
 
+      // Provider status: read-only check if a provider secret is configured.
+      // Never returns the secret itself.
+      if (method === 'GET' && url.pathname === '/api/provider/status') {
+        sendJson(response, 200, {
+          status: 'ok',
+          hasSecret: Boolean(options.provider || process.env.DEEPSEEK_API_KEY),
+        })
+        return
+      }
+
+      // Resume: re-read mutable facts for a persisted Work Unit and return
+      // reconciliation status. The caller must re-authorize if facts changed.
+      if (method === 'POST' && url.pathname === '/api/resume') {
+        let parsed: unknown
+        try {
+          parsed = await readJsonBody(request)
+        } catch (error) {
+          const code = error instanceof Error ? error.message : ''
+          sendJson(response, code === 'request-body-too-large' ? 413 : 400, {
+            status: 'bad-request',
+            message: 'Workbench 无法读取这次恢复请求。',
+          })
+          return
+        }
+        const body = objectBody(parsed)
+        const workUnitId = typeof body?.workUnitId === 'string' ? body.workUnitId : ''
+        if (!workUnitId) {
+          sendJson(response, 400, {
+            status: 'bad-request',
+            message: '恢复需要指明要恢复的 Work Unit。',
+          })
+          return
+        }
+        const loaded = store.load()
+        const record = loaded.workUnits.find((w) => w.id === workUnitId)
+        if (!record) {
+          sendJson(response, 404, {
+            status: 'not-found',
+            message: '找不到这个 Work Unit。',
+          })
+          return
+        }
+        // Re-read live mutable facts.
+        const currentFacts = readMutableFacts(projectRoot, options)
+        const storedFacts = loaded.lastMutableFacts
+        const factsChanged = !storedFacts || mutableFactsChanged(storedFacts, currentFacts)
+        sendJson(response, 200, {
+          status: 'ok',
+          workUnit: {
+            id: record.id,
+            title: record.title,
+            outcome: record.outcome,
+            state: record.state,
+            gate: record.gate,
+            evidenceCount: record.evidence.length,
+            nextFrontier: record.nextFrontier,
+            updatedAt: record.updatedAt,
+          },
+          factsChanged,
+          currentFacts,
+        })
+        return
+      }
+
       if (method === 'POST' && url.pathname === '/api/setup') {
         let parsed: unknown
         try {
@@ -499,7 +566,14 @@ export async function startLocalWorkbenchServer(
           ...loaded.grants,
           [grant.grant_id]: { grant: grant as unknown as Record<string, unknown>, binding },
         }
-        store.save({ ...loaded, projectRoot, grants: nextGrants, lastProjectRoot: projectRoot })
+        const currentFacts = readMutableFacts(projectRoot, options)
+        store.save({
+          ...loaded,
+          projectRoot,
+          grants: nextGrants,
+          lastProjectRoot: projectRoot,
+          lastMutableFacts: currentFacts,
+        })
         sendJson(response, 200, {
           status: 'authorized',
           workUnitId,
@@ -577,6 +651,19 @@ export async function startLocalWorkbenchServer(
           const workUnit = fromPersistedWorkUnit(record)
           const grant = grantEntry.grant as unknown as ProviderExecutionGrant
           const binding = grantEntry.binding
+
+          // Re-check mutable facts: stale authority must not be reused.
+          const currentFacts = readMutableFacts(projectRoot, options)
+          const storedFacts = loaded.lastMutableFacts
+          if (storedFacts && mutableFactsChanged(storedFacts, currentFacts)) {
+            sendJson(response, 409, {
+              status: 'stale-authority',
+              message: '项目情况已发生变化，旧的执行授权不能直接复用。请重新授权。',
+              factsChanged: true,
+              currentFacts,
+            })
+            return
+          }
 
           const executionOptions: BoundedExecutionOptions = {
             workUnit,
@@ -666,4 +753,63 @@ export async function startLocalWorkbenchServer(
     requestToken,
     close: () => closeServer(server),
   }
+}
+
+function readMutableFacts(projectRoot: string, options: LocalWorkbenchServerOptions): MutableFacts {
+  const gitHead = tryGitHead(projectRoot)
+  const gitBranch = tryGitBranch(projectRoot)
+  const gitDirty = tryGitDirty(projectRoot)
+  return {
+    projectId: resolve(projectRoot),
+    gitHead,
+    gitBranch,
+    gitDirty,
+    providerAvailable: Boolean(options.provider || process.env.DEEPSEEK_API_KEY),
+    harnessAvailable: Boolean(options.harnessCheckout && existsSync(options.harnessCheckout)),
+  }
+}
+
+function tryGitHead(cwd: string): string {
+  try {
+    return execFileSync('git', ['-C', cwd, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim()
+  } catch {
+    return ''
+  }
+}
+
+function tryGitBranch(cwd: string): string {
+  try {
+    return execFileSync('git', ['-C', cwd, 'branch', '--show-current'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim()
+  } catch {
+    return ''
+  }
+}
+
+function tryGitDirty(cwd: string): boolean {
+  try {
+    const out = execFileSync('git', ['-C', cwd, 'status', '--porcelain'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim()
+    return out.length > 0
+  } catch {
+    return false
+  }
+}
+
+function mutableFactsChanged(a: MutableFacts, b: MutableFacts): boolean {
+  return (
+    a.projectId !== b.projectId ||
+    a.gitHead !== b.gitHead ||
+    a.gitBranch !== b.gitBranch ||
+    a.gitDirty !== b.gitDirty ||
+    a.providerAvailable !== b.providerAvailable ||
+    a.harnessAvailable !== b.harnessAvailable
+  )
 }

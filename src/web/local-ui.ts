@@ -46,6 +46,16 @@ export function renderLocalWorkbenchHtml(requestToken: string): string {
       </div>
     </section>
 
+    <section id="provider-card" class="provider-card card hidden" aria-live="polite">
+      <p class="label">模型服务</p>
+      <p class="muted" id="provider-message">Workbench 需要一个模型服务密钥才能完成真正的项目理解。</p>
+      <div class="provider-actions">
+        <input id="provider-key-input" type="password" placeholder="输入 API Key" autocomplete="off" />
+        <button id="provider-save-button" class="secondary" type="button">保存密钥</button>
+      </div>
+      <p class="provider-status" id="provider-status">未配置</p>
+    </section>
+
     <section class="execute-card card hidden" id="execute-card" aria-live="polite">
       <p class="label">执行变更</p>
       <p class="muted" id="execute-message">只读理解已完成。如果你确认要执行，Workbench 会先做一次仓库冲突检查。</p>
@@ -53,6 +63,12 @@ export function renderLocalWorkbenchHtml(requestToken: string): string {
         <button id="execute-button" class="primary" type="button">执行这个变更</button>
       </div>
       <p class="execute-status" id="execute-status"></p>
+    </section>
+
+    <section id="resume-card" class="resume-card card hidden" aria-live="polite">
+      <p class="label">恢复工作</p>
+      <p class="muted" id="resume-status">正在恢复上一次的工作单元…</p>
+      <p class="resume-workunit-id" id="resume-workunit-id"></p>
     </section>
 
     <section id="notice" class="notice hidden" aria-live="polite"></section>
@@ -123,6 +139,17 @@ p { line-height: 1.65; }
 .card { border: 1px solid rgba(116, 130, 154, .18); background: rgba(255,255,255,.88); box-shadow: 0 18px 60px rgba(43, 55, 78, .07); border-radius: 20px; padding: 22px; backdrop-filter: blur(16px); }
 .project-card { display: flex; justify-content: space-between; gap: 24px; align-items: center; margin-bottom: 18px; }
 .request-card { margin-bottom: 18px; }
+.provider-card { margin-bottom: 18px; }
+.provider-actions { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+.provider-actions input { flex: 1; padding: 10px 12px; border: 1px solid #d8deea; border-radius: 10px; background: #fbfcfe; color: #172033; }
+.provider-status { margin: 8px 0 0; font-size: 13px; color: #43506a; }
+.provider-status.ok { color: #19633f; }
+.provider-status.error { color: #963d35; }
+.resume-card { margin-bottom: 18px; }
+.resume-status { margin: 8px 0 0; font-size: 13px; color: #43506a; }
+.resume-status.ok { color: #19633f; }
+.resume-status.changed { color: #805b0a; }
+.resume-workunit-id { margin: 4px 0 0; font-size: 12px; color: #667085; font-family: ui-monospace, monospace; }
 textarea { width: 100%; resize: vertical; min-height: 132px; border: 1px solid #d8deea; border-radius: 14px; padding: 16px; outline: none; background: #fbfcfe; color: #172033; }
 textarea:focus { border-color: #8da2c6; box-shadow: 0 0 0 4px rgba(103, 132, 184, .11); }
 .request-actions { display: flex; justify-content: space-between; gap: 18px; align-items: center; margin-top: 14px; }
@@ -189,7 +216,8 @@ const stateNames = {
   done: '已完成并有证据',
 }
 
-let state = { intakeStatus: null }
+let currentWorkUnitId = null
+let isDesktop = typeof window !== 'undefined' && window.mingWorkbench?.isDesktop === true
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -289,6 +317,57 @@ function renderWorkResult(data) {
   }
 }
 
+function renderResume(data) {
+  if (data.status === 'ok' && data.workUnit) {
+    currentWorkUnitId = data.workUnit.id
+    $('result').classList.remove('hidden')
+    $('work-title').textContent = data.workUnit.title
+    $('work-outcome').textContent = data.workUnit.outcome
+    $('work-state').textContent = stateNames[data.workUnit.state] || data.workUnit.state
+    $('next-frontier').textContent = data.workUnit.nextFrontier || '等待新的有效证据。'
+
+    const gate = data.workUnit.gate
+    $('human-gate').textContent = gate?.open
+      ? (gate.summary || '这里有一件必须由你决定的事。')
+      : '现在不需要你做技术选择，Workbench 可以继续。'
+
+    const evidenceList = $('evidence-list')
+    evidenceList.innerHTML = ''
+    for (const evidence of data.workUnit.evidence || []) {
+      const item = document.createElement('li')
+      item.textContent = evidence.summary
+      evidenceList.appendChild(item)
+    }
+    if (!evidenceList.children.length) {
+      const item = document.createElement('li')
+      item.textContent = '这一轮还没有足够的结果证据。'
+      evidenceList.appendChild(item)
+    }
+
+    if (data.factsChanged) {
+      setNotice('项目情况发生变化，Workbench 正在重新确认。旧的授权不能直接复用。', true)
+      $('resume-status').textContent = '项目情况发生变化，需要重新确认。'
+      $('resume-status').className = 'resume-status changed'
+    } else {
+      setNotice('已恢复上一次的工作单元。项目情况没有变化，可以继续。')
+      $('resume-status').textContent = '项目情况没有变化，可以继续当前工作。'
+      $('resume-status').className = 'resume-status ok'
+    }
+    $('resume-card').classList.remove('hidden')
+    $('resume-workunit-id').textContent = data.workUnit.id
+
+    // Show execute card only when gate is not open and facts unchanged.
+    const executeCard = $('execute-card')
+    if (!gate?.open && !data.factsChanged) {
+      executeCard.classList.remove('hidden')
+    } else {
+      executeCard.classList.add('hidden')
+    }
+  } else {
+    $('resume-card').classList.add('hidden')
+  }
+}
+
 async function refreshProject() {
   const { response, body } = await api('/api/project')
   if (!response.ok) {
@@ -296,6 +375,82 @@ async function refreshProject() {
     return
   }
   renderProject(body)
+}
+
+async function loadResume() {
+  const { response, body } = await api('/api/workunits')
+  if (!response.ok) return
+  if (body.workUnits && body.workUnits.length > 0) {
+    const latest = body.workUnits[0]
+    const { response: resumeRes, body: resumeBody } = await api('/api/resume', {
+      method: 'POST',
+      body: JSON.stringify({ workUnitId: latest.id }),
+    })
+    if (resumeRes.ok) {
+      renderResume(resumeBody)
+    }
+  }
+}
+
+async function checkProviderStatus() {
+  if (!isDesktop) return
+  try {
+    const { response, body } = await api('/api/provider/status')
+    if (response.ok) {
+      updateProviderUI(body.hasSecret)
+    }
+  } catch {
+    // Ignore.
+  }
+}
+
+function updateProviderUI(hasSecret) {
+  const card = $('provider-card')
+  const msg = $('provider-message')
+  const input = $('provider-key-input')
+  const button = $('provider-save-button')
+  const status = $('provider-status')
+
+  if (hasSecret) {
+    card.classList.add('hidden')
+    msg.textContent = '模型服务密钥已配置。'
+    status.textContent = '已配置'
+    status.className = 'provider-status ok'
+  } else {
+    card.classList.remove('hidden')
+    msg.textContent = 'Workbench 需要一个模型服务密钥才能完成真正的项目理解。'
+    status.textContent = '未配置'
+    status.className = 'provider-status'
+    input.disabled = false
+    button.disabled = false
+  }
+}
+
+async function saveProviderSecret() {
+  const input = $('provider-key-input')
+  const button = $('provider-save-button')
+  const status = $('provider-status')
+  const secret = input.value.trim()
+  if (!secret) {
+    status.textContent = '请输入有效的 API Key。'
+    status.className = 'provider-status error'
+    return
+  }
+  button.disabled = true
+  status.textContent = '正在保存…'
+  status.className = 'provider-status'
+  try {
+    await window.mingWorkbench.setProviderSecret(secret)
+    input.value = ''
+    status.textContent = '密钥已保存'
+    status.className = 'provider-status ok'
+    await checkProviderStatus()
+  } catch {
+    status.textContent = '保存失败，请稍后重试。'
+    status.className = 'provider-status error'
+  } finally {
+    button.disabled = false
+  }
 }
 
 $('setup-button').addEventListener('click', async () => {
@@ -344,7 +499,7 @@ $('intake-button').addEventListener('click', async () => {
       return
     }
     renderWorkResult(body)
-    // Show execute card only when intake is ready and no open gate.
+    currentWorkUnitId = body.workUnit?.id || null
     const executeCard = $('execute-card')
     if (body.status === 'ready' && !body.workUnit?.gate?.open) {
       executeCard.classList.remove('hidden')
@@ -360,54 +515,56 @@ $('intake-button').addEventListener('click', async () => {
 $('execute-button').addEventListener('click', async () => {
   const button = $('execute-button')
   const status = $('execute-status')
-  const request = $('request').value.trim()
-  if (!request) {
-    status.textContent = '请先输入你想做什么。'
+  if (!currentWorkUnitId) {
+    status.textContent = '请先完成项目理解。'
     status.className = 'execute-status error'
     return
   }
+  const ok = window.confirm('Workbench 将在当前项目授权范围内执行这项变更。确认吗？')
+  if (!ok) return
   button.disabled = true
-  status.textContent = '正在准备执行…'
+  status.textContent = '正在请求执行授权…'
   status.className = 'execute-status'
   try {
-    // First run intake to get the grant.
-    const intakeRes = await api('/api/intake', {
+    const authRes = await api('/api/authorize', {
       method: 'POST',
-      body: JSON.stringify({ request }),
+      body: JSON.stringify({ workUnitId: currentWorkUnitId, authorize: true }),
     })
-    if (!intakeRes.response.ok) {
-      status.textContent = intakeRes.body.message || '执行前理解失败，请重试。'
+    if (!authRes.response.ok) {
+      status.textContent = authRes.body.message || '授权失败。'
       status.className = 'execute-status error'
       return
     }
-    const intakeBody = intakeRes.body
-    if (intakeBody.status !== 'ready' || intakeBody.workUnit?.gate?.open) {
-      status.textContent = '当前状态不允许执行。'
-      status.className = 'execute-status error'
-      return
-    }
-    // Now run execution with the grant from intake.
+    status.textContent = '授权已获取，正在执行…'
     const execRes = await api('/api/execute', {
       method: 'POST',
-      body: JSON.stringify({
-        grant: intakeBody.intake,
-        binding: { workUnitId: intakeBody.workUnit.id, grantId: 'grant-' + Date.now() },
-      }),
+      body: JSON.stringify({ workUnitId: currentWorkUnitId }),
     })
     if (!execRes.response.ok) {
-      const msg = execRes.body?.message || '执行失败，请重试。'
-      status.textContent = msg
+      status.textContent = execRes.body?.message || '执行失败。'
       status.className = 'execute-status error'
       return
     }
+    const execBody = execRes.body
+    currentWorkUnitId = execBody.workUnit?.id || currentWorkUnitId
+    renderWorkResult({
+      status: 'executed',
+      workUnit: execBody.workUnit,
+      intake: { route: null, projectEvidenceSummary: [] },
+    })
     status.textContent = '执行完成。请查看下方证据。'
     status.className = 'execute-status ok'
-    // Refresh project and result view.
     await refreshProject()
   } finally {
     button.disabled = false
   }
 })
 
+if (isDesktop) {
+  $('provider-save-button').addEventListener('click', saveProviderSecret)
+  checkProviderStatus().catch(() => {})
+}
+
 refreshProject().catch(() => setNotice('暂时无法读取项目状态。', true))
+loadResume().catch(() => {})
 `
