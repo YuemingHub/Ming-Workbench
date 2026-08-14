@@ -43,6 +43,20 @@ export interface HarnessAcpRunOptions {
   shutdownGraceMs?: number
 }
 
+export interface HarnessAcpReadOnlyIntakeOptions {
+  prompt: string
+  /** Absolute project directory that Intake may inspect read-only. */
+  cwd: string
+  /** Absolute reviewed DeepSeek Harness source checkout. */
+  harnessCheckout: string
+  /** Absolute Ming Workbench checkout containing harness/acp/launcher.mjs. */
+  workbenchRoot: string
+  provider?: string
+  model?: string
+  sessionRoot?: string
+  shutdownGraceMs?: number
+}
+
 export interface HarnessAcpRunResult {
   sessionId: string
   stopReason: StopReason
@@ -53,6 +67,9 @@ export interface HarnessCheckoutIdentity {
   commit: string
   sourceVersion: string
 }
+
+export type HarnessPermissionMode = 'read-only' | 'workspace-write'
+export type WorkbenchAcpConfig = 'workbench.cordis.yml' | 'intake.cordis.yml'
 
 const SAFE_INHERITED_ENV = [
   'PATH',
@@ -75,7 +92,7 @@ const SAFE_INHERITED_ENV = [
   'http_proxy',
   'https_proxy',
   'no_proxy',
-  // P0 provider infrastructure credentials only. Task-specific credentials
+  // Provider infrastructure credentials only. Task-specific credentials
   // (GitHub, cloud deploy keys, databases, etc.) are deliberately not inherited.
   'DEEPSEEK_API_KEY',
   'DEEPSEEK_BASE_URL',
@@ -187,13 +204,14 @@ export function assertGrantWorkspace(
   }
 }
 
-export function buildHarnessChildEnv(
+export function buildHarnessChildEnvForPermission(
   source: NodeJS.ProcessEnv,
   options: Pick<
-    HarnessAcpRunOptions,
+    HarnessAcpReadOnlyIntakeOptions,
     'harnessCheckout' | 'workbenchRoot' | 'provider' | 'model' | 'sessionRoot'
   >,
-  grant: ProviderExecutionGrant,
+  permissionMode: HarnessPermissionMode,
+  configName: WorkbenchAcpConfig,
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {}
   for (const name of SAFE_INHERITED_ENV) {
@@ -206,12 +224,27 @@ export function buildHarnessChildEnv(
   env.MING_HARNESS_PROVIDER = options.provider ?? 'deepseek-official'
   env.MING_HARNESS_MODEL = options.model ?? 'deepseek-v4-pro'
   if (options.sessionRoot) env.MING_WORKBENCH_SESSION_ROOT = resolve(options.sessionRoot)
-  env.DSH_PERMISSION_MODE =
+  env.DSH_PERMISSION_MODE = permissionMode
+  env.MING_WORKBENCH_ACP_CONFIG = configName
+  return env
+}
+
+export function buildHarnessChildEnv(
+  source: NodeJS.ProcessEnv,
+  options: Pick<
+    HarnessAcpRunOptions,
+    'harnessCheckout' | 'workbenchRoot' | 'provider' | 'model' | 'sessionRoot'
+  >,
+  grant: ProviderExecutionGrant,
+): NodeJS.ProcessEnv {
+  return buildHarnessChildEnvForPermission(
+    source,
+    options,
     grant.authorization.mutation_boundary === 'read-only'
       ? 'read-only'
-      : 'workspace-write'
-
-  return env
+      : 'workspace-write',
+    'workbench.cordis.yml',
+  )
 }
 
 function waitForExit(child: ChildProcessWithoutNullStreams, graceMs: number): Promise<void> {
@@ -237,24 +270,29 @@ function waitForExit(child: ChildProcessWithoutNullStreams, graceMs: number): Pr
   })
 }
 
-/**
- * Run one already-authorized AAOP Provider Execution Grant through a fresh
- * DeepSeek Harness ACP session. This function does not decide Route,
- * authorization, Task Pod membership, or final acceptance.
- */
-export async function runHarnessAcpGrant(
-  options: HarnessAcpRunOptions,
-): Promise<HarnessAcpRunResult> {
-  assertHarnessAcpAdmission(options)
-  assertReviewedHarnessCheckout(options.harnessCheckout)
-  assertGrantWorkspace(options.grant, options.cwd)
+interface HarnessAcpPromptOptions {
+  prompt: string
+  cwd: string
+  harnessCheckout: string
+  workbenchRoot: string
+  env: NodeJS.ProcessEnv
+  shutdownGraceMs?: number
+  label: string
+}
 
+async function runHarnessAcpPrompt(
+  options: HarnessAcpPromptOptions,
+): Promise<HarnessAcpRunResult> {
   const workbenchRoot = resolve(options.workbenchRoot)
   const harnessCheckout = resolve(options.harnessCheckout)
   const workspace = resolve(options.cwd)
   const launcher = join(workbenchRoot, 'harness', 'acp', 'launcher.mjs')
   const tsxCli = resolveHarnessTsxCli(harnessCheckout)
   const harnessTsconfig = join(harnessCheckout, 'tsconfig.json')
+
+  if (!existsSync(launcher)) {
+    throw new Error(`Workbench ACP launcher is missing at ${launcher}.`)
+  }
   if (!existsSync(tsxCli)) {
     throw new Error(
       `Harness tsx runner is missing at ${tsxCli}. Run \`npm run harness:prepare\` or reinstall the reviewed Harness checkout.`,
@@ -269,10 +307,9 @@ export async function runHarnessAcpGrant(
     [tsxCli, '--tsconfig', harnessTsconfig, launcher],
     {
       cwd: workspace,
-      // Keep all streams piped so ACP gets exclusive stdout while diagnostics
-      // can be forwarded verbatim from stderr without weakening the type/lifetime contract.
+      // ACP gets exclusive stdout. Diagnostics may pass through stderr.
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: buildHarnessChildEnv(process.env, options, options.grant),
+      env: options.env,
       windowsHide: true,
     },
   )
@@ -288,9 +325,8 @@ export async function runHarnessAcpGrant(
       return Promise.resolve()
     },
     requestPermission(_params: RequestPermissionRequest): Promise<RequestPermissionResponse> {
-      // The process is already confined to the AAOP Grant's standing mode.
-      // Any same-turn request to widen that mode is rejected; a fresh AAOP Grant
-      // is required to change authority.
+      // Standing permission is fixed before process launch. Any same-turn request
+      // to widen it is rejected; a fresh AAOP authorization decision is required.
       return Promise.resolve({ outcome: { outcome: 'cancelled' } })
     },
   })
@@ -313,13 +349,13 @@ export async function runHarnessAcpGrant(
     const session = await conn.newSession({ cwd: workspace, mcpServers: [] })
     const returnedSessionId: unknown = Reflect.get(session, 'sessionId')
     if (typeof returnedSessionId !== 'string' || returnedSessionId.length === 0) {
-      throw new Error('Harness ACP server returned no session id')
+      throw new Error(`${options.label} returned no session id`)
     }
     sessionId = returnedSessionId
 
     promptResult = await conn.prompt({
       sessionId,
-      prompt: [{ type: 'text', text: renderHarnessGrantMessage(options.grant) }],
+      prompt: [{ type: 'text', text: options.prompt }],
     })
   } finally {
     child.stdin.end()
@@ -327,7 +363,7 @@ export async function runHarnessAcpGrant(
   }
 
   if (!sessionId || !promptResult) {
-    throw new Error('Harness ACP execution ended before a complete prompt result was received')
+    throw new Error(`${options.label} ended before a complete prompt result was received`)
   }
 
   return {
@@ -335,4 +371,56 @@ export async function runHarnessAcpGrant(
     stopReason: promptResult.stopReason,
     assistantText: chunks.join(''),
   }
+}
+
+/**
+ * Run one already-authorized AAOP Provider Execution Grant through a fresh
+ * DeepSeek Harness ACP session. This function does not decide Route,
+ * authorization, Task Pod membership, or final acceptance.
+ */
+export async function runHarnessAcpGrant(
+  options: HarnessAcpRunOptions,
+): Promise<HarnessAcpRunResult> {
+  assertHarnessAcpAdmission(options)
+  assertReviewedHarnessCheckout(options.harnessCheckout)
+  assertGrantWorkspace(options.grant, options.cwd)
+
+  return runHarnessAcpPrompt({
+    prompt: renderHarnessGrantMessage(options.grant),
+    cwd: options.cwd,
+    harnessCheckout: options.harnessCheckout,
+    workbenchRoot: options.workbenchRoot,
+    env: buildHarnessChildEnv(process.env, options, options.grant),
+    shutdownGraceMs: options.shutdownGraceMs,
+    label: 'Harness ACP execution',
+  })
+}
+
+/**
+ * Run ordinary-language Developer Intake through the same reviewed Harness ACP
+ * transport but a dedicated Workbench-owned hard-read-only profile. No Provider
+ * Execution Grant exists yet, so the session cannot widen authority or mutate.
+ */
+export async function runHarnessAcpReadOnlyIntake(
+  options: HarnessAcpReadOnlyIntakeOptions,
+): Promise<HarnessAcpRunResult> {
+  if (!options.prompt.trim()) {
+    throw new Error('AAOP Developer Intake prompt is required')
+  }
+  assertReviewedHarnessCheckout(options.harnessCheckout)
+
+  return runHarnessAcpPrompt({
+    prompt: options.prompt,
+    cwd: options.cwd,
+    harnessCheckout: options.harnessCheckout,
+    workbenchRoot: options.workbenchRoot,
+    env: buildHarnessChildEnvForPermission(
+      process.env,
+      options,
+      'read-only',
+      'intake.cordis.yml',
+    ),
+    shutdownGraceMs: options.shutdownGraceMs,
+    label: 'Harness ACP Intake',
+  })
 }
