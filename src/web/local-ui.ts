@@ -46,6 +46,15 @@ export function renderLocalWorkbenchHtml(requestToken: string): string {
       </div>
     </section>
 
+    <section class="execute-card card hidden" id="execute-card" aria-live="polite">
+      <p class="label">执行变更</p>
+      <p class="muted" id="execute-message">只读理解已完成。如果你确认要执行，Workbench 会先做一次仓库冲突检查。</p>
+      <div class="execute-actions">
+        <button id="execute-button" class="primary" type="button">执行这个变更</button>
+      </div>
+      <p class="execute-status" id="execute-status"></p>
+    </section>
+
     <section id="notice" class="notice hidden" aria-live="polite"></section>
 
     <section id="result" class="result-grid hidden" aria-live="polite">
@@ -143,6 +152,18 @@ textarea:focus { border-color: #8da2c6; box-shadow: 0 0 0 4px rgba(103, 132, 184
   .result-grid { grid-template-columns: 1fr; }
   .span-two { grid-column: span 1; }
   .request-actions .primary, .project-card button { width: 100%; }
+.execute-card { margin-top: 18px; }
+.execute-actions { margin-top: 12px; }
+.execute-status { margin: 10px 0 0; font-size: 13px; color: #43506a; }
+.execute-status.ok { color: #19633f; }
+.execute-status.error { color: #963d35; }
+@media (max-width: 720px) {
+  .shell { width: min(100% - 22px, 980px); padding-top: 28px; }
+  .hero, .project-card, .request-actions, .execute-actions { flex-direction: column; align-items: stretch; }
+  .status-pill { align-self: flex-start; }
+  .result-grid { grid-template-columns: 1fr; }
+  .span-two { grid-column: span 1; }
+}
 }
 `
 
@@ -167,6 +188,81 @@ const stateNames = {
   verifying: '正在验证',
   done: '已完成并有证据',
 }
+
+let providerHasSecret = false
+
+async function checkProviderSecret() {
+  // Provider secret is managed by Electron main process via safeStorage.
+  // The renderer only sees hasSecret boolean from the backend.
+  try {
+    const res = await api('/api/provider/secret')
+    if (res.response.ok) {
+      providerHasSecret = res.body.hasSecret
+      updateProviderUI()
+    }
+  } catch {
+    // Ignore provider check failures.
+  }
+}
+
+function updateProviderUI() {
+  const msg = $('provider-message')
+  const status = $('provider-status')
+  const input = $('provider-key-input')
+  const button = $('provider-save-button')
+
+  if (providerHasSecret) {
+    msg.textContent = '模型服务密钥已保存。Workbench 可以完成真正的项目理解了。'
+    status.textContent = '已配置'
+    status.className = 'provider-status ok'
+    input.value = ''
+    button.disabled = true
+    input.disabled = true
+  } else {
+    msg.textContent = 'Workbench 需要一个模型服务密钥才能完成真正的项目理解。'
+    status.textContent = ''
+    status.className = 'provider-status'
+    input.disabled = false
+    button.disabled = false
+  }
+}
+
+async function saveProviderSecret() {
+  const input = $('provider-key-input')
+  const button = $('provider-save-button')
+  const status = $('provider-status')
+  const secret = input.value.trim()
+  if (!secret) {
+    status.textContent = '请输入有效的 API Key。'
+    status.className = 'provider-status error'
+    return
+  }
+  button.disabled = true
+  status.textContent = '正在保存…'
+  status.className = 'provider-status'
+  try {
+    const res = await api('/api/provider/secret', {
+      method: 'POST',
+      body: JSON.stringify({ secret }),
+    })
+    if (!res.response.ok) {
+      const msg = res.body?.message || '保存失败，请稍后重试。'
+      status.textContent = msg
+      status.className = 'provider-status error'
+      return
+    }
+    providerHasSecret = true
+    updateProviderUI()
+    status.textContent = '密钥已保存'
+    status.className = 'provider-status ok'
+  } finally {
+    button.disabled = false
+  }
+}
+
+$('provider-save-button').addEventListener('click', saveProviderSecret)
+
+checkProviderSecret().catch(() => {})
 
 async function api(path, options = {}) {
   const response = await fetch(path, {
@@ -321,6 +417,65 @@ $('intake-button').addEventListener('click', async () => {
       return
     }
     renderWorkResult(body)
+    // Show execute card only when intake is ready and no open gate.
+    const executeCard = $('execute-card')
+    if (body.status === 'ready' && !body.workUnit?.gate?.open) {
+      executeCard.classList.remove('hidden')
+    } else {
+      executeCard.classList.add('hidden')
+    }
+    await refreshProject()
+  } finally {
+    button.disabled = false
+  }
+})
+
+$('execute-button').addEventListener('click', async () => {
+  const button = $('execute-button')
+  const status = $('execute-status')
+  const request = $('request').value.trim()
+  if (!request) {
+    status.textContent = '请先输入你想做什么。'
+    status.className = 'execute-status error'
+    return
+  }
+  button.disabled = true
+  status.textContent = '正在准备执行…'
+  status.className = 'execute-status'
+  try {
+    // First run intake to get the grant.
+    const intakeRes = await api('/api/intake', {
+      method: 'POST',
+      body: JSON.stringify({ request }),
+    })
+    if (!intakeRes.response.ok) {
+      status.textContent = intakeRes.body.message || '执行前理解失败，请重试。'
+      status.className = 'execute-status error'
+      return
+    }
+    const intakeBody = intakeRes.body
+    if (intakeBody.status !== 'ready' || intakeBody.workUnit?.gate?.open) {
+      status.textContent = '当前状态不允许执行。'
+      status.className = 'execute-status error'
+      return
+    }
+    // Now run execution with the grant from intake.
+    const execRes = await api('/api/execute', {
+      method: 'POST',
+      body: JSON.stringify({
+        grant: intakeBody.intake,
+        binding: { workUnitId: intakeBody.workUnit.id, grantId: 'grant-' + Date.now() },
+      }),
+    })
+    if (!execRes.response.ok) {
+      const msg = execRes.body?.message || '执行失败，请重试。'
+      status.textContent = msg
+      status.className = 'execute-status error'
+      return
+    }
+    status.textContent = '执行完成。请查看下方证据。'
+    status.className = 'execute-status ok'
+    // Refresh project and result view.
     await refreshProject()
   } finally {
     button.disabled = false

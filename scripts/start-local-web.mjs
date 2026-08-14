@@ -20,7 +20,7 @@ function readArgs(argv) {
       options.help = true
       continue
     }
-    if (arg === '--project' || arg === '--port' || arg === '--harness-checkout' || arg === '--workbench-root') {
+    if (arg === '--project' || arg === '--port' || arg === '--harness-checkout' || arg === '--workbench-root' || arg === '--store-dir') {
       const value = argv[index + 1]
       if (!value || value.startsWith('--')) {
         throw new Error(`${arg} requires a value`)
@@ -62,6 +62,7 @@ const harnessCheckout = resolve(
     ?? `${workbenchRoot}/.workbench/vendor/deepseek-harness`,
 )
 const port = args.port === undefined ? 0 : Number(args.port)
+const storeDir = args['store-dir'] ? resolve(args['store-dir']) : undefined
 
 if (!existsSync(projectRoot)) {
   console.error(`Project directory does not exist: ${projectRoot}`)
@@ -80,6 +81,7 @@ const handle = await startLocalWorkbenchServer({
   model: process.env.MING_HARNESS_MODEL,
   sessionRoot: process.env.MING_WORKBENCH_SESSION_ROOT,
   port,
+  storeDir,
 })
 
 console.log('Ming Workbench local UI is ready.')

@@ -18,6 +18,22 @@ import {
   LOCAL_WORKBENCH_CSS,
   renderLocalWorkbenchHtml,
 } from './local-ui.js'
+import {
+  runBoundedExecution,
+  type BoundedExecutionResult,
+  type BoundedExecutionOptions,
+} from '../execution/bounded-execution.js'
+import type { ProviderExecutionGrant } from '../execution/provider-grant.js'
+import { issueProviderExecutionGrant } from '../execution/grant-issuance.js'
+import { readRepositorySnapshot } from '../execution/repository.js'
+import {
+  fromPersistedWorkUnit,
+  noopWorkUnitStore,
+  toPersistedWorkUnit,
+  type WorkUnitStoreApi,
+} from '../persistence/work-unit-store.js'
+import { createFileWorkUnitStore } from '../persistence/file-work-unit-store.js'
+import type { WorkUnit } from '../core/model.js'
 
 const LOOPBACK_HOST = '127.0.0.1'
 const MAX_JSON_BODY_BYTES = 64 * 1024
@@ -32,6 +48,10 @@ export interface LocalWorkbenchServerOptions {
   model?: string
   sessionRoot?: string
   port?: number
+  /** Directory for the JSON Work Unit store (userData in desktop mode). */
+  storeDir?: string
+  /** Optional explicit project test command for execution evidence. */
+  testCommand?: string[]
 }
 
 export interface LocalWorkbenchServerDependencies {
@@ -41,6 +61,8 @@ export interface LocalWorkbenchServerDependencies {
   ) => Promise<EnableProjectAaopResult>
   runIntake?: typeof runDevelopmentIntakeApplication
   logError?: (error: unknown) => void
+  /** Work Unit store. Defaults to a file store at storeDir, or no-op. */
+  store?: WorkUnitStoreApi
 }
 
 export interface LocalWorkbenchServerHandle {
@@ -224,6 +246,8 @@ export async function startLocalWorkbenchServer(
   const runIntake = dependencies.runIntake ?? runDevelopmentIntakeApplication
   const logError = dependencies.logError ?? ((error: unknown) => console.error(error))
   const requestToken = randomBytes(24).toString('base64url')
+  const store = dependencies.store
+    ?? (options.storeDir ? createFileWorkUnitStore(options.storeDir) : noopWorkUnitStore)
   let boundPort = -1
 
   const server = createServer(async (request, response) => {
@@ -280,6 +304,28 @@ export async function startLocalWorkbenchServer(
 
       if (method === 'GET' && url.pathname === '/api/project') {
         sendJson(response, 200, projectOnboardingSnapshot(resolveOnboarding(projectRoot)))
+        return
+      }
+
+      // Resume: expose the authoritative persisted Work Units for this project.
+      // No secret, no grant internals beyond existence, are returned.
+      if (method === 'GET' && url.pathname === '/api/workunits') {
+        const loaded = store.load()
+        sendJson(response, 200, {
+          status: 'ok',
+          projectRoot: loaded.projectRoot,
+          workUnits: loaded.workUnits.map((w) => ({
+            id: w.id,
+            title: w.title,
+            outcome: w.outcome,
+            state: w.state,
+            gate: w.gate,
+            evidenceCount: w.evidence.length,
+            nextFrontier: w.nextFrontier,
+            updatedAt: w.updatedAt,
+          })),
+          hasStoredGrant: Object.keys(loaded.grants).length > 0,
+        })
         return
       }
 
@@ -373,6 +419,211 @@ export async function startLocalWorkbenchServer(
           return
         }
         sendJson(response, 200, result)
+
+        // Persist the authoritative Work Unit so the product survives close/reopen.
+        try {
+          const now = new Date().toISOString()
+          const fullUnit: WorkUnit = {
+            id: result.workUnit.id,
+            spaceId: result.space.id,
+            title: result.workUnit.title,
+            outcome: result.workUnit.outcome,
+            state: result.workUnit.state,
+            owner: 'development-aaop',
+            gate: result.workUnit.gate,
+            acceptance: [],
+            evidence: result.workUnit.evidence.map((e, index) => ({
+              id: `EV-${result.workUnit.id}-${index}`,
+              kind: e.kind,
+              summary: e.summary,
+              observedAt: e.observedAt,
+              authoritative: e.authoritative,
+            })),
+            assets: [],
+            nextFrontier: result.workUnit.nextFrontier,
+            createdAt: now,
+            updatedAt: now,
+          }
+          const loaded = store.load()
+          const existing = loaded.workUnits.find((w) => w.id === fullUnit.id)
+          const next = existing
+            ? loaded.workUnits.map((w) => (w.id === fullUnit.id ? toPersistedWorkUnit(fullUnit) : w))
+            : [...loaded.workUnits, toPersistedWorkUnit(fullUnit)]
+          store.save({ ...loaded, projectRoot, workUnits: next, lastProjectRoot: projectRoot })
+        } catch (error) {
+          logError(error)
+        }
+        return
+      }
+
+      // Phase 4: bounded execution requires an explicit human-authorized grant.
+      // The browser may request execution of a Work Unit, but it can never
+      // fabricate the Work Unit, grant, Gate, or mutation boundary.
+      if (method === 'POST' && url.pathname === '/api/authorize') {
+        let parsed: unknown
+        try {
+          parsed = await readJsonBody(request)
+        } catch (error) {
+          const code = error instanceof Error ? error.message : ''
+          sendJson(response, code === 'request-body-too-large' ? 413 : 400, {
+            status: 'bad-request',
+            message: 'Workbench 无法读取这次授权请求。',
+          })
+          return
+        }
+        const body = objectBody(parsed)
+        const workUnitId = typeof body?.workUnitId === 'string' ? body.workUnitId : ''
+        if (body?.authorize !== true || !workUnitId) {
+          sendJson(response, 400, {
+            status: 'authorization-required',
+            message: '执行需要你明确授权这次受边界约束的改动。',
+          })
+          return
+        }
+        const loaded = store.load()
+        const record = loaded.workUnits.find((w) => w.id === workUnitId)
+        if (!record) {
+          sendJson(response, 404, {
+            status: 'not-found',
+            message: '找不到这个 Work Unit，可能还没有通过理解生成。',
+          })
+          return
+        }
+        const snapshot = readRepositorySnapshot(projectRoot)
+        const { grant, binding, intendedFiles } = issueProviderExecutionGrant({
+          workUnit: fromPersistedWorkUnit(record),
+          projectRoot,
+          snapshot,
+        })
+        const nextGrants = {
+          ...loaded.grants,
+          [grant.grant_id]: { grant: grant as unknown as Record<string, unknown>, binding },
+        }
+        store.save({ ...loaded, projectRoot, grants: nextGrants, lastProjectRoot: projectRoot })
+        sendJson(response, 200, {
+          status: 'authorized',
+          workUnitId,
+          grantId: grant.grant_id,
+          writeTarget: grant.authorization.write_target,
+          allowedEffects: grant.authorization.allowed_effects,
+          protectedEffects: grant.authorization.protected_effects,
+          message: '已生成受边界约束的执行授权，接下来可以执行。',
+        })
+        return
+      }
+
+      // Phase 4: bounded execution API.
+      // The browser may only ask to execute an existing Work Unit. The grant and
+      // Work Unit are resolved from the authoritative backend store, never from
+      // browser-supplied JSON.
+      if (method === 'POST' && url.pathname === '/api/execute') {
+        let parsed: unknown
+        try {
+          parsed = await readJsonBody(request)
+        } catch (error) {
+          const code = error instanceof Error ? error.message : ''
+          sendJson(response, code === 'request-body-too-large' ? 413 : 400, {
+            status: 'bad-request',
+            message: 'Workbench 无法读取这次执行请求。',
+          })
+          return
+        }
+        const body = objectBody(parsed)
+        const workUnitId = typeof body?.workUnitId === 'string' && body.workUnitId.length > 0
+          ? body.workUnitId
+          : null
+
+        if (!workUnitId) {
+          sendJson(response, 400, {
+            status: 'bad-request',
+            message: '执行需要指明要执行的 Work Unit。',
+          })
+          return
+        }
+
+        // Provider secret must be configured for execution. Desktop mode injects
+        // it via Electron safeStorage into the backend child env; web mode uses the
+        // DEEPSEEK_API_KEY environment. It is never read from the request body.
+        const providerSecret = process.env.DEEPSEEK_API_KEY
+        if (!providerSecret) {
+          sendJson(response, 402, {
+            status: 'provider-required',
+            message: '执行需要模型服务密钥。请在 Electron 桌面模式中配置，或设置 DEEPSEEK_API_KEY 环境变量。',
+          })
+          return
+        }
+
+        let executionResult: BoundedExecutionResult
+        try {
+          const loaded = store.load()
+          const record = loaded.workUnits.find((w) => w.id === workUnitId)
+          if (!record) {
+            sendJson(response, 404, {
+              status: 'not-found',
+              message: `Work Unit ${workUnitId} 不存在于后端存储，无法执行。`,
+            })
+            return
+          }
+          const grantEntry = Object.values(loaded.grants).find(
+            (g) => g.binding.workUnitId === workUnitId,
+          )
+          if (!grantEntry) {
+            sendJson(response, 400, {
+              status: 'authorization-required',
+              message: `Work Unit ${workUnitId} 还没有经过你授权的执行授权。`,
+            })
+            return
+          }
+          const workUnit = fromPersistedWorkUnit(record)
+          const grant = grantEntry.grant as unknown as ProviderExecutionGrant
+          const binding = grantEntry.binding
+
+          const executionOptions: BoundedExecutionOptions = {
+            workUnit,
+            grant,
+            binding,
+            projectRoot,
+            harnessCheckout,
+            workbenchRoot,
+            provider: options.provider,
+            model: options.model,
+            sessionRoot: options.sessionRoot,
+            testCommand: options.testCommand,
+          }
+          executionResult = await runBoundedExecution(executionOptions)
+
+          // Persist the evidence-backed Work Unit update so resume survives close.
+          const updated = loaded.workUnits.map((w) =>
+            w.id === executionResult.workUnit.id
+              ? toPersistedWorkUnit(executionResult.workUnit)
+              : w,
+          )
+          store.save({ ...loaded, projectRoot, workUnits: updated, lastProjectRoot: projectRoot })
+        } catch (error) {
+          logError(error)
+          sendJson(response, 502, {
+            status: 'execution-failed',
+            message: error instanceof Error ? error.message : '执行过程中发生未知错误。',
+            retryable: false,
+          })
+          return
+        }
+
+        sendJson(response, 200, {
+          status: 'executed',
+          workUnit: {
+            id: executionResult.workUnit.id,
+            state: executionResult.workUnit.state,
+            gate: executionResult.workUnit.gate,
+            evidence: executionResult.workUnit.evidence,
+            nextFrontier: executionResult.workUnit.nextFrontier,
+          },
+          sessionId: executionResult.sessionId,
+          stopReason: executionResult.stopReason,
+          assistantText: executionResult.assistantText,
+          frontierDecision: executionResult.frontierDecision,
+          repositoryReadback: executionResult.repositoryReadback,
+        })
         return
       }
 

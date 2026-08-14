@@ -36,6 +36,7 @@
       "scripts/**/*",
       "src/**/*",
       "harness/**/*",
+      ".workbench/vendor/**/*",
       ".tmp/**/*",
       "package.json",
       "harness.lock.json",

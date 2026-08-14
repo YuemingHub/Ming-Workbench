@@ -287,18 +287,55 @@ test('Intake/provider outage returns recoverable 503, preserves the request, and
   )
 })
 
-test('Stage B exposes no execution endpoint', async () => {
+test('execution endpoint never trusts browser-supplied authority and resolves from the store', async () => {
   await withServer(
     { resolveOnboarding: () => readyOnboarding() },
     async (handle) => {
-      const response = await fetch(`${handle.url}/api/execute`, {
+      // A browser-supplied fake grant/binding is ignored; the endpoint only
+      // accepts a Work Unit id and resolves the real store. Missing id → 400.
+      const response1 = await fetch(`${handle.url}/api/execute`, {
         method: 'POST',
         headers: apiHeaders(handle, { 'content-type': 'application/json' }),
-        body: '{}',
+        body: JSON.stringify({ grant: { grant_id: 'fake' }, binding: { workUnitId: 'x', grantId: 'fake' } }),
       })
-      assert.equal(response.status, 404)
+      assert.equal(response1.status, 400)
+
+      // With an id but no provider secret in the environment → 402. The endpoint
+      // does not read a secret from the request body.
+      const response2 = await fetch(`${handle.url}/api/execute`, {
+        method: 'POST',
+        headers: apiHeaders(handle, { 'content-type': 'application/json' }),
+        body: JSON.stringify({ workUnitId: 'ghost' }),
+      })
+      assert.equal(response2.status, 402)
+      const body2 = await response2.json()
+      assert.equal(body2.status, 'provider-required')
     },
   )
+})
+
+test('execution rejects an unknown Work Unit instead of fabricating one', async () => {
+  const handle = await startLocalWorkbenchServer(
+    {
+      projectRoot: '/workspace/fixture',
+      workbenchRoot: '/workbench',
+      harnessCheckout: '/harness',
+      port: 0,
+      storeDir: undefined,
+    },
+    { resolveOnboarding: () => readyOnboarding() },
+  )
+  try {
+    const response = await fetch(`${handle.url}/api/execute`, {
+      method: 'POST',
+      headers: apiHeaders(handle, { 'content-type': 'application/json', authorization: 'Bearer test-secret' }),
+      body: JSON.stringify({ workUnitId: 'does-not-exist' }),
+    })
+    // No DEEPSEEK_API_KEY in this process env, so provider-required wins.
+    assert.equal(response.status, 402)
+  } finally {
+    await handle.close()
+  }
 })
 
 test('unexpected Host header is rejected before any API logic', async () => {
