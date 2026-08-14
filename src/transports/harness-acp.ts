@@ -182,16 +182,33 @@ export function assertGrantWorkspace(
     throw new Error('write-authorized grant has no exact write target')
   }
 
-  const remote = git(workspace, ['remote', 'get-url', 'origin'])
+  // The grant's repository identity is either a GitHub slug (CI worktrees) or
+  // the exact local project path the human authorized (desktop local projects).
+  // Accept both; reject everything else.
+  let remote = ''
+  try {
+    remote = git(workspace, ['remote', 'get-url', 'origin'])
+  } catch {
+    // A local-path grant is still valid for a repository without an origin.
+  }
   const repository = normalizeGitHubRepository(remote)
-  if (repository?.toLowerCase() !== target.repository.toLowerCase()) {
+  const matchesSlug =
+    repository !== undefined
+    && repository.toLowerCase() === target.repository.toLowerCase()
+  const matchesPath = sameResolvedPath(target.repository, workspace)
+  if (!matchesSlug && !matchesPath) {
     throw new Error(
-      `Grant repository ${target.repository} does not match workspace origin ${repository ?? remote}.`,
+      `Grant repository ${target.repository} does not match workspace origin ${(repository ?? remote) || '<none>'}.`,
     )
   }
 
+  // The working ref may be a branch name or (detached HEAD) a commit SHA.
   const currentBranch = git(workspace, ['branch', '--show-current'])
-  if (currentBranch !== target.working_ref) {
+  const currentHead = git(workspace, ['rev-parse', 'HEAD'])
+  if (
+    target.working_ref !== currentBranch
+    && target.working_ref !== currentHead
+  ) {
     throw new Error(
       `Grant working_ref ${target.working_ref} does not match current branch ${currentBranch || '<detached HEAD>'}.`,
     )
@@ -208,6 +225,14 @@ export function assertGrantWorkspace(
       throw new Error(`Grant base_ref ${target.base_ref} does not resolve in the workspace.`)
     }
   }
+}
+
+function sameResolvedPath(left: string, right: string): boolean {
+  const a = resolve(left)
+  const b = resolve(right)
+  return process.platform === 'win32'
+    ? a.toLowerCase() === b.toLowerCase()
+    : a === b
 }
 
 export function buildHarnessChildEnvForPermission(

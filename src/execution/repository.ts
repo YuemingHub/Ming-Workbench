@@ -29,6 +29,8 @@ export interface RepositorySnapshot {
   /** Current HEAD sha, or '' when the path is not a Git repository. */
   head: string
   isGit: boolean
+  /** Current branch name, or '' when detached or HEAD-less. */
+  branch: string
   /** Normalized relative paths with uncommitted changes (includes untracked). */
   dirtyFiles: string[]
 }
@@ -92,11 +94,13 @@ export function readRepositorySnapshot(root: string): RepositorySnapshot {
   const abs = resolve(root)
   const headRes = git(abs, ['rev-parse', 'HEAD'])
   const isGit = headRes.ok && headRes.out.length > 0
+  const branchRes = isGit ? git(abs, ['branch', '--show-current']) : { out: '', ok: false }
   const dirty = git(abs, ['status', '--porcelain'])
   return {
     root: abs,
     head: isGit ? headRes.out : '',
     isGit,
+    branch: branchRes.ok ? branchRes.out : '',
     dirtyFiles: isGit ? parsePorcelain(dirty.out) : [],
   }
 }

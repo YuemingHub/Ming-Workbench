@@ -554,7 +554,13 @@ export async function startLocalWorkbenchServer(
         })
         const nextGrants = {
           ...loaded.grants,
-          [grant.grant_id]: { grant: grant as unknown as Record<string, unknown>, binding },
+          // The authorized file surface is persisted with the grant so a later
+          // /api/execute can prove the frontier overlap without re-deriving it.
+          [grant.grant_id]: {
+            grant: grant as unknown as Record<string, unknown>,
+            binding,
+            intendedFiles,
+          },
         }
         const currentFacts = readMutableFacts(projectRoot, options)
         store.save({
@@ -628,9 +634,12 @@ export async function startLocalWorkbenchServer(
             })
             return
           }
-          const grantEntry = Object.values(loaded.grants).find(
+          // The most recently issued grant wins: a re-authorization after stale
+          // facts must supersede the older grant for the same Work Unit.
+          const grantEntries = Object.values(loaded.grants).filter(
             (g) => g.binding.workUnitId === workUnitId,
           )
+          const grantEntry = grantEntries[grantEntries.length - 1]
           if (!grantEntry) {
             sendJson(response, 400, {
               status: 'authorization-required',
@@ -641,6 +650,7 @@ export async function startLocalWorkbenchServer(
           const workUnit = fromPersistedWorkUnit(record)
           const grant = grantEntry.grant as unknown as ProviderExecutionGrant
           const binding = grantEntry.binding
+          const intendedFiles = grantEntry.intendedFiles ?? []
 
           // Re-check mutable facts: stale authority must not be reused.
           const currentFacts = readMutableFacts(projectRoot, options)
@@ -666,6 +676,8 @@ export async function startLocalWorkbenchServer(
             model: options.model,
             sessionRoot: options.sessionRoot,
             testCommand: options.testCommand,
+            // The human-authorized file surface, persisted at authorize time.
+            intendedFiles,
             // P0-C write boundary: default-off safety rail. Normal UI keeps execution
             // disabled unless an operator explicitly enables write mutation.
             allowWrite: process.env.MING_WORKBENCH_ALLOW_WRITE === '1',

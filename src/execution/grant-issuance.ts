@@ -66,7 +66,10 @@ export function issueProviderExecutionGrant(options: IssueGrantOptions): IssuedG
       write_target: {
         repository: projectRoot,
         base_ref: baseRef,
-        working_ref: baseRef,
+        // The exact branch the human authorized (HEAD SHA when detached).
+        // Matching a branch name keeps the workspace assertion unambiguous for
+        // local projects and CI worktrees alike.
+        working_ref: options.snapshot.branch || baseRef,
         environment: null,
       },
       allowed_effects: ['local-file-write'],

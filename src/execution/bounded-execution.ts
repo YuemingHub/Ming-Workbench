@@ -280,18 +280,25 @@ function runProjectTests(
   projectRoot: string,
   testCommand?: string[],
 ): RepositoryReadback['testResult'] {
+  // npm resolves through a .cmd shim on Windows; route the default command
+  // through cmd.exe (the shim cannot be spawned directly by execFileSync).
+  // Explicit custom test commands stay shell-free.
+  const needsShell = testCommand === undefined && process.platform === 'win32'
   const command = testCommand ?? ['npm', 'test']
+  const [file, args] = needsShell
+    ? [process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', 'npm test']]
+    : [command[0], command.slice(1)]
   try {
-    const output = execFileSync(command[0], command.slice(1), {
+    const output = execFileSync(file, args, {
       encoding: 'utf8',
       cwd: projectRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 120_000,
     }).trim()
-    return {
-      passed: !output.includes('fail') && !output.includes('Error') && !output.includes('FAIL'),
-      output,
-    }
+    // The exit code is the authoritative pass/fail signal (execFileSync throws
+    // on non-zero). Output text is not scanned: runners print "fail 0" even on
+    // green runs.
+    return { passed: true, output }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     return {

@@ -38,6 +38,14 @@ export function createFileWorkUnitStore(storeDir: string): WorkUnitStoreApi {
         workUnits: Array.isArray(raw.workUnits) ? raw.workUnits : [],
         grants: raw.grants && typeof raw.grants === 'object' ? raw.grants : {},
         lastProjectRoot: raw.lastProjectRoot,
+        // The last observed mutable-facts snapshot drives the stale-authority
+        // check on /api/execute. Dropping it on load silently disabled the 409
+        // path; the snapshot itself is never trusted as an authorization input
+        // (the live repository is re-read before any continuation).
+        lastMutableFacts:
+          raw.lastMutableFacts && typeof raw.lastMutableFacts === 'object'
+            ? (raw.lastMutableFacts as WorkUnitStore['lastMutableFacts'])
+            : undefined,
       }
     } catch {
       return emptyStore()

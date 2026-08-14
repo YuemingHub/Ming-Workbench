@@ -6,7 +6,7 @@ on:
     paths:
       - 'desktop/**'
       - 'scripts/start-local-web.mjs'
-      - 'scripts/desktop-smoke.ps1'
+      - 'scripts/desktop-windows-package-smoke.ps1'
       - 'src/web/**'
       - 'src/hosts/**'
       - 'src/persistence/**'
@@ -18,7 +18,7 @@ on:
     paths:
       - 'desktop/**'
       - 'scripts/start-local-web.mjs'
-      - 'scripts/desktop-smoke.ps1'
+      - 'scripts/desktop-windows-package-smoke.ps1'
       - 'src/web/**'
       - 'src/hosts/**'
       - 'src/persistence/**'
@@ -48,172 +48,22 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Build compiled output
-        run: npm run build:test
-
-      - name: Type check
-        run: npm run check
-
-      - name: Unit tests
-        run: npm test
-
-      - name: Create ephemeral scratch Git project
-        shell: pwsh
-        run: |
-          $scratch = Join-Path $env:RUNNER_TEMP 'scratch-project'
-          New-Item -ItemType Directory -Force -Path $scratch | Out-Null
-          Set-Location $scratch
-          git init -q
-          git config user.email "smoke@ci.local"
-          git config user.name "CI Smoke"
-          Set-Content -Path README.md -Value "scratch smoke project`n"
-          git add README.md
-          git commit -q -m "init"
-          Write-Output "scratch=$scratch"
-
-      - name: Package win-unpacked (dir)
-        shell: pwsh
-        run: npm run desktop:package:dir
-        env:
-          MING_WORKBENCH_ALLOW_WRITE: '0'
-
-      - name: Package portable exe
-        shell: pwsh
-        run: npm run desktop:package
-        env:
-          MING_WORKBENCH_ALLOW_WRITE: '0'
-
-      - name: Launch win-unpacked app and verify backend serves HTTP 200
+      - name: Run repository-owned packaged smoke
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $app = Resolve-Path 'dist-desktop/win-unpacked/Ming Workbench.exe'
-          $scratch = Join-Path $env:RUNNER_TEMP 'scratch-project'
-          $logDir = Join-Path $env:APPDATA 'ming-workbench'
-          New-Item -ItemType Directory -Force -Path $logDir | Out-Null
-          $startupLog = Join-Path $logDir 'startup.log'
-          if (Test-Path $startupLog) { Remove-Item $startupLog -Force }
-
-          $proc = Start-Process -FilePath $app -ArgumentList "--project `"$scratch`"" -PassThru -WindowStyle Hidden
-          Write-Output "launched pid=$($proc.Id)"
-
-          # Wait for backend-ready line in startup.log (up to 120s)
-          $url = $null
-          for ($i = 0; $i -lt 120; $i++) {
-            Start-Sleep -Seconds 1
-            if (Test-Path $startupLog) {
-              $content = Get-Content $startupLog -Raw -ErrorAction SilentlyContinue
-              if ($content -match 'backend ready (http://127\.0\.0\.1:\d+)') {
-                $url = $Matches[1]
-                break
-              }
-            }
-            if ($proc.HasExited) {
-              Write-Error "App exited before backend ready. exit=$($proc.ExitCode)"
-            }
+          $artifact = Join-Path $env:RUNNER_TEMP 'packaged-smoke-artifacts'
+          & pwsh -NoProfile -File scripts/desktop-windows-package-smoke.ps1 -ArtifactDir $artifact
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "packaged smoke failed (exit $LASTEXITCODE)"
           }
-          if (-not $url) {
-            Write-Output "--- startup.log ---"
-            if (Test-Path $startupLog) { Get-Content $startupLog }
-            Write-Error "backend ready line not found in startup.log"
-          }
-          Write-Output "backend url=$url"
 
-          # HTTP 200 on the served page
-          $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 15
-          if ($resp.StatusCode -ne 200) { Write-Error "expected HTTP 200, got $($resp.StatusCode)" }
-          Write-Output "HTTP 200 OK from packaged app"
-
-          # Close the app through a real quit path and wait for exit
-          $proc.CloseMainWindow() | Out-Null
-          if (-not $proc.WaitForExit(30000)) {
-            Stop-Process -Id $proc.Id -Force
-          }
-          $proc.WaitForExit()
-          Write-Output "app exited code=$($proc.ExitCode)"
-
-      - name: Verify zero residual processes for win-unpacked launch
-        shell: pwsh
-        run: |
-          # The backend sidecar is spawned as 'node' (or electron-as-node) and
-          # the Harness ACP child as node. We verify no Ming Workbench process
-          # or its backend/harness children survive this launch. Match by
-          # command line containing the scratch project path.
-          $scratch = Join-Path $env:RUNNER_TEMP 'scratch-project'
-          $residual = Get-CimInstance Win32_Process |
-            Where-Object { $_.CommandLine -like "*$scratch*" } |
-            Select-Object ProcessId, Name, CommandLine
-          if ($residual) {
-            $residual | Format-Table | Out-String | Write-Output
-            Write-Error "residual processes found for this launch"
-          }
-          Write-Output "PASS: zero residual processes"
-
-      - name: Launch portable exe and verify backend serves HTTP 200
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $portable = Get-ChildItem 'dist-desktop/*.exe' | Where-Object { $_.Name -ne 'win-unpacked' -and $_.Name -like '*.exe' } | Select-Object -First 1
-          if (-not $portable) { Write-Error "portable exe not found in dist-desktop" }
-          $scratch = Join-Path $env:RUNNER_TEMP 'scratch-project'
-          $logDir = Join-Path $env:APPDATA 'ming-workbench'
-          $startupLog = Join-Path $logDir 'startup.log'
-          if (Test-Path $startupLog) { Remove-Item $startupLog -Force }
-
-          $proc = Start-Process -FilePath $portable.FullName -ArgumentList "--project `"$scratch`"" -PassThru -WindowStyle Hidden
-          Write-Output "launched portable pid=$($proc.Id)"
-
-          $url = $null
-          for ($i = 0; $i -lt 120; $i++) {
-            Start-Sleep -Seconds 1
-            if (Test-Path $startupLog) {
-              $content = Get-Content $startupLog -Raw -ErrorAction SilentlyContinue
-              if ($content -match 'backend ready (http://127\.0\.0\.1:\d+)') {
-                $url = $Matches[1]
-                break
-              }
-            }
-            if ($proc.HasExited) {
-              Write-Error "Portable exited before backend ready. exit=$($proc.ExitCode)"
-            }
-          }
-          if (-not $url) {
-            Write-Output "--- startup.log ---"
-            if (Test-Path $startupLog) { Get-Content $startupLog }
-            Write-Error "backend ready line not found for portable"
-          }
-          Write-Output "portable backend url=$url"
-
-          $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 15
-          if ($resp.StatusCode -ne 200) { Write-Error "expected HTTP 200, got $($resp.StatusCode)" }
-          Write-Output "portable HTTP 200 OK"
-
-          $proc.CloseMainWindow() | Out-Null
-          if (-not $proc.WaitForExit(30000)) {
-            Stop-Process -Id $proc.Id -Force
-          }
-          $proc.WaitForExit()
-          Write-Output "portable exited code=$($proc.ExitCode)"
-
-      - name: Verify zero residual processes for portable launch
-        shell: pwsh
-        run: |
-          $scratch = Join-Path $env:RUNNER_TEMP 'scratch-project'
-          $residual = Get-CimInstance Win32_Process |
-            Where-Object { $_.CommandLine -like "*$scratch*" } |
-            Select-Object ProcessId, Name, CommandLine
-          if ($residual) {
-            $residual | Format-Table | Out-String | Write-Output
-            Write-Error "residual processes found for portable launch"
-          }
-          Write-Output "PASS: zero residual processes for portable"
-
-      - name: Upload smoke logs on failure
+      - name: Upload smoke diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: packaged-smoke-logs
           path: |
-            ${{ env.APPDATA }}/ming-workbench/startup.log
+            ${{ runner.temp }}/packaged-smoke-artifacts/**
             dist-desktop/builder-debug.yml
           if-no-files-found: ignore

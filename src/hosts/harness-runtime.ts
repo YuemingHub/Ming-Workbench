@@ -12,7 +12,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { execFileSync } from 'node:child_process'
 import { join, resolve, dirname } from 'node:path'
 
 export interface HarnessRuntimeOptions {
@@ -164,16 +164,13 @@ function isGitDir(cwd: string): boolean {
 function removeDir(dir: string): void {
   if (!existsSync(dir)) return
   try {
-    if (process.platform === 'win32') {
-      spawnSync('cmd', ['/c', 'rmdir', '/s', '/q', dir], {
-        stdio: 'ignore',
-        shell: true,
-      })
-    } else {
-      rmSync(dir, { recursive: true, force: true })
-    }
+    // rmSync removes symlinks/junctions on Windows and retries transient
+    // locks. A leftover partial bundle extraction must never silently survive
+    // cleanup, or the next `git clone` fails with "already exists".
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 250 })
   } catch {
-    // Best-effort cleanup.
+    // Best-effort cleanup; the caller verifies the directory is gone before
+    // extracting and surfaces a clear error when it is not.
   }
 }
 
@@ -233,6 +230,11 @@ export async function prepareHarnessRuntime(
   // Clean target if it exists but isn't a valid Git repo.
   if (existsSync(bundledDir)) {
     removeDir(bundledDir)
+  }
+  if (existsSync(bundledDir)) {
+    throw new Error(
+      `Harness runtime directory ${bundledDir} could not be removed for a fresh extraction. Close any process holding it and retry.`,
+    )
   }
 
   extractBundle(bundlePath, bundledDir)

@@ -22,6 +22,14 @@ import {
 const desktopDir = resolve(fileURLToPath(new URL('.', import.meta.url)))
 const repoRoot = resolve(desktopDir, '..')
 
+// Optional explicit user-data relocation (portable/testing isolation). Must run
+// before the single-instance lock so each isolated launch gets its own lock,
+// startup log, Work Unit store and safeStorage secrets.
+const cliUserDataDir = cliArgValue('--user-data-dir')
+if (cliUserDataDir) {
+  app.setPath('userData', resolve(cliUserDataDir))
+}
+
 // The renderer may only ever talk to a loopback Workbench backend. Everything
 // else is denied by the navigation/window/permission guards below.
 const LOOPBACK_ORIGIN_RE = /^http:\/\/127\.0\.0\.1:\d+$/
@@ -148,6 +156,10 @@ async function startBackend(projectRoot) {
     return
   }
 
+  // The window may have been closed (app quitting) while the runtime was
+  // preparing; never spawn a backend for a quitting app.
+  if (cleanShutdownDone) return
+
   backend = spawnBackend({
     nodeBin,
     script,
@@ -159,6 +171,14 @@ async function startBackend(projectRoot) {
   })
 
   backendUrl = await backend.ready
+  // The window closed while the backend child was starting; kill the child
+  // instead of leaving an orphaned backend behind.
+  if (cleanShutdownDone) {
+    const spawned = backend
+    backend = null
+    await spawned.kill()
+    return
+  }
   // Atomically set the exact backend origin BEFORE any renderer navigation or
   // IPC can observe it. Only the exact ready URL becomes trusted.
   activeBackendOrigin = urlOrigin(backendUrl) ?? ''

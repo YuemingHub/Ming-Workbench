@@ -69,6 +69,8 @@ export interface PersistedGrant {
     workUnitId: string
     grantId: string
   }
+  /** Authorized file surface captured at authorize time (frontier overlap). */
+  intendedFiles?: string[]
 }
 
 export interface WorkUnitStore {
