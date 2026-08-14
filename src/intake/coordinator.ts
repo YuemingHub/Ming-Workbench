@@ -66,7 +66,18 @@ export function renderAaopCoordinatorPrompt(
   ].join('\n')
 }
 
-function reconcileCoordinatorWorkUnit(
+export function assertAaopEnvelopeMatchesRequest(
+  envelope: AaopIntakeEnvelope,
+  rawRequest: string,
+): void {
+  if (envelope.raw_request !== rawRequest) {
+    throw new Error(
+      `AAOP Intake Envelope raw_request mismatch: expected ${JSON.stringify(rawRequest)}, received ${JSON.stringify(envelope.raw_request)}.`,
+    )
+  }
+}
+
+export function reconcileAaopCoordinatorWorkUnit(
   source: WorkUnit,
   envelope: AaopIntakeEnvelope,
   sessionId: string,
@@ -92,7 +103,7 @@ function reconcileCoordinatorWorkUnit(
         id: evidenceId,
         kind: 'session',
         summary: `Read-only AAOP Developer Intake session derived route ${envelope.route} at confidence ${envelope.route_confidence}. This is coordination evidence, not product truth or completion evidence.`,
-        source: `deepseek-harness-acp:${sessionId}`,
+        uri: `deepseek-harness-acp:${sessionId}`,
         observedAt: now.toISOString(),
         authoritative: false,
       },
@@ -130,14 +141,10 @@ export async function runProjectAaopCoordinator(
   }
 
   const envelope = parseAaopIntakeEnvelope(result.assistantText)
-  if (envelope.raw_request !== options.prepared.aaopRequest.rawRequest) {
-    throw new Error(
-      `AAOP Intake Envelope raw_request mismatch: expected ${JSON.stringify(options.prepared.aaopRequest.rawRequest)}, received ${JSON.stringify(envelope.raw_request)}.`,
-    )
-  }
+  assertAaopEnvelopeMatchesRequest(envelope, options.prepared.aaopRequest.rawRequest)
 
   const now = (options.now ?? (() => new Date()))()
-  const workUnit = reconcileCoordinatorWorkUnit(
+  const workUnit = reconcileAaopCoordinatorWorkUnit(
     options.prepared.workUnit,
     envelope,
     result.sessionId,

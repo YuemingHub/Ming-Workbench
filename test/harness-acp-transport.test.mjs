@@ -7,6 +7,7 @@ import { join } from 'node:path'
 
 import {
   assertGrantWorkspace,
+  assertHarnessAcpAdmission,
   assertReviewedHarnessCheckout,
   buildHarnessChildEnv,
 } from '../.tmp/transports/harness-acp.js'
@@ -36,7 +37,6 @@ function grant(overrides = {}) {
   return {
     schema_version: '1.0',
     grant_id: 'grant-acp-001',
-    work_unit_ref: 'WU-ACP-001',
     provider: 'deepseek-harness',
     route: 'feature-change',
     working_contract_revision: 1,
@@ -65,11 +65,57 @@ function grant(overrides = {}) {
     },
     acceptance_evidence: ['Exact branch diff is verified.'],
     human_open_questions: [],
-    references: [],
+    references: ['Ming Workbench Work Unit WU-ACP-001'],
     issued_at: '2026-08-14T10:45:00+08:00',
     ...overrides,
   }
 }
+
+const workUnit = {
+  id: 'WU-ACP-001',
+  spaceId: 'family-space-development',
+  title: 'Execute ACP transport pilot',
+  outcome: 'Execute one bounded ACP transport pilot.',
+  state: 'running',
+  owner: 'development-aaop',
+  gate: { kind: 'none', open: false },
+  acceptance: [
+    {
+      id: 'A-1',
+      statement: 'The exact authorized diff is verified.',
+      satisfied: false,
+      evidenceIds: [],
+    },
+  ],
+  evidence: [],
+  assets: [],
+  createdAt: '2026-08-14',
+  updatedAt: '2026-08-14',
+}
+
+test('ACP admission validates canonical grant and Workbench binding separately', () => {
+  const candidate = grant()
+  assert.doesNotThrow(() =>
+    assertHarnessAcpAdmission({
+      grant: candidate,
+      binding: { workUnitId: workUnit.id, grantId: candidate.grant_id },
+      workUnit,
+    }),
+  )
+
+  assert.throws(
+    () => assertHarnessAcpAdmission({ grant: candidate, workUnit }),
+    /requires both binding and Work Unit/,
+  )
+  assert.throws(
+    () => assertHarnessAcpAdmission({
+      grant: candidate,
+      binding: { workUnitId: 'WU-other', grantId: candidate.grant_id },
+      workUnit,
+    }),
+    /does not match Work Unit/,
+  )
+})
 
 test('write-authorized grant must match workspace origin, branch, and resolvable base', () => {
   const cwd = createWorkspace()

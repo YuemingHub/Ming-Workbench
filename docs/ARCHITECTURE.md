@@ -102,6 +102,8 @@ Domain-specific interpretation and control semantics. The first pack is `develop
 
 Workbench must not duplicate these state machines.
 
+Provider Execution Grant correlation follows the same ownership boundary. The AAOP grant remains an exact consumer view of AAOP's closed canonical schema. Workbench correlates `grant_id` to its own `WorkUnit.id` through a separate Workbench-owned binding. It may preserve a human-readable Work Unit pointer in the grant's existing generic `references` list when useful for traceability, but it must not add `work_unit_ref`, `space_id`, or other Workbench product fields to the AAOP grant itself.
+
 ### DeepSeek Harness owns
 
 The selected execution surface:
@@ -160,6 +162,7 @@ ordinary-language goal
 → proposed exact mutation scope
 → fresh repository-frontier execution gate
 → AAOP Provider Execution Grant
+→ Workbench-owned Work Unit ↔ grant binding
 → guarded Harness ACP execution
 → repository + test/runtime readback
 → AAOP engineering acceptance

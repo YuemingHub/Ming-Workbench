@@ -15,8 +15,15 @@ if (!harnessCheckoutRaw) {
   process.exit(1)
 }
 
+const allowedConfigs = new Set(['workbench.cordis.yml', 'intake.cordis.yml'])
+const configName = process.env.MING_WORKBENCH_ACP_CONFIG ?? 'workbench.cordis.yml'
+if (!allowedConfigs.has(configName)) {
+  process.stderr.write(`${NAME}: unsupported Workbench ACP config: ${configName}\n`)
+  process.exit(1)
+}
+
 const harnessCheckout = resolve(harnessCheckoutRaw)
-const configPath = join(workbenchRoot, 'harness', 'acp', 'workbench.cordis.yml')
+const configPath = join(workbenchRoot, 'harness', 'acp', configName)
 const appBootPath = join(harnessCheckout, 'packages', 'boot', 'app-boot', 'src', 'index.ts')
 
 if (!existsSync(configPath)) {
@@ -34,8 +41,8 @@ const { boot, installFailLoud } = await import(appBootUrl)
 installFailLoud(NAME)
 
 // `appBootUrl` anchors every bare @deepseek-ai/dsh-* plugin name to the
-// reviewed Harness source checkout. Relative config plugins, if added later,
-// continue to resolve beside the Workbench config file.
+// reviewed Harness source checkout. The config itself is limited to the two
+// Workbench-owned profiles above, so callers cannot inject an arbitrary path.
 const ctx = await boot(NAME, configPath, undefined, undefined, appBootUrl)
 let exiting = false
 
