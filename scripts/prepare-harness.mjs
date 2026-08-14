@@ -54,17 +54,12 @@ function verifyIdentity() {
     )
   }
 
-  const tsx = resolve(
-    target,
-    'node_modules',
-    '.bin',
-    process.platform === 'win32' ? 'tsx.cmd' : 'tsx',
-  )
-  if (!existsSync(tsx)) {
-    throw new Error(`Harness dependency install did not produce its tsx runner: ${tsx}`)
+  const tsxCli = resolve(target, 'node_modules', 'tsx', 'dist', 'cli.mjs')
+  if (!existsSync(tsxCli)) {
+    throw new Error(`Harness dependency install did not produce its tsx CLI: ${tsxCli}`)
   }
 
-  return { commit, version: pkg.version, tsx }
+  return { commit, version: pkg.version, tsxCli }
 }
 
 function ensureCheckout() {
@@ -128,7 +123,7 @@ try {
     `MING WORKBENCH HARNESS PREPARED: ${identity.version} @ ${identity.commit}`,
   )
   console.log(`checkout: ${target}`)
-  console.log(`runner: ${identity.tsx}`)
+  console.log(`runner: ${identity.tsxCli}`)
 } catch (error) {
   console.error(`MING WORKBENCH HARNESS PREPARE FAILED: ${error.message}`)
   process.exitCode = 1
