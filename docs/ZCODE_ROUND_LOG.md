@@ -99,6 +99,9 @@
 - **弯路（识别真实 bug 的过程）**：最初想跑 Family Space 单测找 RED，但 clone 无 node_modules，`axios` 缺失导致 `test-ai-assistant-identity` 等失败——那是缺依赖，不是产品 bug。转而直接跑其自身 AAOP 桥接脚本，才定位到确定性、可复现的契约破坏（CURRENT_STATE.md 缺 `production@<40-hex>`）。
 - **弯路**：想用 `scripts/aaop-family.cjs setup` 安装 AAOP，被同一个契约 bug 卡死（`setup` 也先走 `validateCurrentProjectContract`）。这恰好证明该 bug 是「入口级」阻塞：不修它就根本无法本地接入。
 
+### 精确修复规格（本轮追加核验）
+- 逐项核验 `validateCurrentProjectContract()` 的 7 组 40 个 marker：**39/40 已就位，唯一缺失 = `CURRENT_STATE.md` 的 `production@<40-hex-sha>` 声明**。修复是单行变更，验收标准 = `node scripts/aaop-family.cjs status` 退出码回到 0。SHA 值本身（GitHub production HEAD=`3aec7ea…` 为候选，但真实运行 revision 须所有者核验）属产品裁决，写入 `docs/REAL_WORK_UNIT_001.md`。
+
 ### 好经验
 - 用真实项目自身的确定性命令（`aaop-family.cjs status` 的退出码）作为「现实 readback」，比任何 mock 断言都硬。
 - grounding smoke 故意 **provider-free**：Family Space 桥接在 coordinator 之前就 blocked，execute 无凭据必须 402，两者都不需要 mock LLM，反而把「唯一剩余 human blocker = 真实 provider 凭据」暴露得最干净。
