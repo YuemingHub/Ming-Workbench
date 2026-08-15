@@ -33,6 +33,7 @@ import {
   type DeterministicVerificationResult,
   type VerificationProbe,
 } from '../execution/verification.js'
+import { reconcileOrphanedRuns } from '../execution/orphan-recovery.js'
 import type { ProviderExecutionGrant } from '../execution/provider-grant.js'
 import { issueProviderExecutionGrant } from '../execution/grant-issuance.js'
 import { readRepositorySnapshot } from '../execution/repository.js'
@@ -396,6 +397,58 @@ export async function startLocalWorkbenchServer(
           status: 'ok',
           workUnitId: workUnitId ?? null,
           verifications,
+        })
+        return
+      }
+
+      // P1-5: restart reconciliation. After a crash, non-terminal durable runs
+      // are marked orphaned / reconciling and reality is re-observed to decide
+      // the next action (safe-to-resume / requires-new-run /
+      // requires-reauthorization / effect-unknown / needs-human). UNKNOWN never
+      // becomes an automatic retry. Results include the recovery observations
+      // that trace back to the original run.
+      if (method === 'POST' && url.pathname === '/api/reconcile-orphans') {
+        const loaded = store.load()
+        const grantsByRunId: Record<string, ProviderExecutionGrant> = {}
+        for (const entry of Object.values(loaded.grants)) {
+          grantsByRunId[entry.binding.grantId] =
+            entry.grant as unknown as ProviderExecutionGrant
+        }
+        const results = reconcileOrphanedRuns(loaded.runs ?? [], {
+          slice: buildUnknownSlice(projectRoot, ''),
+          projectRoot,
+          grantsByRunId,
+          sessionArtifactKnownForRunId: () => false,
+        })
+        // Persist the reconciled run status so the decision is durable.
+        if (results.length > 0) {
+          const statusByRunId = new Map(
+            results.map((r) => [r.run.id, decisionRunStatus(r.decision)]),
+          )
+          store.save({
+            ...loaded,
+            projectRoot,
+            runs: (loaded.runs ?? []).map((r) =>
+              statusByRunId.has(r.id)
+                ? { ...r, status: statusByRunId.get(r.id)! }
+                : r,
+            ),
+            lastProjectRoot: projectRoot,
+          })
+        }
+        sendJson(response, 200, {
+          status: 'reconciled',
+          projectRoot,
+          orphaned: results.length,
+          results: results.map((r) => ({
+            runId: r.run.id,
+            workUnitId: r.run.workUnitId,
+            decision: r.decision,
+            orphaned: r.orphaned,
+            attributedChanges: r.attributedChanges,
+            observations: r.observations,
+            reconciledAt: r.reconciledAt,
+          })),
         })
         return
       }
@@ -1225,8 +1278,7 @@ function resolveGrantSlice(
     intendedFiles?: string[]
   },
   projectRoot: string,
-): MutationSlice {
-  if (grantEntry.slice) {
+): MutationSlice {  if (grantEntry.slice) {
     const scope = grantEntry.slice.scope
     return {
       repository: grantEntry.slice.repository,
@@ -1249,4 +1301,26 @@ function resolveGrantSlice(
     return buildExactSlice(projectRoot, '', legacy)
   }
   return buildUnknownSlice(projectRoot, '')
+}
+
+/**
+ * P1-5: persist the recovery decision as the run's durable status. The orphaned
+ * run is never silently re-executed; its status reflects what reality showed.
+ */
+function decisionRunStatus(decision: string): string {
+  switch (decision) {
+    case 'reconciled-completed':
+      return 'completed'
+    case 'reconciled-failed':
+      return 'failed'
+    case 'safe-to-resume':
+      // The run may continue under the same id after an explicit, visible
+      // decision; until then it stays orphaned so no one re-executes it.
+      return 'orphaned'
+    default:
+      // requires-new-run / requires-reauthorization / effect-unknown /
+      // needs-human all keep the run orphaned until a human or fresh
+      // authorization resolves it.
+      return 'orphaned'
+  }
 }

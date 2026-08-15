@@ -184,3 +184,21 @@
 
 ### 下一轮入口
 - P1-5 Crash / Orphaned Run Recovery：crash injection seam（4 crash case）+ restart reconciliation（orphaned/reconciling 决策）+ 禁止 UNKNOWN→RETRY + Family Space orphan recovery smoke。
+
+## 2026-08-15 轮次 8 — P1-5 Crash / Orphaned Run Recovery 完成
+
+### 做了什么
+- 新增 `src/execution/orphan-recovery.ts`：`reconcileOrphanedRun()` 将 non-terminal run 标记 orphaned 并重新观察 reality，产出 7 种决策；`reconcileOrphanedRuns()` 是重启扫描入口。
+- 决策矩阵：observed effect → requires-new-run（绝不重复执行叠加）；out-of-slice / unknown slice → needs-human；session artifact 存在但 repo 无变化 → effect-unknown（UNKNOWN ≠ RETRY）；grant base_ref 漂移 → requires-reauthorization。
+- HTTP `POST /api/reconcile-orphans`：重启后扫描 + 持久化决策状态。
+- 不重写历史：crash 是事实，恢复观测与归因追踪回原始 run。
+
+### 验证证据
+- `test/orphan-recovery.test.mjs` 10 项全过（Crash A run 打开无 mutation→safe-to-resume；Crash B mutation 未持久化 evidence→requires-new-run+归因；Crash C session 存在但 repo clean→effect-unknown；Crash D HEAD 漂移→requires-reauthorization；越界→needs-human；未知 slice→needs-human；startup scan 只碰 non-terminal；历史不可覆盖；HTTP 集成）。
+- `FAMILY SPACE ORPHAN RECOVERY: PASS`：真实 Family Space 副本上 open→mutation→crash→restart→归因 CURRENT_STATE.md→requires-new-run→effect 满足验收（status exit 0）+ 零污染。
+
+### 问题与弯路
+- **弯路**：smoke 里 `const run = openExecutionRun(...)` 遮蔽了顶层 `run()` 函数，导致 rev-parse 报 "run is not a function"；改名 `executionRun` 修复。
+
+### 下一轮入口
+- P1-6 Repository Write Lease 最小版本：`repository working tree → max one active writer ExecutionRun`；Run A 持 lease，Run B 同 repo 请求写 → blocked；terminal/reconciled 后释放；restart 后 stale lease reconciliation；read-only verifier 不需要 lease。

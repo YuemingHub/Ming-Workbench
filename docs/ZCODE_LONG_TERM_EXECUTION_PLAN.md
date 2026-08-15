@@ -1092,7 +1092,7 @@ Ming Workbench 应越来越薄，而不是成为所有 AI 技术的收集箱。
 | P1-2 | `ExecutionFingerprint` | DONE (ba4d2fd) | runtime/profile/model/config identity traceable |
 | P1-3 | Evidence Spine | DONE (04da0b3) | Session → projection → Run → Work Unit trace works |
 | P1-4 | Independent Verifier | DONE (p1-4 verifier) | verifier independently observes reality, never inherits executor conclusion |
-| P1-5 | Orphaned Run recovery | TODO | crash/restart reconciliation proven |
+| P1-5 | Orphaned Run recovery | DONE (p1-5 recovery) | crash/restart reconciliation proven; UNKNOWN never blind-retried |
 | P1-6 | Repo write lease | TODO | concurrent writer prevented |
 | P1-7 | Effect-specific reconcilers | TODO | unknown external effect cannot fallback to git |
 | P1-8 | AAOP authority boundary cleanup | TODO | Workbench no longer grows AAOP routing semantics |
@@ -1242,3 +1242,12 @@ Ming Workbench 不是因为拥有很多 Agent 能力而成功。
 - **HTTP**：`POST /api/verify`（新建 verifier run + 持久化 Verification + evidence 进 Work Unit）；`GET /api/verifications`（只读历史）；`GET /api/runs` 暴露 purpose。
 - **测试与真实入口证据**：`test/verification.test.mjs` 9 项（Regression Matrix Case A-G + HTTP 集成，含 restart provenance）；FTS 全量 **178 pass / 0 fail / 2 skip**；`FAMILY SPACE INDEPENDENT VERIFICATION: PASS`（真实 Family Space `3aec7ea`，verifier 独立运行 `aaop-family.cjs status` exit 2→0、声明基线匹配、零污染、Verification 对象 durable round-trip）。
 - 下一动作：P1-5 Crash / Orphaned Run Recovery（UNKNOWN ≠ RETRY，crash injection seam + 4 种 crash case + Family Space recovery smoke）。
+
+## 2026-08-15 — P1-5 Crash / Orphaned Run Recovery 完成（branch `agent/p1-4-verifier`）
+
+- **recovery 核心模块**（`src/execution/orphan-recovery.ts`）：`reconcileOrphanedRun()` 对 non-terminal（started/running）run 重新观察 reality——git 工作树 vs 授权 slice、授权新鲜度（grant base_ref vs 实时 HEAD）、session artifact 存在性——并产出明确决策：`safe-to-resume` / `requires-new-run` / `requires-reauthorization` / `effect-unknown` / `needs-human` / `reconciled-completed` / `reconciled-failed`。
+- **不变量：UNKNOWN ≠ RETRY**：observed effect → `requires-new-run`（重复执行会叠加 effect）；越界/未知 slice → `needs-human`；session 存在但 repo 无变化 → `effect-unknown`（机器绝不 blind retry）；HEAD 漂移 → `requires-reauthorization`。
+- **Crash 是事实**：恢复不重写历史，观测（repository/session/authority/effect）+ 归因 changes 追踪回原始 ExecutionRun。
+- **HTTP**：`POST /api/reconcile-orphans`——重启后扫描 store 中 non-terminal runs，持久化决策状态（orphaned），返回观测与决策；terminal run 不受影响。
+- **测试与真实入口证据**：`test/orphan-recovery.test.mjs` 10 项（Crash A/B/C/D + 越界 + 未知 slice + startup scan + 历史不可覆盖 + HTTP 集成）；`FAMILY SPACE ORPHAN RECOVERY: PASS`（真实 Family Space `3aec7ea` 副本：run 打开→mutation CURRENT_STATE.md→crash→restart→归因→requires-new-run→effect 满足验收且零污染）。
+- 下一动作：P1-6 Repository Write Lease 最小版本（一 repo 一 active writer，read-only verifier 不受 lease 阻塞）。
