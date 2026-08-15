@@ -25,6 +25,7 @@ import {
   type BoundedExecutionResult,
   type BoundedExecutionOptions,
 } from '../execution/bounded-execution.js'
+import { closeExecutionRun, openExecutionRun } from '../execution/execution-run.js'
 import type { ProviderExecutionGrant } from '../execution/provider-grant.js'
 import { issueProviderExecutionGrant } from '../execution/grant-issuance.js'
 import { readRepositorySnapshot } from '../execution/repository.js'
@@ -36,8 +37,10 @@ import {
   type MutationSlice,
 } from '../execution/mutation-slice.js'
 import {
+  fromPersistedExecutionRun,
   fromPersistedWorkUnit,
   noopWorkUnitStore,
+  toPersistedExecutionRun,
   toPersistedWorkUnit,
   type MutableFacts,
   type WorkUnitStoreApi,
@@ -336,6 +339,35 @@ export async function startLocalWorkbenchServer(
           })),
           hasStoredGrant: Object.keys(loaded.grants).length > 0,
         })
+        return
+      }
+
+      // P1-1: first-class ExecutionRuns, oldest first. A Work Unit may have
+      // many runs (retry / re-authorization / provider switch / verifier each
+      // open a new run). No grant internals or secrets are exposed.
+      if (method === 'GET' && url.pathname === '/api/runs') {
+        const loaded = store.load()
+        const workUnitId = url.searchParams.get('workUnitId')
+        const runs = (loaded.runs ?? [])
+          .filter((r) => (workUnitId ? r.workUnitId === workUnitId : true))
+          .map((r) => {
+            const run = fromPersistedExecutionRun(r)
+            return {
+              id: run.id,
+              workUnitId: run.workUnitId,
+              authorizationRef: run.authorizationRef,
+              runtime: run.runtime,
+              provider: run.provider,
+              model: run.model,
+              sessionId: run.sessionId,
+              status: run.status,
+              startedAt: run.startedAt,
+              finishedAt: run.finishedAt,
+              outcome: run.outcome,
+              evidenceRefs: run.evidenceRefs,
+            }
+          })
+        sendJson(response, 200, { status: 'ok', workUnitId: workUnitId ?? null, runs })
         return
       }
 
@@ -677,6 +709,7 @@ export async function startLocalWorkbenchServer(
         }
 
         let executionResult: BoundedExecutionResult
+        let executedRunId: string | undefined
         try {
           const loaded = store.load()
           const record = loaded.workUnits.find((w) => w.id === workUnitId)
@@ -738,15 +771,72 @@ export async function startLocalWorkbenchServer(
             // disabled unless an operator explicitly enables write mutation.
             allowWrite: process.env.MING_WORKBENCH_ALLOW_WRITE === '1',
           }
-          executionResult = await runBoundedExecution(executionOptions)
 
-          // Persist the evidence-backed Work Unit update so resume survives close.
-          const updated = loaded.workUnits.map((w) =>
-            w.id === executionResult.workUnit.id
-              ? toPersistedWorkUnit(executionResult.workUnit)
-              : w,
-          )
-          store.save({ ...loaded, projectRoot, workUnits: updated, lastProjectRoot: projectRoot })
+          // P1-1: every authorized attempt is a NEW first-class ExecutionRun.
+          // A retry / re-authorization / provider switch opens a fresh run, and
+          // the run record (not the Work Unit) carries the execution detail.
+          const evidenceBefore = workUnit.evidence.length
+          const run = openExecutionRun({
+            workUnitId,
+            authorizationRef: grant.grant_id,
+            provider: grant.provider,
+            model: options.model,
+          })
+          try {
+            executionResult = await runBoundedExecution(executionOptions)
+
+            const newEvidence = executionResult.workUnit.evidence
+              .slice(evidenceBefore)
+              .map((e) => e.id)
+            const persistedRun = toPersistedExecutionRun(
+              closeExecutionRun(run, {
+                status: executionResult.runOutcome.runStatus,
+                sessionId: executionResult.sessionId,
+                outcome: executionResult.runOutcome,
+                evidenceRefs: newEvidence,
+              }),
+            )
+
+            // Persist the evidence-backed Work Unit update and the run record
+            // so resume survives close/reopen.
+            const updated = loaded.workUnits.map((w) =>
+              w.id === executionResult.workUnit.id
+                ? toPersistedWorkUnit(executionResult.workUnit)
+                : w,
+            )
+            store.save({
+              ...loaded,
+              projectRoot,
+              workUnits: updated,
+              runs: [...(loaded.runs ?? []), persistedRun],
+              lastProjectRoot: projectRoot,
+            })
+            executedRunId = persistedRun.id
+          } catch (error) {
+            // The attempt itself failed; it is still a run (fail-closed: no
+            // silent new run over an old reality). The four axes say failed,
+            // and the Work Unit keeps its prior state.
+            const persistedRun = toPersistedExecutionRun(
+              closeExecutionRun(run, {
+                status: 'failed',
+                outcome: {
+                  runStatus: 'failed',
+                  effect: 'unknown',
+                  verification: 'pending',
+                  acceptance: 'pending',
+                  reason: error instanceof Error ? error.message : String(error),
+                },
+                evidenceRefs: [],
+              }),
+            )
+            store.save({
+              ...loaded,
+              projectRoot,
+              runs: [...(loaded.runs ?? []), persistedRun],
+              lastProjectRoot: projectRoot,
+            })
+            throw error
+          }
         } catch (error) {
           logError(error)
           sendJson(response, 502, {
@@ -766,6 +856,7 @@ export async function startLocalWorkbenchServer(
             evidence: executionResult.workUnit.evidence,
             nextFrontier: executionResult.workUnit.nextFrontier,
           },
+          runId: executedRunId,
           sessionId: executionResult.sessionId,
           stopReason: executionResult.stopReason,
           assistantText: executionResult.assistantText,

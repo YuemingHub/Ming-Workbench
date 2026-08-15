@@ -339,6 +339,20 @@ async function main() {
       'authoritative test evidence shows the project tests passed',
     )
 
+    // --- P1-1: a real execute attempt produced a first-class ExecutionRun ---
+    check(typeof execBody?.runId === 'string', 'execute response carries the runId', execBody?.runId ?? '<none>')
+    const runsAfterExec = await (await httpJson(`${readyLine}/api/runs?workUnitId=${encodeURIComponent(workUnitId)}`, { token })).json()
+    check(runsAfterExec?.runs?.length === 1, 'exactly one run recorded for the Work Unit', `count=${runsAfterExec?.runs?.length ?? '<none>'}`)
+    const firstRun = runsAfterExec?.runs?.[0]
+    check(firstRun?.id === execBody?.runId, 'recorded run id matches the execute response runId')
+    check(firstRun?.authorizationRef === authBody?.grantId, 'run binds to the exact grant used')
+    check(firstRun?.status === 'completed' && firstRun?.outcome?.runStatus === 'completed', 'run closed as completed with an outcome', `${firstRun?.status ?? '<none>'}`)
+    check(
+      typeof firstRun?.outcome?.effect === 'string' && typeof firstRun?.outcome?.verification === 'string',
+      'run outcome carries the effect/verification axes',
+    )
+    check(Array.isArray(firstRun?.evidenceRefs) && firstRun?.evidenceRefs.length > 0, 'run references its evidence', `${firstRun?.evidenceRefs?.length ?? 0} refs`)
+
     // --- phase 2: resume/stale-authority pressure on the same Work Unit ---
     // P0-1 frontier semantics: the phase-1 output (uncommitted app.js) now
     // overlaps the re-authorized exact slice, so re-execution would be blocked
@@ -392,6 +406,11 @@ async function main() {
     )
     check(listed2.hasStoredGrant === true, 'stored grant still present after restart')
 
+    // P1-1: the phase-1 run survived the backend restart (durable in the store).
+    const runsAfterRestart = await (await httpJson(`${ready2}/api/runs?workUnitId=${encodeURIComponent(workUnitId)}`, { token: token2 })).json()
+    check(runsAfterRestart?.runs?.length === 1, 'phase-1 run durable across backend restart', `count=${runsAfterRestart?.runs?.length ?? '<none>'}`)
+    check(runsAfterRestart?.runs?.[0]?.id === firstRun?.id, 'same run identity restored from the persisted store')
+
     const resume = await (await httpJson(`${ready2}/api/resume`, {
       method: 'POST', token: token2, body: { workUnitId }, timeoutMs: 60_000,
     })).json()
@@ -414,6 +433,15 @@ async function main() {
     })
     const reExecBody = await reExec.json()
     check(reExec.status === 200, 're-authorized execution completes', `status=${reExec.status}`)
+
+    // P1-1: the re-authorized attempt is a NEW run, not a replay of the first.
+    check(typeof reExecBody?.runId === 'string' && reExecBody?.runId !== firstRun?.id, 're-authorization opens a new run', reExecBody?.runId ?? '<none>')
+    const runsAfterReExec = await (await httpJson(`${ready2}/api/runs?workUnitId=${encodeURIComponent(workUnitId)}`, { token: token2 })).json()
+    check(runsAfterReExec?.runs?.length === 2, 'two distinct runs recorded across both authorizations', `count=${runsAfterReExec?.runs?.length ?? '<none>'}`)
+    check(
+      runsAfterReExec?.runs?.some((r) => r.id === reExecBody?.runId && r.authorizationRef === reAuth?.grantId && r.status === 'completed'),
+      'second run binds to the fresh grant and completed',
+    )
 
     // The phase-1 file was committed as the accepted hand-off, so the
     // re-execution rewrites it with identical content: no NEW dirty file, and

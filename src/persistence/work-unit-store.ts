@@ -12,9 +12,19 @@
  */
 
 import type { WorkUnit } from '../core/model.js'
+import type { ExecutionRun } from '../execution/execution-run.js'
 
-export const WORK_UNIT_STORE_VERSION = 1
+/**
+ * Store schema version.
+ *
+ * v1 -> v2: added `runs` (P1-1 first-class ExecutionRun). Loaders accept both
+ * versions: a v1 file is read as an empty runs list and re-saved as v2. This
+ * is the only supported forward migration; an unknown newer version is never
+ * trusted as an authorization input.
+ */
+export const WORK_UNIT_STORE_VERSION = 2
 export const WORK_UNIT_STORE_FILE_NAME = 'work-units.json'
+export const WORK_UNIT_STORE_MIN_SUPPORTED_VERSION = 1
 
 export interface MutableFacts {
   projectId: string
@@ -88,11 +98,35 @@ export interface PersistedGrant {
   intendedFiles?: string[]
 }
 
+/** Durable shape of an ExecutionRun (P1-1). */
+export interface PersistedExecutionRun {
+  id: string
+  workUnitId: string
+  authorizationRef: string
+  runtime: string
+  provider: string
+  model?: string
+  sessionId?: string
+  status: string
+  startedAt: string
+  finishedAt?: string
+  outcome?: {
+    runStatus: string
+    effect: string
+    verification: string
+    acceptance: string
+    reason: string
+  }
+  evidenceRefs: string[]
+}
+
 export interface WorkUnitStore {
   storeVersion: number
   projectRoot: string
   workUnits: PersistedWorkUnit[]
   grants: Record<string, PersistedGrant>
+  /** P1-1: every authorized execution attempt, oldest first. */
+  runs: PersistedExecutionRun[]
   lastProjectRoot?: string
   lastMutableFacts?: MutableFacts
 }
@@ -109,6 +143,7 @@ export function emptyStore(projectRoot = ''): WorkUnitStore {
     projectRoot,
     workUnits: [],
     grants: {},
+    runs: [],
     lastProjectRoot: projectRoot || undefined,
   }
 }
@@ -142,6 +177,42 @@ export function toPersistedWorkUnit(unit: WorkUnit): PersistedWorkUnit {
     nextFrontier: unit.nextFrontier,
     createdAt: unit.createdAt,
     updatedAt: unit.updatedAt,
+  }
+}
+
+/** P1-1: persist an ExecutionRun without copying AAOP grant internals. */
+export function toPersistedExecutionRun(run: ExecutionRun): PersistedExecutionRun {
+  return {
+    id: run.id,
+    workUnitId: run.workUnitId,
+    authorizationRef: run.authorizationRef,
+    runtime: run.runtime,
+    provider: run.provider,
+    model: run.model,
+    sessionId: run.sessionId,
+    status: run.status,
+    startedAt: run.startedAt,
+    finishedAt: run.finishedAt,
+    outcome: run.outcome,
+    evidenceRefs: [...run.evidenceRefs],
+  }
+}
+
+/** P1-1: rebuild an ExecutionRun from its durable record. */
+export function fromPersistedExecutionRun(record: PersistedExecutionRun): ExecutionRun {
+  return {
+    id: record.id,
+    workUnitId: record.workUnitId,
+    authorizationRef: record.authorizationRef,
+    runtime: record.runtime as ExecutionRun['runtime'],
+    provider: record.provider,
+    model: record.model,
+    sessionId: record.sessionId,
+    status: record.status as ExecutionRun['status'],
+    startedAt: record.startedAt,
+    finishedAt: record.finishedAt,
+    outcome: record.outcome as ExecutionRun['outcome'],
+    evidenceRefs: [...(record.evidenceRefs ?? [])],
   }
 }
 

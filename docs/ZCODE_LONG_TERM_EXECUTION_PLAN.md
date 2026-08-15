@@ -1189,3 +1189,11 @@ Ming Workbench 不是因为拥有很多 Agent 能力而成功。
 - **测试与真实入口证据**：151 unit pass / 0 fail / 2 skip；`SCRATCH MUTATION RESULT: PASS`（真实 reviewed Harness + mock LLM + 真实 scratch Git repo，P0-1/P0-2 后各跑一轮，P0-3 后重跑中）；CI `ci`/`aaop-setup-smoke`/`harness-acp-smoke` 在 `ff1c13e` 与 `f9fc651` 全绿，`a33fafa` 运行中。
 - **P0-4 状态**：本地 packaged smoke 在跑；workflow 激活 commit 被 GitHub 拒绝：`refusing to allow an OAuth App to create or update workflow ... without 'workflow' scope` → `HUMAN_AUTHORIZATION_REQUIRED`（见 docs/P0-4_ACTIVATION_GATE.md）。
 - 下一动作：P0-4 owner 授权（`gh auth refresh -s workflow`）→ 激活 workflow → exact head 跑绿 → PR #22 review/merge。之后 P1-1 ExecutionRun。
+
+## 2026-08-15 — P1-1 ExecutionRun 完成（branch `agent/execution-run-p1`，未提交到 PR #22）
+
+- **一等对象 ExecutionRun**（`src/execution/execution-run.ts` 新增）：`id/workUnitId/authorizationRef/runtime/provider/model/sessionId/status/startedAt/finishedAt/outcome/evidenceRefs`。Work Unit 是人的持久目标；每次授权尝试（retry / 重授权 / 换 provider / 独立验证）都开**新 run**，run 只做 Session 指针 + 四轴 outcome + 证据引用，不重实现授权/grant 语义（复用 AAOP grant）。
+- **store v1→v2 迁移**：`src/persistence/work-unit-store.ts` 新增 `runs: PersistedExecutionRun[]` + `to/fromPersistedExecutionRun`；`file-work-unit-store.ts` 接受 v1/v2（v1 读为空 runs），未知新版本 fail-closed 视为空；`desktop/work-unit-store.mjs` STORE_VERSION 1→2 同步，防 backend 写 v2 后桌面 resume 失败。
+- **HTTP API**：新增只读 `GET /api/runs?workUnitId=`；`/api/execute` 改为 open→runBoundedExecution→close→持久化 run，失败 fail-closed 记录 failed run，成功响应带 `runId`。
+- **测试与真实入口证据**：`test/execution-run.test.mjs`（store 迁移 / run 生命周期 / /api/runs 端点 / 真实 authorize→execute 写边界阻断记录 failed run）全过；FTS 全量 **157 pass / 0 fail / 2 skip**；scratch smoke 增强 P1-1 断言并 `SCRATCH MUTATION RESULT: PASS`（真实 Harness + mock LLM + 真实 scratch Git repo：execute 产生唯一 run 且绑定 grant → 重启后 run 持久化且 identity 不变 → 重授权产生第二个新 run）。
+- 下一动作：P1-1 收尾（如需则补桌面 UI 层或文档）；P0-4 owner 授权后激活 workflow 并合 PR #22。

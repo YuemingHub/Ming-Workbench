@@ -16,6 +16,7 @@ import { join } from 'node:path'
 import {
   emptyStore,
   WORK_UNIT_STORE_FILE_NAME,
+  WORK_UNIT_STORE_MIN_SUPPORTED_VERSION,
   WORK_UNIT_STORE_VERSION,
   type WorkUnitStore,
   type WorkUnitStoreApi,
@@ -28,8 +29,14 @@ export function createFileWorkUnitStore(storeDir: string): WorkUnitStoreApi {
     try {
       if (!existsSync(path)) return emptyStore()
       const raw = JSON.parse(readFileSync(path, 'utf8')) as Partial<WorkUnitStore>
-      if (!raw || raw.storeVersion !== WORK_UNIT_STORE_VERSION) {
-        // Schema mismatch or stale file: do not trust it as authorization input.
+      // v1 (no runs) and v2 (P1-1 runs) are readable; an unknown newer or
+      // older version is never trusted as an authorization input.
+      const version = raw.storeVersion
+      const supported =
+        typeof version === 'number' &&
+        version >= WORK_UNIT_STORE_MIN_SUPPORTED_VERSION &&
+        version <= WORK_UNIT_STORE_VERSION
+      if (!raw || !supported) {
         return emptyStore()
       }
       return {
@@ -37,6 +44,8 @@ export function createFileWorkUnitStore(storeDir: string): WorkUnitStoreApi {
         projectRoot: typeof raw.projectRoot === 'string' ? raw.projectRoot : '',
         workUnits: Array.isArray(raw.workUnits) ? raw.workUnits : [],
         grants: raw.grants && typeof raw.grants === 'object' ? raw.grants : {},
+        // P1-1: a v1 file simply has no runs yet.
+        runs: Array.isArray(raw.runs) ? raw.runs : [],
         lastProjectRoot: raw.lastProjectRoot,
         // The last observed mutable-facts snapshot drives the stale-authority
         // check on /api/execute. Dropping it on load silently disabled the 409
