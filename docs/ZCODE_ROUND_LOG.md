@@ -81,3 +81,30 @@
 ### 下一轮入口
 - P1-4 Independent Verifier Lane：Executor 改变现实后，Verifier 收到 goal + criteria，独立重读 repo/test/runtime/browser/API，不继承 Executor 结论，输出证据-backed 判定；偏好 separate session / read-only / 必要时不同 model-provider / 可调用真实 probes。
 - P0-4 仍等 owner `gh auth refresh -s workflow` 激活 workflow 后合 PR #22。
+
+## 2026-08-15 轮次 4 — 真实 Family Space 项目 grounding + 发现 REAL WORK UNIT 001 候选
+
+### 做了什么
+- 按长期总指令切换目标：不再继续扩建 P1-x 能力，直接进入「用 Ming-Workbench 跑通第一个真实项目 Family Space」。指令明确 Verifier v0 = Reality（不是第二个 Agent），且「No capability without pressure」，故 P1-4 第二 Agent Verifier 暂停。
+- 浅克隆真实 `YuemingHub/Family-Space`（production `3aec7ea47230…`）到 `.workbench/projects/family-space`，并把 `.workbench/projects/` 加入 `.gitignore`（Family Space 是独立仓库，不得进入 Ming-Workbench git）。
+- 新增 `scripts/smoke-family-space.mjs`：provider-free 的真实项目 grounding smoke，16 项断言全过。
+
+### 验证证据
+- **真实 bug（REAL WORK UNIT 001 候选）**：Family Space 生产 HEAD 上，`node scripts/aaop-family.cjs status` 退出码 2，stderr = `CURRENT_STATE must declare a current product observation as production@<40-hex-sha>.`（`grep -c "production@" CURRENT_STATE.md` = 0）。其自身 AAOP 桥接 `status`/`ready`/`setup` 全部因此失败，任何开发者/Agent 都无法本地接入 AAOP。
+- **Workbench grounding 全链**：onboarding 经 `workbench.project.json` 识别真实项目（id `family-space`）→ read-only Intake 正确返回 `blocked` 并把真实 blocker 原文透出（不伪造进度）→ blocked Work Unit 持久化可 resume → authorize 在真实 repo 上冻结 `exact(1 path)` `CURRENT_STATE.md` + 绑定真实 repository/branch/base → execute 无 provider 凭据时 fail-closed 返回 402 `provider-required` → 真实 HEAD 未变（无未授权 mutation）。
+- `FAMILY SPACE GROUNDING RESULT: PASS`（16/16）。
+- FTS 全量 167 pass / 0 fail / 2 skip；`npm run check`（tsc --noEmit）通过。
+
+### 遇到的问题与弯路
+- **弯路（识别真实 bug 的过程）**：最初想跑 Family Space 单测找 RED，但 clone 无 node_modules，`axios` 缺失导致 `test-ai-assistant-identity` 等失败——那是缺依赖，不是产品 bug。转而直接跑其自身 AAOP 桥接脚本，才定位到确定性、可复现的契约破坏（CURRENT_STATE.md 缺 `production@<40-hex>`）。
+- **弯路**：想用 `scripts/aaop-family.cjs setup` 安装 AAOP，被同一个契约 bug 卡死（`setup` 也先走 `validateCurrentProjectContract`）。这恰好证明该 bug 是「入口级」阻塞：不修它就根本无法本地接入。
+
+### 好经验
+- 用真实项目自身的确定性命令（`aaop-family.cjs status` 的退出码）作为「现实 readback」，比任何 mock 断言都硬。
+- grounding smoke 故意 **provider-free**：Family Space 桥接在 coordinator 之前就 blocked，execute 无凭据必须 402，两者都不需要 mock LLM，反而把「唯一剩余 human blocker = 真实 provider 凭据」暴露得最干净。
+- 不伪造进度：Intake 面对真实破损桥接返回 `blocked` 并透出真实原因，而不是凭空生成一个 grounded Work Unit——这正是「Agent output ≠ Outcome」的产品化体现。
+
+### 下一轮入口（REAL WORK UNIT 001 的最终闭环）
+1. **真实修复目标已锁定**：让 Family Space 的 `CURRENT_STATE.md` 重新声明 `production@<40-hex-sha>`（当前真实 production 基线），使 `node scripts/aaop-family.cjs status` 退出码回到 0。小、可验证、有产品意义（AAOP 本地接入恢复）。
+2. **剩余 human blocker**：真实 provider 凭据（`DEEPSEEK_API_KEY`）。有凭据后，走 `intake → authorize(CURRENT_STATE.md) → execute(真实 Harness 真实 Agent) → git delta → aaop-family.cjs status=0 验证 → evidence → outcome`。
+3. 无凭据期间可继续的无凭据工作：把 `scripts/aaop-family.cjs setup` 契约修复链路、以及「真实修复」的 regression（一个断言 status 退出码=0 的测试）预先准备好。

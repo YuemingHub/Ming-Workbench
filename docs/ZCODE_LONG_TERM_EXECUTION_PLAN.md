@@ -1090,7 +1090,7 @@ Ming Workbench 应越来越薄，而不是成为所有 AI 技术的收集箱。
 | P0-4 | Packaged Windows exact-artifact smoke | LOCAL DONE, CI BLOCKED (HUMAN_AUTHORIZATION_REQUIRED) | activated GitHub workflow green on exact head |
 | P1-1 | `ExecutionRun` | DONE (40fcd02) | multiple runs per Work Unit, durable persistence |
 | P1-2 | `ExecutionFingerprint` | DONE (ba4d2fd) | runtime/profile/model/config identity traceable |
-| P1-3 | Evidence Spine | DONE (pending commit) | Session → projection → Run → Work Unit trace works |
+| P1-3 | Evidence Spine | DONE (04da0b3) | Session → projection → Run → Work Unit trace works |
 | P1-4 | Independent Verifier | TODO | verifier independently observes reality |
 | P1-5 | Orphaned Run recovery | TODO | crash/restart reconciliation proven |
 | P1-6 | Repo write lease | TODO | concurrent writer prevented |
@@ -1214,3 +1214,12 @@ Ming Workbench 不是因为拥有很多 Agent 能力而成功。
 - **测试与真实入口证据**：FTS 全量 **167 pass / 0 fail / 2 skip**；`test/evidence-spine.test.mjs` 新增 6 项（用 node:zlib 构造 canonical zstd 多帧产物，验证投影派生 pointer/header/eventRange/digest / eventRange 反映 committed 数 / 缺失 artifact 与不可达 harness 均 best-effort undefined / 投影随 run round-trip 持久化 / 无 session 的 run 无投影）；scratch smoke 增强 6 项 P1-3 断言并 `SCRATCH MUTATION RESULT: PASS`（真实 Harness + mock LLM + 真实 scratch Git repo：run projection 指向 `session.jsonl.zstd` + digest + revision/size + eventRange count=80 且 firstSeq=0 lastSeq=79）。
 - 下一动作：P1-4 Independent Verifier Lane（Executor 改变现实后 Verifier 独立重读 repo/test/runtime，不做"第二个 Agent 看 Executor 总结"）；P0-4 仍等 owner `gh auth refresh -s workflow` 激活 workflow 后合 PR #22。
 - 下一动作：P1-3 Ming Evidence Spine（用现有 durable Harness Session Persistence/Query 投影证据，不创建第二套 Harness 日志）；P0-4 仍等 owner workflow scope。
+
+## 2026-08-15 — 首个真实项目 Family Space grounding 完成 + REAL WORK UNIT 001 候选锁定（branch `agent/execution-run-p1`）
+
+- **方向切换（总指令）**：停止继续扩建 P1-x 能力，直接进入「用 Ming-Workbench 跑通第一个真实项目 Family Space」。Verifier v0 = Reality（不是第二个 Agent），P1-4 第二 Agent Verifier 暂停；「No capability without pressure」——先找到真实阻塞，再为它建能力。
+- **真实项目 grounding**：浅克隆 `YuemingHub/Family-Space`（production `3aec7ea47230…`）到 `.workbench/projects/family-space`（已 gitignore）；新增 `scripts/smoke-family-space.mjs`（16 项 provider-free 断言）并 `FAMILY SPACE GROUNDING RESULT: PASS`。
+- **REAL WORK UNIT 001 候选（真实 bug，可复现）**：Family Space 生产 HEAD 上 `node scripts/aaop-family.cjs status` 退出码 2，stderr = `CURRENT_STATE must declare a current product observation as production@<40-hex-sha>.`（`grep -c "production@" CURRENT_STATE.md` = 0）。其 AAOP 桥接 `status`/`ready`/`setup` 全部因此失败，是「入口级」阻塞：不修就无法本地接入 AAOP。
+- **Workbench 全链已接通（provider-free）**：onboarding 识别真实项目 → read-only Intake 返回 `blocked` 并透出真实 blocker（不伪造进度）→ blocked Work Unit 持久化可 resume → authorize 冻结 `exact(1 path)` `CURRENT_STATE.md` + 绑定真实 repo/branch/base → execute 无凭据 fail-closed 402 `provider-required` → 真实 HEAD 未变（零污染）。
+- **剩余 human blocker**：真实 provider 凭据 `DEEPSEEK_API_KEY`。有凭据后走 `intake → authorize → execute → git delta → aaop-family.cjs status=0 → evidence → outcome` 闭环。
+- 下一动作：先准备「真实修复」回归断言（status 退出码=0 的测试），待 owner 提供凭据后由 Workbench authorize gate 执行最小真实修复（`CURRENT_STATE.md` 声明当前 production 基线）。
