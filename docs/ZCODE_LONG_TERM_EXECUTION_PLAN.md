@@ -1243,3 +1243,14 @@ Ming Workbench 不是因为拥有很多 Agent 能力而成功。
 - **adversarial regression（`test/execution-isolation.test.mjs` 4 项全绿）**：授权仅 `answer.mjs`，Harness 改 `answer.mjs` + 故意改 `answer.test.mjs` → B 从未污染真实工作树、scope violation 被检测、整个隔离丢弃（连授权的 A 也不 apply-back）、真实 repo 逐字节未变（HEAD 与 dirty 均保持）；正常路径证明 isolated execution / allowed delta only / tests pass / apply-back / real repo readback / Harness session complete ≠ Work Unit complete；isolation 原语生命周期；stale base ref 拒绝。
 - **证据**：FTS 全量 **167 pass / 0 fail / 6 skip**；`npm run check`（tsc --noEmit）通过。既有 P0-1/2/3 测试在隔离语义下全部保持绿（fake harness 写入 worktree → apply-back → 真实 repo 断言仍成立）。
 - 下一动作：总审查重新 final-review PR #22；随后在真实项目（Family Space RWU001）上以隔离路径跑真实 execute（仍需 owner 提供 `DEEPSEEK_API_KEY`）。
+
+## 2026-08-16 — P0-1 Isolation Hardening（独立 disposable clone，hardening commit `1e81362`）
+
+> 总审查 P0 ISOLATION HARDENING：linked worktree 与真实 repo 共享 .git metadata（实测 worktree 内 `git branch`/`git update-ref` 会直接改真实 repo），不满足 P0 边界。改为真正独立的 disposable clone。
+
+- **A. Git metadata isolation**：`git clone --no-local` 独立 clone（origin remote 移除、detached @ base ref）。clone 内 `git branch evil` / `update-ref tags/evil` / `config` / `commit` 只改 clone 自身；真实 repo 的 refs/HEAD/config/tags/working tree 零变化（adversarial 测试证明）。
+- **B. Symlink/junction escape fail-closed**：`computeIsolatedDelta` 与 `applyAuthorizedDelta` 对每个文件 `realpath` 校验，逃逸隔离根 → scope violation，绝不 apply-back；`mirrorDependenciesIntoIsolation` 用 `dereference: true`（内容复制，不建链接）。
+- **C. 跨平台 cleanup**：Node `rmSync`（非 shell rm -rf）。success / violation / harness throw / test failure 四条路径均删除隔离目录，真实 repo 零污染、零 git metadata 残留。
+- **证据**：`test/execution-isolation.test.mjs` 扩展至 10 项全绿；FTS 177 pass / 0 fail / 2 skip；`SCRATCH MUTATION RESULT: PASS`。
+- **#22 candidate packaging**：P0 isolation 最小集（execution-isolation + bounded-execution 集成 + harness isolation admission + P0 tests + docs）移植到 `agent/desktop-p0-reconciliation`（exact head `74d6380`），不含 P1 execution-run/evidence-spine/fingerprint。CI 四 workflow 在 exact head 全绿。
+- 下一动作：总审查 final review PR #22；P1 分支保持为后续 P1 PR 候选。
