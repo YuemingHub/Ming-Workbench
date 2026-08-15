@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { RunOutcome, RunStatus } from './run-outcome.js'
 import type { ExecutionFingerprint } from './execution-fingerprint.js'
+import type { EvidenceProjection } from './evidence-spine.js'
 
 /**
  * P1-1: first-class ExecutionRun.
@@ -35,6 +36,8 @@ export interface ExecutionRun {
   evidenceRefs: string[]
   /** P1-2: reconstructable identity of the runtime that produced this run. */
   fingerprint?: ExecutionFingerprint
+  /** P1-3: pointer-only projection of the canonical Harness session, when one ran. */
+  projection?: EvidenceProjection
 }
 
 export interface OpenExecutionRunInput {
@@ -68,6 +71,7 @@ export interface CloseExecutionRunInput {
   sessionId?: string
   outcome?: RunOutcome
   evidenceRefs?: string[]
+  projection?: EvidenceProjection
   now?: string
 }
 
@@ -79,6 +83,7 @@ export function closeExecutionRun(run: ExecutionRun, input: CloseExecutionRunInp
     sessionId: input.sessionId ?? run.sessionId,
     outcome: input.outcome ?? run.outcome,
     evidenceRefs: input.evidenceRefs ?? run.evidenceRefs,
+    projection: input.projection ?? run.projection,
     finishedAt: input.now ?? new Date().toISOString(),
   }
 }

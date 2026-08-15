@@ -54,3 +54,30 @@
 ### 下一轮入口
 - P1-3 Ming Evidence Spine：用现有 durable Harness Session Persistence/Query 投影证据（session pointer + exact event range/revision + digest + selected claims + provenance + model/provider identity + links to independent outcome evidence），能跳回 canonical Harness execution truth，不创建第二套 Harness 日志。
 - 需要先读 `harness-acp.ts` / harness session 持久化现状，确认 Session Query API 形态。
+
+## 2026-08-15 轮次 3 — P1-3 Ming Evidence Spine 完成并提交推送
+
+### 做了什么
+- 确认边界：Ming 是 Harness ACP client，无法 import Harness 内部 cordis 服务；但 `session-persistence-jsonl` 的 `format.ts`/`zstd.ts` 是纯函数（无 ctx 依赖），可通过 reviewed checkout 的 tsx CLI 运行。
+- 新增 `harness/session/project-session.mjs`：用官方 `logPath/scanZstdFrames/createZstdFrameDecoder/scanLog` 只读 canonical `session.jsonl.zstd`，输出紧凑投影 JSON（pointer/header/revision/digest/frames/committedBytes/eventRange）。验证脚本曾因 `new URL('.', fileURL)` 上跳一级目录导致找不到包，修正为直接 `fileURLToPath`。
+- 新增 `src/execution/evidence-spine.ts`：`EvidenceProjection` 类型 + `buildSessionEvidenceProjection()`（spawn tsx 跑投影脚本 + 校验 JSON，best-effort 失败返回 undefined，绝不吞 run 记录）。
+- `ExecutionRun`/`PersistedExecutionRun` 增加 `projection?`，`closeExecutionRun` 接收 projection，`/api/runs` 暴露；execute handler 在 run 关闭时构建投影（有 sessionRoot 且有 sessionId 时）。
+- 新增 `test/evidence-spine.test.mjs`（6 项，用 node:zlib 构造 canonical zstd 多帧产物，验证投影派生/round-trip/缺失场景 best-effort）；增强 scratch smoke 的 6 项 P1-3 断言。
+- 更新账本与轮次日志。
+
+### 验证证据
+- FTS 全量 167 pass / 0 fail / 2 skip（新增 6 项 P1-3）。
+- `SCRATCH MUTATION RESULT: PASS`（真实 Harness + mock LLM + 真实 scratch Git repo）：run projection 指向 `session.jsonl.zstd` + digest + revision/size + eventRange count=80 且 firstSeq=0 lastSeq=79。
+
+### 遇到的问题与弯路
+- **弯路**：投影脚本最初用 `new URL('.', pathToFileURL(harnessCheckout).href)` 构造官方源码路径，实际会解析成父目录导致 `ERR_MODULE_NOT_FOUND`；直接 `fileURLToPath(pathToFileURL(raw))` 即正确。
+- **弯路**：直接 import `@deepseek-ai/dsh-session-persistence-jsonl` 包名在 Workbench 目录下无法解析（该包没有顶层 node_modules symlink）；改为从投影脚本内用绝对路径 import 官方 `src/format.ts`/`src/zstd.ts`，由 tsx + reviewed tsconfig 解析内部 `@deepseek-ai/dsh-*` 依赖，问题解决。
+
+### 好经验
+- "复用 Harness 官方读取"的正确形态 = 在 harness 侧写只读脚本 import 官方纯函数，而不是在 Ming 侧重写 zstd/JSONL。投影 JSON 由官方 format/zstd 代码产出，既跳回 canonical truth 又不复制事件日志。
+- 多帧 zstd canonical 产物可用 node:zlib `zstdCompressSync`（checksumFlag）逐帧构造，供测试驱动真实投影脚本，避免依赖 /tmp 遗留产物。
+- Evidence Projection 只保存 pointer + revision/digest + eventRange + header facts，是"指针"，不是"副本"，符合 plan 的最小切片。
+
+### 下一轮入口
+- P1-4 Independent Verifier Lane：Executor 改变现实后，Verifier 收到 goal + criteria，独立重读 repo/test/runtime/browser/API，不继承 Executor 结论，输出证据-backed 判定；偏好 separate session / read-only / 必要时不同 model-provider / 可调用真实 probes。
+- P0-4 仍等 owner `gh auth refresh -s workflow` 激活 workflow 后合 PR #22。

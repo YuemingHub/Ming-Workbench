@@ -361,6 +361,17 @@ async function main() {
     check(firstRun?.fingerprint?.sandboxMode === 'workspace-write', 'run fingerprint records the sandbox mode', firstRun?.fingerprint?.sandboxMode ?? '<none>')
     check(firstRun?.fingerprint?.workspace?.baseRef === baselineHead, 'run fingerprint records the workspace baseRef', firstRun?.fingerprint?.workspace?.baseRef?.slice(0, 8) ?? '<none>')
 
+    // P1-3: the run carries a pointer-only Evidence Projection over the
+    // canonical Harness session, and it must resolve back to the durable
+    // artifact (session.jsonl.zstd) with a pinned digest + committed range.
+    const proj = firstRun?.projection
+    check(typeof proj?.session?.pointer?.sessionId === 'string' && proj?.session?.pointer?.sessionId === firstRun?.sessionId, 'run projection pins the canonical session id', proj?.session?.pointer?.sessionId ?? '<none>')
+    check(typeof proj?.session?.pointer?.artifactPath === 'string' && proj?.session?.pointer?.artifactPath.endsWith('session.jsonl.zstd'), 'run projection points at the durable session artifact', proj?.session?.pointer?.artifactPath ?? '<none>')
+    check(typeof proj?.session?.digest === 'string' && proj?.session?.digest.length === 64, 'run projection digests the canonical artifact', proj?.session?.digest ?? '<none>')
+    check(typeof proj?.session?.revision?.size === 'string' && Number(proj?.session?.revision?.size) > 0, 'run projection records the artifact revision/size', proj?.session?.revision?.size ?? '<none>')
+    check(typeof proj?.eventRange?.count === 'number' && proj?.eventRange?.count > 0, 'run projection records the committed event range', `count=${proj?.eventRange?.count ?? '<none>'}`)
+    check(proj?.eventRange?.firstSeq === 0 && typeof proj?.eventRange?.lastSeq === 'number', 'run projection event range starts at seq 0', `${proj?.eventRange?.firstSeq ?? '<none>'}..${proj?.eventRange?.lastSeq ?? '<none>'}`)
+
     // --- phase 2: resume/stale-authority pressure on the same Work Unit ---
     // P0-1 frontier semantics: the phase-1 output (uncommitted app.js) now
     // overlaps the re-authorized exact slice, so re-execution would be blocked

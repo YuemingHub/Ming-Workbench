@@ -1088,9 +1088,9 @@ Ming Workbench 应越来越薄，而不是成为所有 AI 技术的收集箱。
 | P0-2 | Split run/effect/verification/acceptance semantics | DONE (a33fafa) | no-op/pre-green and mutation/failing-test regressions covered |
 | P0-3 | Strong completion/evidence invariant | DONE (a33fafa) | session claim alone can never complete Work Unit |
 | P0-4 | Packaged Windows exact-artifact smoke | LOCAL DONE, CI BLOCKED (HUMAN_AUTHORIZATION_REQUIRED) | activated GitHub workflow green on exact head |
-| P1-1 | `ExecutionRun` | TODO | multiple runs per Work Unit, durable persistence |
-| P1-2 | `ExecutionFingerprint` | TODO | runtime/profile/model/config identity traceable |
-| P1-3 | Evidence Spine | TODO | Session → projection → Run → Work Unit trace works |
+| P1-1 | `ExecutionRun` | DONE (40fcd02) | multiple runs per Work Unit, durable persistence |
+| P1-2 | `ExecutionFingerprint` | DONE (ba4d2fd) | runtime/profile/model/config identity traceable |
+| P1-3 | Evidence Spine | DONE (pending commit) | Session → projection → Run → Work Unit trace works |
 | P1-4 | Independent Verifier | TODO | verifier independently observes reality |
 | P1-5 | Orphaned Run recovery | TODO | crash/restart reconciliation proven |
 | P1-6 | Repo write lease | TODO | concurrent writer prevented |
@@ -1205,4 +1205,12 @@ Ming Workbench 不是因为拥有很多 Agent 能力而成功。
 - **best-effort 采集**：execute handler 中 fingerprint 构建失败不得吞掉 run 记录（try/catch → undefined）——指纹是身份证据，不是授权输入，缺失不应阻止 failed run 落盘。
 - **测试与真实入口证据**：FTS 全量 **161 pass / 0 fail / 2 skip**；`test/execution-run.test.mjs` 新增 4 项 P1-2（环境身份捕获 / read-only 无 write target / profile 或 model 变更→drift 检测 / fingerprint 随 run round-trip 持久化）；scratch smoke 增强 P1-2 断言并 `SCRATCH MUTATION RESULT: PASS`（真实 Harness + mock LLM + 真实 scratch Git repo：run fingerprint 记录 reviewed version `0.1.0-rc.5` + commit `47f94385` + profile digest + provider/model + `workspace-write` + baseRef）。
 - 弯路记录：最初 fingerprint 直接在 `openExecutionRun` 参数中求值，scratch 测试环境 harnessCheckout 路径无效时抛出异常导致 run 未落盘（期望 1 个 run 却得到 0）；改为 best-effort 采集后修复。
+
+## 2026-08-15 — P1-3 Ming Evidence Spine 完成（branch `agent/execution-run-p1`）
+
+- **复用而非重实现**：Ming 是 Harness ACP client，无法直接 import Harness 内部 cordis 服务；但 Harness durable Session Persistence 的 `session-persistence-jsonl` 的 `format.ts` / `zstd.ts` 是纯函数（不依赖 ctx）。新增 `harness/session/project-session.mjs`：通过 reviewed Harness checkout 的 tsx CLI + tsconfig 运行，import 官方 `logPath/scanZstdFrames/createZstdFrameDecoder/scanLog`，只读 `session.jsonl.zstd`（canonical session 产物）并输出紧凑投影 JSON。**不创建第二套 Harness 日志、不重写 JSONL/zstd 格式**。
+- **一等对象 EvidenceProjection**（`src/execution/evidence-spine.ts` 新增）：`buildSessionEvidenceProjection()` spawn tsx 运行投影脚本并校验 JSON，输出 `EvidenceProjection { session: { pointer{sessionRoot,cwd,sessionId,artifactPath,artifactRel}, header{id,version,createdAt,cwd,parentSession,seedLength,origin,delegationDepth,agentPreset}, revision{dev,ino,size,mtimeMs}, digest, frames, committedBytes }, eventRange{count,firstSeq,lastSeq} }`。digest = canonical 产物字节 sha256，eventRange = committed 事件 seq 范围——从 Workbench evidence 可跳回 canonical Harness execution truth。
+- **ExecutionRun 扩展**：`ExecutionRun.projection?` / `PersistedExecutionRun.projection?`，`closeExecutionRun` 接收 projection，store round-trip 保留；`/api/runs` 响应暴露 projection。execute handler 在 run 关闭时构建投影（`options.sessionRoot && executionResult.sessionId` 时），失败 fail-closed 为 undefined（与 fingerprint 同策略，投影缺失绝不吞 run 记录）。
+- **测试与真实入口证据**：FTS 全量 **167 pass / 0 fail / 2 skip**；`test/evidence-spine.test.mjs` 新增 6 项（用 node:zlib 构造 canonical zstd 多帧产物，验证投影派生 pointer/header/eventRange/digest / eventRange 反映 committed 数 / 缺失 artifact 与不可达 harness 均 best-effort undefined / 投影随 run round-trip 持久化 / 无 session 的 run 无投影）；scratch smoke 增强 6 项 P1-3 断言并 `SCRATCH MUTATION RESULT: PASS`（真实 Harness + mock LLM + 真实 scratch Git repo：run projection 指向 `session.jsonl.zstd` + digest + revision/size + eventRange count=80 且 firstSeq=0 lastSeq=79）。
+- 下一动作：P1-4 Independent Verifier Lane（Executor 改变现实后 Verifier 独立重读 repo/test/runtime，不做"第二个 Agent 看 Executor 总结"）；P0-4 仍等 owner `gh auth refresh -s workflow` 激活 workflow 后合 PR #22。
 - 下一动作：P1-3 Ming Evidence Spine（用现有 durable Harness Session Persistence/Query 投影证据，不创建第二套 Harness 日志）；P0-4 仍等 owner workflow scope。

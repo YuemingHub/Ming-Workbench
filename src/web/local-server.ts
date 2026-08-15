@@ -27,6 +27,7 @@ import {
 } from '../execution/bounded-execution.js'
 import { closeExecutionRun, openExecutionRun } from '../execution/execution-run.js'
 import { buildExecutionFingerprint } from '../execution/execution-fingerprint.js'
+import { buildSessionEvidenceProjection } from '../execution/evidence-spine.js'
 import type { ProviderExecutionGrant } from '../execution/provider-grant.js'
 import { issueProviderExecutionGrant } from '../execution/grant-issuance.js'
 import { readRepositorySnapshot } from '../execution/repository.js'
@@ -367,6 +368,7 @@ export async function startLocalWorkbenchServer(
               outcome: run.outcome,
               evidenceRefs: run.evidenceRefs,
               fingerprint: run.fingerprint,
+              projection: run.projection,
             }
           })
         sendJson(response, 200, { status: 'ok', workUnitId: workUnitId ?? null, runs })
@@ -807,12 +809,30 @@ export async function startLocalWorkbenchServer(
             const newEvidence = executionResult.workUnit.evidence
               .slice(evidenceBefore)
               .map((e) => e.id)
+            // P1-3: the run carries a pointer-only projection of the canonical
+            // Harness session. Best-effort: a missing/unreadable artifact must
+            // never swallow the run record itself.
+            let projection
+            try {
+              projection = options.sessionRoot && executionResult.sessionId
+                ? buildSessionEvidenceProjection({
+                    workbenchRoot,
+                    harnessCheckout,
+                    sessionRoot: options.sessionRoot,
+                    cwd: projectRoot,
+                    sessionId: executionResult.sessionId,
+                  })
+                : undefined
+            } catch {
+              projection = undefined
+            }
             const persistedRun = toPersistedExecutionRun(
               closeExecutionRun(run, {
                 status: executionResult.runOutcome.runStatus,
                 sessionId: executionResult.sessionId,
                 outcome: executionResult.runOutcome,
                 evidenceRefs: newEvidence,
+                projection,
               }),
             )
 

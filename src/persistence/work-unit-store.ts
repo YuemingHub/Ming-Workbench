@@ -129,6 +129,34 @@ export interface PersistedExecutionRun {
     workspace: { repository: string; baseRef: string }
     workbenchConfigDigest: string
   }
+  /** P1-3: pointer-only projection of the canonical Harness session. */
+  projection?: {
+    session: {
+      pointer: {
+        sessionRoot: string
+        cwd: string
+        sessionId: string
+        artifactPath: string
+        artifactRel: string
+      }
+      header: {
+        id: string
+        version: number
+        createdAt: number
+        cwd?: string
+        parentSession?: string
+        seedLength?: number
+        origin?: 'subagent'
+        delegationDepth?: number
+        agentPreset?: string
+      }
+      revision: { dev: string; ino: string; size: string; mtimeMs: number }
+      digest: string
+      frames: number
+      committedBytes: number
+    }
+    eventRange: { count: number; firstSeq?: number; lastSeq?: number }
+  }
 }
 
 export interface WorkUnitStore {
@@ -207,6 +235,7 @@ export function toPersistedExecutionRun(run: ExecutionRun): PersistedExecutionRu
     outcome: run.outcome,
     evidenceRefs: [...run.evidenceRefs],
     fingerprint: run.fingerprint,
+    projection: run.projection,
   }
 }
 
@@ -226,6 +255,7 @@ export function fromPersistedExecutionRun(record: PersistedExecutionRun): Execut
     outcome: record.outcome as ExecutionRun['outcome'],
     evidenceRefs: [...(record.evidenceRefs ?? [])],
     fingerprint: record.fingerprint as ExecutionRun['fingerprint'],
+    projection: record.projection as ExecutionRun['projection'],
   }
 }
 
