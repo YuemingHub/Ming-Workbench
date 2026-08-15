@@ -163,3 +163,24 @@
 ### 下一轮入口
 - **唯一剩余 human blocker**：真实 provider 凭据 `DEEPSEEK_API_KEY`。凭据就绪后：`intake → authorize(CURRENT_STATE.md) → execute(真实 Harness 真实 Agent) → git delta → smoke-family-space-fix.mjs 回归断言 → aaop-family.cjs setup/ready → Evidence → outcome`。
 - **owner 动作**：review/merge PR #22（四个 P0 gate 全闭合，Draft 保持待审）；此后 P1 分支（`agent/execution-run-p1`，已含 P1-1/2/3 与完整 P0 基线）可进入 review。
+
+## 2026-08-15 轮次 7 — P1-4 Independent Verifier 完成
+
+### 做了什么
+- `ExecutionRun` 增加 `purpose: 'execution' | 'verification'`（最小表达，未造第二套运行系统）。
+- 新增 `src/execution/verification.ts`：一等 `Verification` 对象 + `runDeterministicVerification()`（Deterministic Reality Verifier，无 LLM，直接重新读取 reality：工作树/slice、文件 hash/存在、测试、scope violation）。
+- store v1→v2→v3 迁移：新增 `verifications` 集合与 `runs[].purpose`（desktop 同步 STORE_VERSION=3）。
+- HTTP：`POST /api/verify`（verifier 作为 purpose=verification 的 ExecutionRun 运行，持久化 Verification + evidence 进入 Work Unit Evidence Spine）；`GET /api/verifications`。
+- 关键设计修正：verifier 的 scope 判定基于「当前工作树 vs 授权 slice」，不依赖 executor 的 before/after delta（否则 executor 已改后 verifier 无法发现越界）。
+
+### 验证证据
+- `test/verification.test.mjs` 9 项全过（Case A no-mutation / B 真实 mutation+pass / C mutation+test fail / D 越权 / E 不可读→inconclusive / F claim 与 reality 冲突→reality 胜出 + provenance / G durable round-trip / unknown slice / HTTP 集成 restart provenance）。
+- FTS 全量 178 pass / 0 fail / 2 skip；`npm run check` 通过。
+- `FAMILY SPACE INDEPENDENT VERIFICATION: PASS`：真实 Family Space `3aec7ea` 上，verifier 独立运行 `aaop-family.cjs status`（exit 2 → 应用锁定修复 → exit 0 + declared baseline + S0 + 零污染），并产出 durable 的 Verification 对象。
+
+### 问题与弯路
+- **弯路**：最初 scope 判定用 `computeExecutionDelta(before, after)`，但 verifier 启动时 executor 已改完文件，before 里已含 dirty，导致越界检测失效（Case D fail）。改为「当前工作树 vs 授权 slice」后修复——verifier 关心最终状态是否符合授权契约，不关心谁改的。
+- **弯路**：intake 持久化时 acceptance 硬编码为空，verify 依赖 criterionId 时 404；改为支持 `criterionStatement` 生成默认 criterion。
+
+### 下一轮入口
+- P1-5 Crash / Orphaned Run Recovery：crash injection seam（4 crash case）+ restart reconciliation（orphaned/reconciling 决策）+ 禁止 UNKNOWN→RETRY + Family Space orphan recovery smoke。

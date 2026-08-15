@@ -12,20 +12,22 @@
  */
 
 import type { WorkUnit } from '../core/model.js'
-import type { ExecutionRun } from '../execution/execution-run.js'
+import type { ExecutionRun, ExecutionRunPurpose } from '../execution/execution-run.js'
+import type { Verification } from '../execution/verification.js'
 
 /**
  * Store schema version.
  *
- * v1 -> v2: added `runs` (P1-1 first-class ExecutionRun). Loaders accept both
- * versions: a v1 file is read as an empty runs list and re-saved as v2. This
- * is the only supported forward migration; an unknown newer version is never
- * trusted as an authorization input.
+ * v1 -> v2: added `runs` (P1-1 first-class ExecutionRun).
+ * v2 -> v3: added `verifications` (P1-4 Independent Verification) and the
+ * `runs[].purpose` field.
+ * Loaders accept any version in [min, max]; older files are read with the new
+ * collections empty. This is the only supported forward migration; an unknown
+ * newer version is never trusted as an authorization input.
  */
-export const WORK_UNIT_STORE_VERSION = 2
+export const WORK_UNIT_STORE_VERSION = 3
 export const WORK_UNIT_STORE_FILE_NAME = 'work-units.json'
 export const WORK_UNIT_STORE_MIN_SUPPORTED_VERSION = 1
-
 export interface MutableFacts {
   projectId: string
   gitHead: string
@@ -106,6 +108,8 @@ export interface PersistedExecutionRun {
   runtime: string
   provider: string
   model?: string
+  /** P1-4: what this run does ('execution' | 'verification'). */
+  purpose?: string
   sessionId?: string
   status: string
   startedAt: string
@@ -159,6 +163,19 @@ export interface PersistedExecutionRun {
   }
 }
 
+/** Durable shape of an Independent Verification (P1-4). */
+export interface PersistedVerification {
+  id: string
+  workUnitId: string
+  verifierRunId: string
+  subjectRunId: string
+  criterionId: string
+  verdict: string
+  evidenceRefs: string[]
+  observations: string[]
+  observedAt: string
+}
+
 export interface WorkUnitStore {
   storeVersion: number
   projectRoot: string
@@ -166,6 +183,8 @@ export interface WorkUnitStore {
   grants: Record<string, PersistedGrant>
   /** P1-1: every authorized execution attempt, oldest first. */
   runs: PersistedExecutionRun[]
+  /** P1-4: every independent verification, oldest first. */
+  verifications: PersistedVerification[]
   lastProjectRoot?: string
   lastMutableFacts?: MutableFacts
 }
@@ -183,6 +202,7 @@ export function emptyStore(projectRoot = ''): WorkUnitStore {
     workUnits: [],
     grants: {},
     runs: [],
+    verifications: [],
     lastProjectRoot: projectRoot || undefined,
   }
 }
@@ -228,6 +248,7 @@ export function toPersistedExecutionRun(run: ExecutionRun): PersistedExecutionRu
     runtime: run.runtime,
     provider: run.provider,
     model: run.model,
+    purpose: run.purpose,
     sessionId: run.sessionId,
     status: run.status,
     startedAt: run.startedAt,
@@ -248,6 +269,7 @@ export function fromPersistedExecutionRun(record: PersistedExecutionRun): Execut
     runtime: record.runtime as ExecutionRun['runtime'],
     provider: record.provider,
     model: record.model,
+    purpose: (record.purpose ?? 'execution') as ExecutionRunPurpose,
     sessionId: record.sessionId,
     status: record.status as ExecutionRun['status'],
     startedAt: record.startedAt,
@@ -256,6 +278,36 @@ export function fromPersistedExecutionRun(record: PersistedExecutionRun): Execut
     evidenceRefs: [...(record.evidenceRefs ?? [])],
     fingerprint: record.fingerprint as ExecutionRun['fingerprint'],
     projection: record.projection as ExecutionRun['projection'],
+  }
+}
+
+/** P1-4: persist an Independent Verification. */
+export function toPersistedVerification(verification: Verification): PersistedVerification {
+  return {
+    id: verification.id,
+    workUnitId: verification.workUnitId,
+    verifierRunId: verification.verifierRunId,
+    subjectRunId: verification.subjectRunId,
+    criterionId: verification.criterionId,
+    verdict: verification.verdict,
+    evidenceRefs: [...verification.evidenceRefs],
+    observations: [...verification.observations],
+    observedAt: verification.observedAt,
+  }
+}
+
+/** P1-4: rebuild an Independent Verification from its durable record. */
+export function fromPersistedVerification(record: PersistedVerification): Verification {
+  return {
+    id: record.id,
+    workUnitId: record.workUnitId,
+    verifierRunId: record.verifierRunId,
+    subjectRunId: record.subjectRunId,
+    criterionId: record.criterionId,
+    verdict: record.verdict as Verification['verdict'],
+    evidenceRefs: [...(record.evidenceRefs ?? [])],
+    observations: [...(record.observations ?? [])],
+    observedAt: record.observedAt,
   }
 }
 

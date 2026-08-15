@@ -28,6 +28,11 @@ import {
 import { closeExecutionRun, openExecutionRun } from '../execution/execution-run.js'
 import { buildExecutionFingerprint } from '../execution/execution-fingerprint.js'
 import { buildSessionEvidenceProjection } from '../execution/evidence-spine.js'
+import {
+  runDeterministicVerification,
+  type DeterministicVerificationResult,
+  type VerificationProbe,
+} from '../execution/verification.js'
 import type { ProviderExecutionGrant } from '../execution/provider-grant.js'
 import { issueProviderExecutionGrant } from '../execution/grant-issuance.js'
 import { readRepositorySnapshot } from '../execution/repository.js'
@@ -40,15 +45,17 @@ import {
 } from '../execution/mutation-slice.js'
 import {
   fromPersistedExecutionRun,
+  fromPersistedVerification,
   fromPersistedWorkUnit,
   noopWorkUnitStore,
   toPersistedExecutionRun,
+  toPersistedVerification,
   toPersistedWorkUnit,
   type MutableFacts,
   type WorkUnitStoreApi,
 } from '../persistence/work-unit-store.js'
 import { createFileWorkUnitStore } from '../persistence/file-work-unit-store.js'
-import type { WorkUnit } from '../core/model.js'
+import type { AcceptanceCriterion, WorkUnit } from '../core/model.js'
 
 const LOOPBACK_HOST = '127.0.0.1'
 const MAX_JSON_BODY_BYTES = 64 * 1024
@@ -361,6 +368,7 @@ export async function startLocalWorkbenchServer(
               runtime: run.runtime,
               provider: run.provider,
               model: run.model,
+              purpose: run.purpose ?? 'execution',
               sessionId: run.sessionId,
               status: run.status,
               startedAt: run.startedAt,
@@ -372,6 +380,23 @@ export async function startLocalWorkbenchServer(
             }
           })
         sendJson(response, 200, { status: 'ok', workUnitId: workUnitId ?? null, runs })
+        return
+      }
+
+      // P1-4: independent verification history for a Work Unit. Read-only view
+      // of the durable verifications collection; subjectRunId/verifierRunId
+      // link back to the runs list.
+      if (method === 'GET' && url.pathname === '/api/verifications') {
+        const loaded = store.load()
+        const workUnitId = url.searchParams.get('workUnitId')
+        const verifications = (loaded.verifications ?? [])
+          .filter((v) => (workUnitId ? v.workUnitId === workUnitId : true))
+          .map((v) => fromPersistedVerification(v))
+        sendJson(response, 200, {
+          status: 'ok',
+          workUnitId: workUnitId ?? null,
+          verifications,
+        })
         return
       }
 
@@ -902,6 +927,189 @@ export async function startLocalWorkbenchServer(
           frontierDecision: executionResult.frontierDecision,
           repositoryReadback: executionResult.repositoryReadback,
           runOutcome: executionResult.runOutcome,
+        })
+        return
+      }
+
+      // P1-4: independent verification. The verifier re-observes REALITY on its
+      // own and never reads the executor's conclusion. It runs as its own
+      // ExecutionRun with purpose='verification'; the outcome is a first-class,
+      // durable Verification object whose evidence refs enter the Evidence
+      // Spine. Requires no provider credential and no Harness session.
+      if (method === 'POST' && url.pathname === '/api/verify') {
+        let parsed: unknown
+        try {
+          parsed = await readJsonBody(request)
+        } catch (error) {
+          const code = error instanceof Error ? error.message : ''
+          sendJson(response, code === 'request-body-too-large' ? 413 : 400, {
+            status: 'bad-request',
+            message: 'Workbench 无法读取这次验证请求。',
+          })
+          return
+        }
+        const body = objectBody(parsed)
+        const workUnitId = typeof body?.workUnitId === 'string' && body.workUnitId.length > 0
+          ? body.workUnitId
+          : null
+        const subjectRunId = typeof body?.subjectRunId === 'string' && body.subjectRunId.length > 0
+          ? body.subjectRunId
+          : null
+        const criterionId = typeof body?.criterionId === 'string' && body.criterionId.length > 0
+          ? body.criterionId
+          : null
+
+        if (!workUnitId || !subjectRunId) {
+          sendJson(response, 400, {
+            status: 'bad-request',
+            message: '验证需要指明 Work Unit 与被验证的 Execution Run。',
+          })
+          return
+        }
+
+        let verificationResult: DeterministicVerificationResult | undefined
+        let verifierRunId: string | undefined
+        try {
+          const loaded = store.load()
+          const record = loaded.workUnits.find((w) => w.id === workUnitId)
+          if (!record) {
+            sendJson(response, 404, {
+              status: 'not-found',
+              message: `Work Unit ${workUnitId} 不存在于后端存储，无法验证。`,
+            })
+            return
+          }
+          const subjectRun = (loaded.runs ?? []).find((r) => r.id === subjectRunId)
+          if (!subjectRun) {
+            sendJson(response, 404, {
+              status: 'not-found',
+              message: `Execution Run ${subjectRunId} 不存在于后端存储，无法作为验证对象。`,
+            })
+            return
+          }
+          const workUnit = fromPersistedWorkUnit(record)
+          // The verifier is a NEW run with purpose='verification'. It does not
+          // inherit the executor conclusion; it re-observes the repository.
+          const verifierRun = openExecutionRun({
+            workUnitId,
+            authorizationRef: subjectRun.authorizationRef,
+            provider: subjectRun.provider,
+            model: subjectRun.model,
+            purpose: 'verification',
+          })
+
+          const criterion = criterionId
+            ? workUnit.acceptance.find((c) => c.id === criterionId)
+            : undefined
+          if (criterionId && !criterion) {
+            sendJson(response, 404, {
+              status: 'not-found',
+              message: `Acceptance criterion ${criterionId} 不存在于 Work Unit。`,
+            })
+            return
+          }
+
+          // The verifier observes the live repository reality only. Probes are
+          // derived from the criterion text when a criterion is given; callers
+          // may supply explicit probes (hash/exists/test/delta checks).
+          const explicitProbes: VerificationProbe[] = Array.isArray(body?.probes)
+            ? (body.probes as VerificationProbe[])
+            : []
+          const grantEntry = Object.values(loaded.grants)
+            .filter((g) => g.binding.workUnitId === workUnitId)
+            .at(-1)
+          const criterionObject: AcceptanceCriterion = criterion ?? {
+            id: 'default',
+            statement: typeof body?.criterionStatement === 'string'
+              ? body.criterionStatement
+              : '',
+            satisfied: false,
+            evidenceIds: [],
+          }
+          verificationResult = runDeterministicVerification({
+            workUnit,
+            criterion: criterionObject,
+            slice: grantEntry
+              ? resolveGrantSlice(grantEntry, projectRoot)
+              : buildUnknownSlice(projectRoot, ''),
+            subjectRun: { id: subjectRunId },
+            projectRoot,
+            probes: explicitProbes.length > 0 ? explicitProbes : undefined,
+            testCommand: options.testCommand,
+            allowWrite: process.env.MING_WORKBENCH_ALLOW_WRITE === '1',
+          })
+          const verification = verificationResult.verification
+
+          // P1-4: verification evidence enters the Evidence Spine. It is an
+          // authoritative, independent observation (not a harness claim).
+          const verificationEvidenceId = `EV-VER-${verification.id}`
+          const verificationEvidence = {
+            id: verificationEvidenceId,
+            kind: 'test' as const,
+            summary: `Independent verification ${verification.verdict} for criterion ${verification.criterionId}: ${verification.observations.join('; ')}`,
+            observedAt: verification.observedAt,
+            authoritative: true,
+            verifier: 'independent-verification' as const,
+            verification: verification.verdict,
+          }
+          const updatedWorkUnit: WorkUnit = {
+            ...workUnit,
+            evidence: [...workUnit.evidence, verificationEvidence],
+            updatedAt: verification.observedAt,
+          }
+
+          // Close the verifier run and persist run + verification + evidence.
+          const now = verification.observedAt
+          const persistedVerifierRun = toPersistedExecutionRun(
+            closeExecutionRun(verifierRun, {
+              status: 'completed',
+              outcome: {
+                runStatus: 'completed',
+                effect: 'no-mutation',
+                verification: verification.verdict,
+                acceptance: 'pending',
+                reason: `Independent verification ${verification.verdict}: ${verification.observations.join('; ')}`,
+              },
+              evidenceRefs: [verificationEvidenceId],
+            }),
+          )
+          const persistedVerification = toPersistedVerification({
+            ...verification,
+            verifierRunId: persistedVerifierRun.id,
+            evidenceRefs: [verificationEvidenceId],
+          })
+          store.save({
+            ...loaded,
+            projectRoot,
+            workUnits: loaded.workUnits.map((w) =>
+              w.id === workUnit.id ? toPersistedWorkUnit(updatedWorkUnit) : w,
+            ),
+            runs: [...(loaded.runs ?? []), persistedVerifierRun],
+            verifications: [...(loaded.verifications ?? []), persistedVerification],
+            lastProjectRoot: projectRoot,
+          })
+          verifierRunId = persistedVerifierRun.id
+        } catch (error) {
+          logError(error)
+          sendJson(response, 502, {
+            status: 'verification-failed',
+            message: error instanceof Error ? error.message : '验证过程中发生未知错误。',
+            retryable: false,
+          })
+          return
+        }
+
+        sendJson(response, 200, {
+          status: 'verified',
+          verification: {
+            ...verificationResult?.verification,
+            verifierRunId,
+            evidenceRefs: verificationResult?.verification
+              ? [`EV-VER-${verificationResult.verification.id}`]
+              : [],
+          },
+          verifierRunId,
+          observations: verificationResult?.observations,
         })
         return
       }

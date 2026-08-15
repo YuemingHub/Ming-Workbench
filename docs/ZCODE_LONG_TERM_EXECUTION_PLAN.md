@@ -1091,7 +1091,7 @@ Ming Workbench 应越来越薄，而不是成为所有 AI 技术的收集箱。
 | P1-1 | `ExecutionRun` | DONE (40fcd02) | multiple runs per Work Unit, durable persistence |
 | P1-2 | `ExecutionFingerprint` | DONE (ba4d2fd) | runtime/profile/model/config identity traceable |
 | P1-3 | Evidence Spine | DONE (04da0b3) | Session → projection → Run → Work Unit trace works |
-| P1-4 | Independent Verifier | TODO | verifier independently observes reality |
+| P1-4 | Independent Verifier | DONE (p1-4 verifier) | verifier independently observes reality, never inherits executor conclusion |
 | P1-5 | Orphaned Run recovery | TODO | crash/restart reconciliation proven |
 | P1-6 | Repo write lease | TODO | concurrent writer prevented |
 | P1-7 | Effect-specific reconcilers | TODO | unknown external effect cannot fallback to git |
@@ -1231,3 +1231,14 @@ Ming Workbench 不是因为拥有很多 Agent 能力而成功。
 - **修复真实 smoke 暴露的 bug**：electron >= 43 无 npm postinstall，干净 `npm install` 后 `node_modules/electron/dist` 为空导致 electron-builder 报 `electronDist does not exist`；`desktop-windows-package-smoke.ps1` 构建前经 `node_modules/electron/install.js`（幂等）确保二进制就绪，workflow 保持薄 runner。
 - **PR body evidence 已对齐**：exact head / CI 证据 / 测试计数（153 tests / 151 pass / 2 skip / 0 fail）/ workflow 激活状态全部 reconcile 到真实 head，Draft 保持，待 owner review/merge。
 - 下一动作：PR #22 四个 P0 merge gate 全部闭合 → owner review/merge。之后 P1 分支（`agent/execution-run-p1`，已含 P1-1/2/3 与 Family Space grounding）在完整 P0 基线上收口。
+
+## 2026-08-15 — P1-4 Independent Verifier 完成（branch `agent/p1-4-verifier`）
+
+- **不造第二套系统**：Verifier 是 `ExecutionRun` 的 `purpose: 'verification'` 用途（`src/execution/execution-run.ts` 新增 `purpose` 字段），没有 Verifier Runtime/Session Store/Workflow Engine/Ledger。
+- **一等对象 Verification**（`src/execution/verification.ts`）：`id/workUnitId/verifierRunId/subjectRunId/criterionId/verdict/evidenceRefs/observations/observedAt`；verdict = passed/failed/inconclusive，fail-closed（inconclusive 永不自动转 passed，永不 blind retry）。
+- **Deterministic Reality Verifier（无 LLM）**：`runDeterministicVerification()` 独立重新读取 reality——git 工作树 vs 授权 slice、文件存在/内容 hash、测试运行、scope violation。绝不读取 executor 自然语言结论/自述/测试声称。
+- **Verification 与 Acceptance 永久分开**：verification passed ≠ acceptance；acceptance 仍由 P0-3 completion invariant 管控（harness-session claim 永不完成）。
+- **store v3 迁移**：`verifications` 集合 + `runs[].purpose`；v1/v2 前向可读，未知新版本 fail-closed。
+- **HTTP**：`POST /api/verify`（新建 verifier run + 持久化 Verification + evidence 进 Work Unit）；`GET /api/verifications`（只读历史）；`GET /api/runs` 暴露 purpose。
+- **测试与真实入口证据**：`test/verification.test.mjs` 9 项（Regression Matrix Case A-G + HTTP 集成，含 restart provenance）；FTS 全量 **178 pass / 0 fail / 2 skip**；`FAMILY SPACE INDEPENDENT VERIFICATION: PASS`（真实 Family Space `3aec7ea`，verifier 独立运行 `aaop-family.cjs status` exit 2→0、声明基线匹配、零污染、Verification 对象 durable round-trip）。
+- 下一动作：P1-5 Crash / Orphaned Run Recovery（UNKNOWN ≠ RETRY，crash injection seam + 4 种 crash case + Family Space recovery smoke）。

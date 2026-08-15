@@ -17,6 +17,13 @@ import type { EvidenceProjection } from './evidence-spine.js'
  */
 export type ExecutionRuntime = 'deepseek-harness'
 
+/**
+ * P1-4: what a run is for. The Independent Verifier is ALSO an ExecutionRun —
+ * it re-observes reality in a separate run with `purpose: 'verification'`.
+ * No second runtime/session-store/ledger is introduced.
+ */
+export type ExecutionRunPurpose = 'execution' | 'verification'
+
 export interface ExecutionRun {
   id: string
   workUnitId: string
@@ -25,6 +32,8 @@ export interface ExecutionRun {
   runtime: ExecutionRuntime
   provider: string
   model?: string
+  /** P1-4: what this run does; defaults to 'execution'. */
+  purpose?: ExecutionRunPurpose
   /** Durable canonical Harness session pointer, when a real session ran. */
   sessionId?: string
   status: RunStatus
@@ -46,6 +55,7 @@ export interface OpenExecutionRunInput {
   provider: string
   model?: string
   runtime?: ExecutionRuntime
+  purpose?: ExecutionRunPurpose
   fingerprint?: ExecutionFingerprint
   now?: string
 }
@@ -59,6 +69,7 @@ export function openExecutionRun(input: OpenExecutionRunInput): ExecutionRun {
     runtime: input.runtime ?? 'deepseek-harness',
     provider: input.provider,
     model: input.model,
+    purpose: input.purpose ?? 'execution',
     fingerprint: input.fingerprint,
     status: 'started',
     startedAt: input.now ?? new Date().toISOString(),
