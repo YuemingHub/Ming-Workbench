@@ -60,8 +60,6 @@ jobs:
       - name: Build and smoke real Windows desktop distribution
         shell: pwsh
         run: npm run desktop:package:smoke
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify release artifacts
         shell: pwsh
