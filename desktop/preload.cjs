@@ -19,7 +19,6 @@ contextBridge.exposeInMainWorld('mingWorkbench', {
   downloadUpdate: () => ipcRenderer.invoke('desktop:download-update'),
   installUpdate: () => ipcRenderer.invoke('desktop:install-update'),
   getUpdateStatus: () => ipcRenderer.invoke('desktop:update-status'),
-  setWorkUnitRunning: (running) => ipcRenderer.send('desktop:work-unit-running', running),
   onUpdateAvailable: (callback) => ipcRenderer.on('desktop:update-available', (_e, info) => callback(info)),
   onUpdateReady: (callback) => ipcRenderer.on('desktop:update-ready', (_e, info) => callback(info)),
   onUpdateProgress: (callback) => ipcRenderer.on('desktop:update-progress', (_e, info) => callback(info)),

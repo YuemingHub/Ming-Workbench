@@ -16,16 +16,32 @@
  * 7. Backend uses existing buildExactSlice to validate and freeze.
  * 8. True authority is the authorized MutationSlice.
  *
- * When the proposal cannot reliably identify paths, it returns empty and the
- * UI shows a fail-closed message — never a default whole-repository fallback.
+ * Grounding rule (P0.3): the proposal is NOT a lexical relevance scorer. It
+ * never scans all tracked files for keyword matches. It only extracts
+ * repo-relative paths that were EXPLICITLY named in one of three grounded
+ * sources:
+ *
+ *   A. AAOP/Harness project_evidence_summary entries
+ *   B. the coordinator's next_action
+ *   C. the user's own raw request (an exact file path the user typed)
+ *
+ * Every candidate must be a real tracked path inside the repository, with no
+ * traversal, no absolute/drive path, and no protected/build directory. When no
+ * grounded explicit path exists, the proposal is empty (fail-closed) and the
+ * normal UI keeps execution read-only — never a whole-repository default.
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
-import { join, resolve, relative } from 'node:path'
+
+export interface ProposedMutationItem {
+  /** Repo-relative forward-slash path. */
+  path: string
+  /** Short human-facing reason this path was included. */
+  reason?: string
+}
 
 export interface ProposedMutation {
-  paths: string[]
+  items: ProposedMutationItem[]
   source: string
   authoritative: false
 }
@@ -38,191 +54,131 @@ export interface ScopeProposalInput {
   route: string
 }
 
+/** Source extensions we accept as an explicit file path surface. */
+const SOURCE_EXTENSION_RE =
+  /\.(?:js|mjs|cjs|ts|tsx|jsx|json|css|html|md|py|rs|go|java|c|cpp|h|yml|yaml|sh|ps1|toml|lock)$/i
+
+/** Directories that must never enter a proposed mutation surface. */
+const PROTECTED_DIR_RE = /^(?:node_modules|dist|build|\.workbench|\.tmp|\.aaop|\.git)(?:[\\/]|$)/
+
 /**
- * Derive a non-authoritative proposed mutation scope from read-only project
- * understanding. The proposal uses:
- *
- * 1. Git-tracked files that match keywords from the user's request and the
- *    coordinator's next_action / evidence summaries.
- * 2. File path relevance scoring: files whose path or content mentions
- *    keywords from the request are candidates.
- *
- * This is deliberately conservative: if no clear candidates are found, the
- * proposal is empty (fail-closed), NOT a default whole-repository scope.
+ * Derive a non-authoritative proposed mutation scope from explicitly grounded
+ * repo-relative paths only. No keyword relevance scoring, no full content scan.
  */
 export function proposeMutationScope(input: ScopeProposalInput): ProposedMutation {
-  const { projectRoot, rawRequest, intakeEvidence, nextAction, route } = input
+  const { projectRoot, rawRequest, intakeEvidence, nextAction } = input
 
-  // Gather all text that describes what the user wants and what the
-  // coordinator found.
-  const contextText = [rawRequest, nextAction, ...intakeEvidence].join(' ')
-
-  // Extract candidate keywords from the request and context.
-  const keywords = extractKeywords(contextText)
-  if (keywords.length === 0) {
-    return { paths: [], source: 'no-keywords', authoritative: false }
+  const tracked = listGitTrackedFiles(projectRoot)
+  if (tracked.size === 0) {
+    return { items: [], source: 'no-tracked-files', authoritative: false }
   }
 
-  // Get the list of tracked files in the repository.
-  const trackedFiles = listGitTrackedFiles(projectRoot)
-  if (trackedFiles.length === 0) {
-    return { paths: [], source: 'no-tracked-files', authoritative: false }
-  }
-
-  // Score each file by how relevant it is to the extracted keywords.
-  const scored = trackedFiles
-    .map((file) => ({
-      file,
-      score: scoreFileRelevance(file, keywords, projectRoot),
-    }))
-    .filter((entry) => entry.score > 0)
-    .sort((a, b) => b.score - a.score)
-
-  // Take the top candidates, capped at a reasonable number for UI display.
-  const maxPaths = 12
-  const paths = scored.slice(0, maxPaths).map((entry) => entry.file)
-
-  if (paths.length === 0) {
-    return { paths: [], source: 'no-matching-files', authoritative: false }
-  }
-
-  return {
-    paths,
-    source: `git-tracked-keyword-match(${keywords.length}-keywords, ${paths.length}-paths)`,
-    authoritative: false,
-  }
-}
-
-/**
- * Extract meaningful keywords from the user request and coordinator context.
- * Filters out common stop words and very short tokens.
- */
-function extractKeywords(text: string): string[] {
-  const stopWords = new Set([
-    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-    'should', 'may', 'might', 'must', 'can', 'need', 'this', 'that', 'these',
-    'those', 'i', 'you', 'he', 'she', 'it', 'we', 'they', 'what', 'which',
-    'who', 'when', 'where', 'why', 'how', 'all', 'each', 'every', 'both',
-    'and', 'or', 'but', 'not', 'no', 'nor', 'so', 'yet', 'for', 'to', 'of',
-    'in', 'on', 'at', 'by', 'with', 'from', 'as', 'into', 'about', 'than',
-    'then', 'once', 'here', 'there', 'now', 'just', 'also', 'only', 'up',
-    'out', 'if', 'my', 'your', 'his', 'her', 'its', 'our', 'their',
-    '把', '的', '了', '在', '是', '我', '你', '他', '她', '它', '们',
-    '和', '与', '或', '但', '不', '没', '有', '这', '那', '些', '个',
-    '就', '都', '也', '还', '只', '要', '会', '能', '可', '以', '对',
-    '为', '到', '从', '向', '给', '让', '使', '被', '把', '将', '该',
-    '项目', '工作', '一个', '什么', '怎么', '现在', '可以', '需要',
-    '看看', '看看这', '接下来', '应该', '先做', '理解', '首页', '当前',
-    '上', '下', '里', '外', '中', '后', '前',
-  ])
-
-  // Split on non-alphanumeric/CJK boundaries.
-  const tokens = text
-    .toLowerCase()
-    .split(/[^a-z0-9\u4e00-\u9fff._/-]+/i)
-    .filter((token) => {
-      if (token.length < 2) return false
-      if (stopWords.has(token)) return false
-      // Filter pure numbers or version-like strings.
-      if (/^\d+(\.\d+)*$/.test(token)) return false
-      return true
-    })
-
-  // Also extract file-extension-like patterns and path segments.
-  const pathTokens = text
-    .match(/[a-z0-9_-]+\.(js|mjs|ts|tsx|jsx|json|css|html|md|py|rs|go|java|c|cpp|h)/gi)
-    ?? []
-  
-  // Deduplicate while preserving order.
+  const items: ProposedMutationItem[] = []
   const seen = new Set<string>()
-  const keywords: string[] = []
-  for (const token of [...tokens, ...pathTokens]) {
-    const lower = token.toLowerCase()
-    if (!seen.has(lower)) {
-      seen.add(lower)
-      keywords.push(lower)
+  const contributed = new Set<string>()
+
+  // Source A: AAOP/Harness project_evidence_summary explicit paths.
+  for (const evidence of intakeEvidence) {
+    for (const candidate of extractPathCandidates(evidence)) {
+      const path = resolveTrackedPath(candidate, tracked)
+      if (path && !seen.has(path)) {
+        seen.add(path)
+        contributed.add('aaop-evidence')
+        items.push({ path, reason: 'AAOP 只读证据中明确指出的实现文件' })
+      }
     }
   }
 
-  return keywords.slice(0, 20)
+  // Source B: coordinator next_action explicit paths.
+  for (const candidate of extractPathCandidates(nextAction)) {
+    const path = resolveTrackedPath(candidate, tracked)
+    if (path && !seen.has(path)) {
+      seen.add(path)
+      contributed.add('next-action')
+      items.push({ path, reason: '下一步动作中明确指出的文件' })
+    }
+  }
+
+  // Source C: user raw request explicit exact paths.
+  for (const candidate of extractPathCandidates(rawRequest)) {
+    const path = resolveTrackedPath(candidate, tracked)
+    if (path && !seen.has(path)) {
+      seen.add(path)
+      contributed.add('user-request')
+      items.push({ path, reason: '你在描述中明确给出的文件' })
+    }
+  }
+
+  if (items.length === 0) {
+    return { items: [], source: 'no-explicit-paths', authoritative: false }
+  }
+
+  const source = Array.from(contributed).sort().join('+')
+  return { items, source, authoritative: false }
 }
 
 /**
- * List all git-tracked files in the repository root.
+ * Extract path-like tokens from a text block. A token is a candidate only if it
+ * looks like a repo-relative file path (has a source extension, is not
+ * absolute, has no traversal, is not inside a protected directory). We do not
+ * interpret the text semantically — only explicit path surfaces qualify.
  */
-function listGitTrackedFiles(projectRoot: string): string[] {
+function extractPathCandidates(text: string): string[] {
+  if (!text) return []
+  const candidates: string[] = []
+  // Split on whitespace and common CJK/ASCII punctuation boundaries. Em/en
+  // dashes and colons are treated as reason separators, not path characters.
+  const segments = text.split(/[\s,，;；、"'`()（）\[\]{}<>]+/).filter(Boolean)
+  for (const segment of segments) {
+    let token = segment
+    // Strip trailing punctuation that can never be part of a path.
+    token = token.replace(/[，,；;：:]+$/, '')
+    // Split off a trailing human reason joined by an em/en dash.
+    const dashIndex = token.search(/[—–]/)
+    if (dashIndex > 0) token = token.slice(0, dashIndex)
+    if (looksLikeRepoRelativePath(token)) candidates.push(token)
+  }
+  return candidates
+}
+
+function looksLikeRepoRelativePath(token: string): boolean {
+  if (!token) return false
+  if (!SOURCE_EXTENSION_RE.test(token)) return false
+  if (token.startsWith('/') || token.startsWith('\\')) return false
+  if (/^[a-zA-Z]:/.test(token)) return false
+  if (token.split(/[\\/]/).includes('..')) return false
+  if (PROTECTED_DIR_RE.test(token)) return false
+  return true
+}
+
+/**
+ * Resolve a candidate token to a tracked repo-relative path, or undefined if it
+ * is not tracked. Normalizes backslashes and strips a leading ./.
+ */
+function resolveTrackedPath(token: string, tracked: Set<string>): string | undefined {
+  const normalized = normalizeProposedPath(token)
+  return tracked.has(normalized) ? normalized : undefined
+}
+
+/**
+ * List all git-tracked files in the repository root as a normalized set.
+ */
+function listGitTrackedFiles(projectRoot: string): Set<string> {
   try {
     const output = execFileSync('git', ['-C', projectRoot, 'ls-files'], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 10_000,
     })
-    return output
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
+    const tracked = new Set<string>()
+    for (const line of output.split('\n')) {
+      const trimmed = line.trim()
+      if (trimmed.length > 0) tracked.add(normalizeProposedPath(trimmed))
+    }
+    return tracked
   } catch {
-    return []
+    return new Set()
   }
-}
-
-/**
- * Score a file's relevance to the extracted keywords.
- * Higher score = more relevant.
- */
-function scoreFileRelevance(
-  file: string,
-  keywords: string[],
-  projectRoot: string,
-): number {
-  let score = 0
-  const lowerFile = file.toLowerCase()
-
-  // Path segment matching: keywords that appear in the file path.
-  let keywordMatchScore = 0
-  for (const keyword of keywords) {
-    if (lowerFile.includes(keyword)) {
-      keywordMatchScore += 3
-    }
-  }
-
-  // Penalize node_modules, dist, build artifacts.
-  if (/node_modules|dist|build|\.workbench|\.tmp|\.aaop/.test(lowerFile)) {
-    return 0
-  }
-
-  // Content matching: read the file and check if keywords appear in content.
-  // This is capped to avoid reading huge files.
-  try {
-    const fullPath = resolve(projectRoot, file)
-    const stat = readFileSync(fullPath)
-    if (stat.length <= 100_000) {
-      const content = stat.toString('utf8').toLowerCase()
-      for (const keyword of keywords) {
-        if (content.includes(keyword)) {
-          keywordMatchScore += 1
-        }
-      }
-    }
-  } catch {
-    // File might not exist or be unreadable; path score is still valid.
-  }
-
-  // Only apply extension bonuses when there is a positive keyword match.
-  // This prevents every .js file from appearing as a candidate.
-  if (keywordMatchScore > 0) {
-    score = keywordMatchScore
-    // Prefer source files over config/build files.
-    if (/\.(js|mjs|ts|tsx|jsx|py|rs|go|java|c|cpp)$/.test(lowerFile)) {
-      score += 1
-    }
-    if (/\.(test|spec)\.(js|mjs|ts|tsx)$/.test(lowerFile)) {
-      score += 1 // test files are good candidates for paired changes
-    }
-  }
-
-  return score
 }
 
 /**

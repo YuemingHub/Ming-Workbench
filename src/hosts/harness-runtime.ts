@@ -14,6 +14,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join, resolve, dirname } from 'node:path'
+import { tmpdir } from 'node:os'
 
 export interface HarnessRuntimeOptions {
   workbenchRoot: string
@@ -42,7 +43,15 @@ function defaultBundlePath(workbenchRoot: string): string {
 }
 
 function defaultBundledRuntimeDir(workbenchRoot: string): string {
-  return resolve(workbenchRoot, '.workbench', 'runtime', 'deepseek-harness')
+  // Extract under a SHORT per-user cache directory, not under workbenchRoot.
+  // On Windows, the packaged app's resources path is deep enough that pnpm's
+  // .pnpm virtual store exceeds MAX_PATH (260) and the native install/copy
+  // fails. os.tmpdir() is short and writable for a per-user install.
+  // MING_HARNESS_CACHE is a diagnostic override for tests/operators.
+  const cacheRoot = process.env.MING_HARNESS_CACHE
+    ? resolve(process.env.MING_HARNESS_CACHE)
+    : join(tmpdir(), 'ming-workbench-harness')
+  return join(cacheRoot, 'deepseek-harness')
 }
 
 function git(cwd: string, args: string[]): string {

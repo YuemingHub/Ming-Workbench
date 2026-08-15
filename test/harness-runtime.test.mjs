@@ -33,10 +33,30 @@ function cleanup(dir) {
   }
 }
 
+// The bundled runtime now extracts under a per-user cache (MING_HARNESS_CACHE,
+// default os.tmpdir()/ming-workbench-harness) so the packaged app stays under
+// MAX_PATH on Windows. Each test that touches the bundled path MUST point the
+// cache at a fresh empty directory, otherwise a leftover extraction from a
+// previous run makes the "missing bundle" case reuse a valid cached checkout.
+function withFreshHarnessCache() {
+  const cacheDir = join(TMP, 'cache-' + randomUUID())
+  const previous = process.env.MING_HARNESS_CACHE
+  process.env.MING_HARNESS_CACHE = cacheDir
+  return {
+    cacheDir,
+    bundledDir: join(cacheDir, 'deepseek-harness'),
+    restore() {
+      if (previous === undefined) delete process.env.MING_HARNESS_CACHE
+      else process.env.MING_HARNESS_CACHE = previous
+    },
+  }
+}
+
 test('real bundled runtime extracts and verifies identity', { skip: !RUN_INTEGRATION }, async () => {
   const workbenchRoot = setupTestDir()
+  const cache = withFreshHarnessCache()
   try {
-    const bundledDir = join(workbenchRoot, '.workbench', 'runtime', 'deepseek-harness')
+    const bundledDir = cache.bundledDir
     mkdirSync(join(workbenchRoot, '.workbench', 'vendor'), { recursive: true })
     // Copy real bundle and lock.
     writeFileSync(
@@ -48,17 +68,20 @@ test('real bundled runtime extracts and verifies identity', { skip: !RUN_INTEGRA
     const result = await prepareHarnessRuntime({ workbenchRoot })
     assert.equal(result.source, 'bundled')
     assert.ok(existsSync(join(result.checkout, 'apps', 'cli', 'package.json')))
+    assert.equal(result.checkout, bundledDir)
     assert.equal(result.identity.version, '0.1.0-rc.5')
     assert.equal(result.identity.commit, '47f943859bef60e4160492346772ded9b24f765a')
   } finally {
     cleanup(workbenchRoot)
+    cache.restore()
   }
 })
 
 test('bundled runtime caches and reuses valid checkout', { skip: !RUN_INTEGRATION }, async () => {
   const workbenchRoot = setupTestDir()
+  const cache = withFreshHarnessCache()
   try {
-    const bundledDir = join(workbenchRoot, '.workbench', 'runtime', 'deepseek-harness')
+    const bundledDir = cache.bundledDir
     mkdirSync(join(workbenchRoot, '.workbench', 'vendor'), { recursive: true })
     writeFileSync(
       join(workbenchRoot, '.workbench', 'vendor', 'deepseek-harness-0.1.0-rc.5.bundle'),
@@ -76,6 +99,7 @@ test('bundled runtime caches and reuses valid checkout', { skip: !RUN_INTEGRATIO
     assert.equal(second.checkout, bundledDir)
   } finally {
     cleanup(workbenchRoot)
+    cache.restore()
   }
 })
 
@@ -106,6 +130,7 @@ test('explicit path option resolves and verifies identity', async () => {
 
 test('missing bundle produces actionable error', async () => {
   const workbenchRoot = setupTestDir()
+  const cache = withFreshHarnessCache()
   try {
     mkdirSync(join(workbenchRoot, '.workbench', 'vendor'), { recursive: true })
     writeFileSync(join(workbenchRoot, 'harness.lock.json'), readFileSync(REAL_LOCK))
@@ -116,5 +141,6 @@ test('missing bundle produces actionable error', async () => {
     )
   } finally {
     cleanup(workbenchRoot)
+    cache.restore()
   }
 })

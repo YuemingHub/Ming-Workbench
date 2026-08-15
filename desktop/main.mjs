@@ -572,16 +572,6 @@ function registerIpc() {
       isDownloaded: Boolean(updateInfo && !isDownloadingUpdate),
     }
   })
-
-  // B2: renderer may display execution status but cannot unlock updates.
-  // The desktop:work-unit-running IPC is kept as a display hint only; it is
-  // never used as the install gate.  The install gate is
-  // isExecutionActiveFromStore() which re-reads the authoritative backend
-  // Work Unit store.
-  ipcMain.on('desktop:work-unit-running', (event, running) => {
-    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) return
-    // Display hint only — not authoritative.
-  })
 }
 
 /**

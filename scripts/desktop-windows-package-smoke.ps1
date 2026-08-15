@@ -6,18 +6,17 @@
 #
 #   1. (unless -SkipBuild) npm run desktop:package:dir and npm run desktop:package
 #   2. creates an ephemeral scratch Git repository
-#   3. launches dist-desktop/win-unpacked/Ming Workbench.exe --project <scratch>
-#   4. waits for the packaged app's own startup.log "backend ready" evidence
-#   5. GETs the exact loopback backend URL and requires HTTP 200
-#   6. verifies the served page carries the per-process request token meta
-#   7. asserts the packaged Harness runtime came from the bundled artifact and
-#      its identity matches harness.lock.json (never upstream HEAD)
-#   8. closes the app through its owned window/process lifecycle
-#   9. requires zero residual processes from this launch (PID-tree tracked,
-#      never a broad kill of electron.exe/node.exe)
-#  10. repeats launch/close/residual verification for the portable executable
-#  11. on failure, emits bounded diagnostics (startup log, build log tail,
-#      residual process details) that never contain provider secrets
+#   3. WIN-UNPACKED diagnostic smoke:
+#        launches dist-desktop/win-unpacked/Ming Workbench.exe --project <scratch>
+#   4. NSIS INSTALLED consumer smoke:
+#        a. locates the exact "Ming Workbench Setup *.exe" installer
+#        b. silent per-user install (/S /D=<isolated dir>, no admin)
+#        c. verifies installed exe, uninstaller, Desktop + Start Menu shortcuts
+#        d. launches the INSTALLED exe --project <scratch> --user-data-dir <isolated>
+#        e. verifies backend ready, HTTP 200, request token, Harness pin identity,
+#           and that the electron-updater module actually loaded
+#        f. clean close + zero residual processes
+#        g. uninstall, verify exe removed and shortcuts/install dir cleaned
 #
 # Provider secrets are scrubbed from the launch environment and a test sentinel
 # is injected to prove plaintext never lands in argv/logs/store/project files.
@@ -30,7 +29,6 @@
 
 param(
   [switch]$SkipBuild,
-  [switch]$SkipPortable,
   [string]$WorkDir = "",
   [string]$ScratchRoot = "",
   [string]$ArtifactDir = "",
@@ -87,7 +85,7 @@ function Wait-ForBackendReady([int]$RootPid, [string]$StartupLog, [string]$Scrat
   while ((Get-Date) -lt $deadline) {
     Start-Sleep -Milliseconds 500
     if ($RootPid -and -not (Get-Process -Id $RootPid -ErrorAction SilentlyContinue)) {
-      Write-Host "WARN: root process exited before backend ready (may be the portable launcher handing off)"
+      Write-Host "WARN: root process exited before backend ready"
     }
     $content = Read-TextFileShared $StartupLog
     if ($content -match "backend ready (http://127\.0\.0\.1:\d+)") {
@@ -101,7 +99,6 @@ function Wait-ForBackendReady([int]$RootPid, [string]$StartupLog, [string]$Scrat
 }
 
 function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collections.ArrayList]$TrackedIds) {
-  # Graceful first: close the main window of any tracked process that has one.
   $closed = $false
   foreach ($id in $TrackedIds) {
     $p = Get-Process -Id $id -ErrorAction SilentlyContinue
@@ -120,7 +117,6 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
     }
   }
 
-  # Wait for the whole launch tree to exit on its own (app-owned cleanup).
   $deadline = (Get-Date).AddSeconds(60)
   while ((Get-Date) -lt $deadline) {
     $alive = @()
@@ -131,10 +127,6 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
     Start-Sleep -Milliseconds 500
   }
 
-  # Bounded fallback: kill only this launch's tracked PIDs (never a broad
-  # electron.exe/node.exe sweep). The scratch path is unique per launch, so
-  # re-checking the command line before killing prevents PID-reuse mistakes.
-  # Every kill is best-effort: tracked PIDs may already have exited on their own.
   Write-Host "WARN: graceful close timed out; force-killing tracked launch tree"
   $nowScratch = Get-ScratchMatchingProcesses $ScratchPath
   foreach ($p in $nowScratch) {
@@ -160,19 +152,10 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
 
 function Invoke-PackagedLaunch([string]$AppPath, [string]$Label, [string]$ScratchPath, [string]$AppDataDir, [string]$WorkbenchRoot) {
   Write-Step "LAUNCH $Label"
-  $distRoot = Join-Path $WorkbenchRoot "dist-desktop"
-  # --user-data-dir relocates the app's own userData (startup log, Work Unit
-  # store, safeStorage, single-instance lock) so each launch is fully isolated
-  # (fresh startup log + store, no cross-launch or developer-machine residue).
   $isolatedUserData = Join-Path $AppDataDir ($Label + "-" + [guid]::NewGuid().ToString("N").Substring(0, 8))
   New-Item -ItemType Directory -Force -Path $isolatedUserData | Out-Null
   $startupLog = Join-Path $isolatedUserData "startup.log"
 
-  # Scrub provider secrets from the launch environment, then inject the test
-  # sentinel to prove the pipeline never writes it into argv/log/store/files.
-  # TEMP is redirected so the portable SFX extracts to a fresh per-launch
-  # directory (the default extraction location is deterministic and could
-  # contain a partial extraction from an earlier interrupted run).
   $savedEnv = @{}
   Get-ChildItem Env: | Where-Object {
     $providerEnvNames -contains $_.Name -or $_.Name -like "MING_TEST_SECRET_*" -or $_.Name -eq "MING_WORKBENCH_ALLOW_WRITE" -or $_.Name -in @("TEMP", "TMP")
@@ -193,8 +176,6 @@ function Invoke-PackagedLaunch([string]$AppPath, [string]$Label, [string]$Scratc
     Write-Host "launched pid=$($proc.Id) app=$Label"
     [void]$tracked.Add($proc.Id)
 
-    # Track the launch tree: every process whose command line references the
-    # unique scratch path (covers the backend node child and Harness children).
     $deadline = (Get-Date).AddSeconds(30)
     while ((Get-Date) -lt $deadline) {
       foreach ($p in (Get-ScratchMatchingProcesses $ScratchPath)) {
@@ -213,12 +194,12 @@ function Invoke-PackagedLaunch([string]$AppPath, [string]$Label, [string]$Scratc
     $lock = $lockRaw | ConvertFrom-Json
     Assert-True ($Matches[1] -eq $lock.reviewedCommit) "harness identity pinned to reviewed commit" "(expected=$($lock.reviewedCommit) got=$($Matches[1]))"
     Assert-True ($log -match "backend spawn .*harnessCheckout=auto-bundled") "no developer checkout dependency (MING_HARNESS_CHECKOUT absent)"
+    Assert-True ($log -match "auto-updater loaded: NsisUpdater") "electron-updater module actually loaded" "(label=$Label)"
 
     $resp = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 20
     Assert-True ($resp.StatusCode -eq 200) "HTTP GET loopback backend returns 200" "(status=$($resp.StatusCode))"
     Assert-True ($resp.Content -match 'ming-workbench-token" content="[^"]+"') "served page carries request token meta" "(label=$Label)"
 
-    # Secret forensic: the injected sentinel must not appear in any owned file.
     foreach ($path in @($startupLog, (Join-Path $isolatedUserData "work-units.json"), (Join-Path $isolatedUserData "workbench-state.json"))) {
       if (Test-Path $path) {
         $content = Read-TextFileShared $path
@@ -233,7 +214,6 @@ function Invoke-PackagedLaunch([string]$AppPath, [string]$Label, [string]$Scratc
 
     Close-LaunchTree $proc.Id $ScratchPath $tracked
 
-    # Residual verification: zero processes from this launch tree may survive.
     Start-Sleep -Seconds 3
     $residual = Get-ScratchMatchingProcesses $ScratchPath
     foreach ($id in $tracked) {
@@ -250,6 +230,7 @@ function Invoke-PackagedLaunch([string]$AppPath, [string]$Label, [string]$Scratc
       }
     }
     Assert-True ($residual.Count -eq 0) "zero residual processes after close" "(label=$Label)"
+    return $startupLog
   } finally {
     foreach ($entry in $savedEnv.GetEnumerator()) {
       Set-Item "Env:$($entry.Key)" $entry.Value
@@ -269,8 +250,6 @@ function Invoke-PackagedLaunch([string]$AppPath, [string]$Label, [string]$Scratc
 
 if (-not $WorkDir) { $WorkDir = (Split-Path $PSScriptRoot -Parent) }
 if (-not (Test-Path (Join-Path $WorkDir "package.json"))) { Write-Host "FAIL: not a Ming Workbench repo root: $WorkDir"; exit 2 }
-# Short scratch root: the portable SFX extracts into a deep temp tree and
-# git clone inside it must stay under the Windows MAX_PATH limit.
 if (-not $ScratchRoot) { $ScratchRoot = Join-Path $env:TEMP ("mwps-" + [guid]::NewGuid().ToString("N").Substring(0, 8)) }
 New-Item -ItemType Directory -Force -Path $ScratchRoot | Out-Null
 if ($ArtifactDir) { New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null }
@@ -286,10 +265,6 @@ function Write-BuildLog([string]$Name) {
 
 Write-Step "REPO $WorkDir"
 
-# electron >= 43 no longer ships an npm postinstall that downloads the binary,
-# so a clean `npm install` leaves node_modules/electron/dist empty and
-# electron-builder fails with "electronDist does not exist". Ensure the real
-# binary is present before any packaging step.
 $electronDist = Join-Path $WorkDir "node_modules\electron\dist"
 if (-not (Test-Path (Join-Path $electronDist "electron.exe"))) {
   Write-Step "ENSURE electron binary (node_modules/electron/install.js)"
@@ -317,14 +292,12 @@ if (-not $SkipBuild) {
       Write-BuildLog "build-dir.log"
       exit 1
     }
-    if (-not $SkipPortable) {
-      Write-Step "BUILD portable exe (desktop:package)"
-      & npm.cmd run desktop:package 2>&1 | Out-File (Join-Path $ScratchRoot "build-portable.log") -Encoding utf8
-      if ($LASTEXITCODE -ne 0) {
-        Write-Host "FAIL: desktop:package exited $LASTEXITCODE"
-        Write-BuildLog "build-portable.log"
-        exit 1
-      }
+    Write-Step "BUILD NSIS installer (desktop:package)"
+    & npm.cmd run desktop:package 2>&1 | Out-File (Join-Path $ScratchRoot "build-nsis.log") -Encoding utf8
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host "FAIL: desktop:package exited $LASTEXITCODE"
+      Write-BuildLog "build-nsis.log"
+      exit 1
     }
   } finally {
     Pop-Location
@@ -363,30 +336,65 @@ $appDataDir = Join-Path $ScratchRoot "ad"
 New-Item -ItemType Directory -Force -Path $appDataDir | Out-Null
 
 $failed = $false
+
+# 1. WIN-UNPACKED diagnostic smoke (not the consumer distribution).
 try {
-  Invoke-PackagedLaunch -AppPath $exePath -Label "win-unpacked" -ScratchPath $scratchRepo -AppDataDir $appDataDir -WorkbenchRoot $WorkDir
+  Invoke-PackagedLaunch -AppPath $exePath -Label "win-unpacked" -ScratchPath $scratchRepo -AppDataDir $appDataDir -WorkbenchRoot $WorkDir | Out-Null
+  Write-Host "WIN_UNPACKED_SMOKE: PASS"
 } catch {
   Write-Host "EXCEPTION (win-unpacked): $($_.Exception.Message)"
+  Write-Host "WIN_UNPACKED_SMOKE: FAIL"
   $failed = $true
 }
 
-if (-not $SkipPortable) {
-  $portable = Get-ChildItem -Path (Join-Path $distRoot "*.exe") -File -ErrorAction SilentlyContinue | Select-Object -First 1
-  if (-not $portable) {
-    Write-Host "FAIL: portable exe not found in $distRoot"
-    $failed = $true
-  } else {
-    try {
-      Invoke-PackagedLaunch -AppPath $portable.FullName -Label "portable" -ScratchPath $scratchRepo -AppDataDir $appDataDir -WorkbenchRoot $WorkDir
-    } catch {
-      Write-Host "EXCEPTION (portable): $($_.Exception.Message)"
-      $failed = $true
-    }
-  }
+# 2. NSIS INSTALLED consumer smoke.
+$installer = Get-ChildItem -Path (Join-Path $distRoot "Ming Workbench Setup *.exe") -File -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $installer) {
+  Write-Host "FAIL: NSIS installer not found in $distRoot"
+  $failed = $true
 } else {
-  Write-Host "portable skipped (-SkipPortable)"
+  Write-Step "NSIS installer: $($installer.Name)"
+  $installDir = Join-Path $ScratchRoot "installed"
+  $desktopShortcut = Join-Path ([Environment]::GetFolderPath("Desktop")) "Ming Workbench.lnk"
+  $startMenuShortcut = Join-Path ([Environment]::GetFolderPath("Programs")) "Ming Workbench.lnk"
+  try {
+    # Silent per-user install. /D= must be last and unquoted; installDir has no spaces.
+    Write-Step "INSTALL (silent per-user)"
+    $installProc = Start-Process -FilePath $installer.FullName -ArgumentList "/S /D=$installDir" -Wait -PassThru
+    if ($installProc.ExitCode -ne 0) { throw "installer exited $($installProc.ExitCode)" }
+
+    $installedExe = Join-Path $installDir "Ming Workbench.exe"
+    Assert-True (Test-Path $installedExe) "installed Ming Workbench.exe exists"
+    Assert-True (Test-Path (Join-Path $installDir "Uninstall Ming Workbench.exe")) "uninstaller exists"
+    Assert-True (Test-Path $desktopShortcut) "Desktop shortcut exists"
+    Assert-True (Test-Path $startMenuShortcut) "Start Menu shortcut exists"
+
+    # Launch the INSTALLED exe (not win-unpacked).
+    Invoke-PackagedLaunch -AppPath $installedExe -Label "installed" -ScratchPath $scratchRepo -AppDataDir $appDataDir -WorkbenchRoot $WorkDir | Out-Null
+    Write-Host "NSIS_INSTALLED_SMOKE: PASS"
+
+    # Uninstall and verify cleanup.
+    Write-Step "UNINSTALL"
+    $uninstaller = Join-Path $installDir "Uninstall Ming Workbench.exe"
+    $uninstProc = Start-Process -FilePath $uninstaller -ArgumentList "/S" -Wait -PassThru
+    Start-Sleep -Seconds 3
+    Assert-True (-not (Test-Path $installedExe)) "installed executable removed after uninstall"
+    Assert-True (-not (Test-Path $desktopShortcut)) "desktop shortcut cleaned after uninstall"
+    Assert-True (-not (Test-Path $startMenuShortcut)) "start menu shortcut cleaned after uninstall"
+  } catch {
+    Write-Host "EXCEPTION (installed): $($_.Exception.Message)"
+    Write-Host "NSIS_INSTALLED_SMOKE: FAIL"
+    $failed = $true
+    # Best-effort cleanup on failure so the environment is not left polluted.
+    try {
+      $un = Join-Path $installDir "Uninstall Ming Workbench.exe"
+      if (Test-Path $un) { Start-Process -FilePath $un -ArgumentList "/S" -Wait -ErrorAction SilentlyContinue }
+    } catch { }
+  }
 }
 
 if ($failed) { Write-Host "SMOKE RESULT: FAIL"; exit 1 }
 Write-Host "SMOKE RESULT: PASS"
+Write-Host "WIN_UNPACKED_SMOKE: PASS"
+Write-Host "NSIS_INSTALLED_SMOKE: PASS"
 exit 0

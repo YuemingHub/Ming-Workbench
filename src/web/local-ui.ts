@@ -65,10 +65,6 @@ export function renderLocalWorkbenchHtml(requestToken: string): string {
       <div class="execute-actions">
         <button id="execute-approve-button" class="primary" type="button" disabled>允许这次修改</button>
         <button id="execute-cancel-button" class="secondary" type="button">取消</button>
-        <label class="execute-whole">
-          <input id="execute-whole" type="checkbox" />
-          整个仓库（显式授权，要求工作区干净）
-        </label>
       </div>
       <p class="execute-status" id="execute-status"></p>
     </section>
@@ -203,7 +199,6 @@ textarea:focus { border-color: #8da2c6; box-shadow: 0 0 0 4px rgba(103, 132, 184
   .request-actions .primary, .project-card button { width: 100%; }
 .execute-card { margin-top: 18px; }
 .execute-actions { margin-top: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-.execute-whole { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; font-size: 13px; color: #596579; }
 .execute-scope { margin: 12px 0; padding: 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; }
 .execute-scope ul { margin: 6px 0 0; padding-left: 20px; color: #43506a; }
 .execute-scope ul li + li { margin-top: 4px; }
@@ -268,6 +263,46 @@ function setNotice(message = '', error = false) {
   }
   node.className = error ? 'notice error' : 'notice'
   node.textContent = message
+}
+
+// Safe DOM rendering for the proposed mutation scope. Git filenames are
+// project-controlled input and must be rendered as text only, never as HTML.
+function renderProposedScope(proposed) {
+  const scopeArea = $('execute-scope-area')
+  const approveButton = $('execute-approve-button')
+  while (scopeArea.firstChild) scopeArea.removeChild(scopeArea.firstChild)
+  const items = (proposed && proposed.items) || []
+  window.__mingProposedScope = items.map((item) => item.path)
+  if (items.length === 0) {
+    const note = document.createElement('p')
+    note.className = 'muted'
+    note.textContent = '我现在还不能确定安全的修改范围，需要再理解一下项目。'
+    scopeArea.appendChild(note)
+    const hint = document.createElement('p')
+    hint.className = 'muted'
+    hint.setAttribute('style', 'margin-top:8px;font-size:12px;')
+    hint.textContent = '在确定修改范围之前，Workbench 只会保持只读，不会修改任何文件。'
+    scopeArea.appendChild(hint)
+    approveButton.disabled = true
+    return
+  }
+  const intro = document.createElement('p')
+  intro.className = 'muted'
+  intro.textContent = 'Workbench 准备修改：'
+  scopeArea.appendChild(intro)
+  const list = document.createElement('ul')
+  for (const item of items) {
+    const li = document.createElement('li')
+    li.textContent = item.path
+    list.appendChild(li)
+  }
+  scopeArea.appendChild(list)
+  const note = document.createElement('p')
+  note.className = 'muted'
+  note.setAttribute('style', 'margin-top:8px;font-size:12px;')
+  note.textContent = '这是 Workbench 根据项目理解提出的建议范围，不是最终授权。确认后才会生成受边界约束的执行授权。'
+  scopeArea.appendChild(note)
+  approveButton.disabled = false
 }
 
 function renderProject(data) {
@@ -386,18 +421,7 @@ function renderResume(data) {
     const executeCard = $('execute-card')
     if (!gate?.open && !data.factsChanged) {
       executeCard.classList.remove('hidden')
-      const scopeArea = $('execute-scope-area')
-      const proposed = data.proposedMutation || { paths: [], source: 'none' }
-      window.__mingProposedScope = proposed.paths || []
-      if (proposed.paths && proposed.paths.length > 0) {
-        scopeArea.innerHTML = '<p class="muted">Workbench 准备修改：</p><ul>' +
-          proposed.paths.map((p) => '<li>' + p + '</li>').join('') +
-          '</ul><p class="muted" style="margin-top:8px;font-size:12px;">这是 Workbench 根据项目理解提出的建议范围，不是最终授权。确认后才会生成受边界约束的执行授权。</p>'
-        $('execute-approve-button').disabled = false
-      } else {
-        scopeArea.innerHTML = '<p class="muted">我现在还不能确定安全的修改范围，需要再理解一下项目。</p><p class="muted" style="margin-top:8px;font-size:12px;">如果确有必要，可以勾选"整个仓库"进行显式授权。</p>'
-        $('execute-approve-button').disabled = false
-      }
+      renderProposedScope(data.proposedMutation)
     } else {
       executeCard.classList.add('hidden')
     }
@@ -541,19 +565,7 @@ $('intake-button').addEventListener('click', async () => {
     const executeCard = $('execute-card')
     if (body.status === 'ready' && !body.workUnit?.gate?.open) {
       executeCard.classList.remove('hidden')
-      // B3: Show Workbench-proposed scope from the real backend-derived proposal.
-      const scopeArea = $('execute-scope-area')
-      const proposed = body.proposedMutation || { paths: [], source: 'none' }
-      window.__mingProposedScope = proposed.paths || []
-      if (proposed.paths && proposed.paths.length > 0) {
-        scopeArea.innerHTML = '<p class="muted">Workbench 准备修改：</p><ul>' +
-          proposed.paths.map((p) => '<li>' + p + '</li>').join('') +
-          '</ul><p class="muted" style="margin-top:8px;font-size:12px;">这是 Workbench 根据项目理解提出的建议范围，不是最终授权。确认后才会生成受边界约束的执行授权。</p>'
-        $('execute-approve-button').disabled = false
-      } else {
-        scopeArea.innerHTML = '<p class="muted">我现在还不能确定安全的修改范围，需要再理解一下项目。</p><p class="muted" style="margin-top:8px;font-size:12px;">如果确有必要，可以勾选“整个仓库”进行显式授权。</p>'
-        $('execute-approve-button').disabled = false
-      }
+      renderProposedScope(body.proposedMutation)
     } else {
       executeCard.classList.add('hidden')
     }
@@ -571,32 +583,25 @@ $('execute-approve-button').addEventListener('click', async () => {
     status.className = 'execute-status error'
     return
   }
-  const wholeRepo = $('execute-whole').checked
-  const proposedPaths = window.__mingProposedScope || []
-  const filePaths = wholeRepo ? undefined : proposedPaths
-  if (!wholeRepo && filePaths.length === 0) {
-    status.textContent = 'Workbench 尚未确定修改范围，请稍后再试。'
+  const filePaths = window.__mingProposedScope || []
+  if (filePaths.length === 0) {
+    status.textContent = 'Workbench 尚未确定安全的修改范围，请稍后再试。'
     status.className = 'execute-status error'
     return
   }
-  const ok = window.confirm(wholeRepo
-    ? '你选择了“整个仓库”范围。Workbench 要求工作区干净，并且允许在任何仓库内文件上执行。确认吗？'
-    : 'Workbench 准备修改以下文件：\n\n  ' + filePaths.join('\n  ') + '\n\n确认允许这次修改吗？')
+  const ok = window.confirm('Workbench 准备修改以下文件：\n\n  ' + filePaths.join('\n  ') + '\n\n确认允许这次修改吗？')
   if (!ok) return
   button.disabled = true
   $('execute-cancel-button').disabled = true
   status.textContent = '正在请求执行授权…'
   status.className = 'execute-status'
   try {
-    if (isDesktop && window.mingWorkbench?.setWorkUnitRunning) {
-      window.mingWorkbench.setWorkUnitRunning(true)
-    }
     const authRes = await api('/api/authorize', {
       method: 'POST',
       body: JSON.stringify({
         workUnitId: currentWorkUnitId,
         authorize: true,
-        ...(wholeRepo ? { wholeRepository: true } : { filePaths }),
+        filePaths,
       }),
     })
     if (!authRes.response.ok) {
@@ -627,9 +632,6 @@ $('execute-approve-button').addEventListener('click', async () => {
   } finally {
     button.disabled = false
     $('execute-cancel-button').disabled = false
-    if (isDesktop && window.mingWorkbench?.setWorkUnitRunning) {
-      window.mingWorkbench.setWorkUnitRunning(false)
-    }
   }
 })
 

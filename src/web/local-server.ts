@@ -767,6 +767,28 @@ export async function startLocalWorkbenchServer(
           store.save({ ...loaded, projectRoot, workUnits: updated, lastProjectRoot: projectRoot })
         } catch (error) {
           logError(error)
+          // B2: restore an evidence-honest non-running state so the desktop
+          // updater gate never sees a stale 'running' after a failed execution.
+          // Reusing the existing 'blocked' WorkUnitState; the failure reason is
+          // preserved in nextFrontier so the user can see this attempt did not
+          // complete.
+          try {
+            const failedStore = store.load()
+            const failureMessage = error instanceof Error ? error.message : '执行过程中发生未知错误。'
+            const restored = failedStore.workUnits.map((w) =>
+              w.id === workUnitId && w.state === 'running'
+                ? {
+                    ...w,
+                    state: 'blocked',
+                    nextFrontier: `执行未完成：${failureMessage}`,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : w,
+            )
+            store.save({ ...failedStore, projectRoot, workUnits: restored, lastProjectRoot: projectRoot })
+          } catch (persistError) {
+            logError(persistError)
+          }
           sendJson(response, 502, {
             status: 'execution-failed',
             message: error instanceof Error ? error.message : '执行过程中发生未知错误。',
