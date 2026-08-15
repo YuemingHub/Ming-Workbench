@@ -38,22 +38,14 @@ npm run desktop:package:smoke
 pwsh -File scripts/desktop-windows-package-smoke.ps1 -SkipBuild
 ```
 
-## Why it lives in `workflows.dist/` (temporarily)
+## Activation status
 
-The branch author's GitHub token lacks the `workflow` scope, which GitHub
-requires for **creating** a new workflow file (updating existing ones is
-allowed, creating new ones is not). The file is therefore shipped here,
-version-controlled, so the exact intended content is reviewable in PR #22.
+**2026-08-15:** the workflow has been activated — moved to
+`.github/workflows/desktop-windows-package-smoke.yml` and pushed. The
+`workflows.dist/` copy is retained as an archived duplicate; the active file
+lives in `.github/workflows/`.
 
-To activate: refresh the token with `gh auth refresh -s workflow`, then move
-this file into `.github/workflows/` and push:
-
-```powershell
-gh auth refresh -s workflow
-git mv .github/workflows.dist/desktop-windows-package-smoke.yml .github/workflows/desktop-windows-package-smoke.yml
-git commit -m "ci(desktop): activate Windows packaged smoke workflow"
-git push
-```
+To re-archive (if the workflow is ever removed): move it back here and commit.
 
 The workflow triggers on PRs touching `desktop/**`, `scripts/start-local-web.mjs`,
 `scripts/desktop-windows-package-smoke.ps1`, `src/web/**`, `src/hosts/**`,
