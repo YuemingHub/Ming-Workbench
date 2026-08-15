@@ -476,7 +476,7 @@ P0 阶段允许先做最小收紧：非 authoritative/session activity evidence 
 
 ## P0-4 激活 packaged Windows exact-artifact smoke
 
-PR #22 当前已经有 `.github/workflows.dist/desktop-windows-package-smoke.yml` 与 PowerShell smoke script，但正式 workflow 尚未激活。
+PR #22 的 `desktop-windows-package-smoke.yml` 已激活于 `.github/workflows/`（原始文件仍在 `.github/workflows.dist/` 作为归档副本），由真实 `windows-latest` runner 对 exact head 跑绿。PS1 脚本确保 electron >= 43 的二进制在构建前就绪（该版本无 npm postinstall）。
 
 目标：
 
@@ -1087,7 +1087,7 @@ Ming Workbench 应越来越薄，而不是成为所有 AI 技术的收集箱。
 | P0-1 | Exact `MutationSlice` / file-bounded mutation | DONE (a33fafa) | unknown scope blocked; out-of-slice writes hard-fail; scratch-repo proofs |
 | P0-2 | Split run/effect/verification/acceptance semantics | DONE (a33fafa) | no-op/pre-green and mutation/failing-test regressions covered |
 | P0-3 | Strong completion/evidence invariant | DONE (a33fafa) | session claim alone can never complete Work Unit |
-| P0-4 | Packaged Windows exact-artifact smoke | LOCAL DONE, CI BLOCKED (HUMAN_AUTHORIZATION_REQUIRED) | activated GitHub workflow green on exact head |
+| P0-4 | Packaged Windows exact-artifact smoke | DONE (b4ae1e5) | `.github/workflows/desktop-windows-package-smoke.yml` green on exact head |
 | P1-1 | `ExecutionRun` | DONE (40fcd02) | multiple runs per Work Unit, durable persistence |
 | P1-2 | `ExecutionFingerprint` | DONE (ba4d2fd) | runtime/profile/model/config identity traceable |
 | P1-3 | Evidence Spine | DONE (04da0b3) | Session → projection → Run → Work Unit trace works |
@@ -1187,8 +1187,8 @@ Ming Workbench 不是因为拥有很多 Agent 能力而成功。
   - 执行路径：run 记录证据 = harness-session claim（pending），测试证据 = test-run 真实验证判定。
   - 5 个必需用例 + 边界用例在 `test/completion-invariant.test.mjs`。
 - **测试与真实入口证据**：151 unit pass / 0 fail / 2 skip；`SCRATCH MUTATION RESULT: PASS`（真实 reviewed Harness + mock LLM + 真实 scratch Git repo，P0-1/P0-2 后各跑一轮，P0-3 后重跑中）；CI `ci`/`aaop-setup-smoke`/`harness-acp-smoke` 在 `ff1c13e` 与 `f9fc651` 全绿，`a33fafa` 运行中。
-- **P0-4 状态**：本地 packaged smoke 在跑；workflow 激活 commit 被 GitHub 拒绝：`refusing to allow an OAuth App to create or update workflow ... without 'workflow' scope` → `HUMAN_AUTHORIZATION_REQUIRED`（见 docs/P0-4_ACTIVATION_GATE.md）。
-- 下一动作：P0-4 owner 授权（`gh auth refresh -s workflow`）→ 激活 workflow → exact head 跑绿 → PR #22 review/merge。之后 P1-1 ExecutionRun。
+- **P0-4 状态**：已激活 `.github/workflows/desktop-windows-package-smoke.yml`（从 `.github/workflows.dist/` 移入），真实 Windows runner 对 exact head `b4ae1e5` 全绿：win-unpacked + portable 真实启动、backend-ready、loopback HTTP 200、harness identity 与 `harness.lock.json` 一致、零残留进程、secret sentinel 无泄漏。期间修复：electron >= 43 无 npm postinstall，`npm install` 后 `node_modules/electron/dist` 为空导致 electron-builder 失败；`desktop-windows-package-smoke.ps1` 构建前经 `install.js`（幂等）确保二进制就绪。
+- 下一动作：PR #22 四个 P0 merge gate 全部闭合（P0-1/2/3 测试绿 + P0-4 CI 绿 + PR body evidence 已对齐 exact head）→ owner review/merge。之后 P1-1 ExecutionRun。
 
 ## 2026-08-15 — P1-1 ExecutionRun 完成（branch `agent/execution-run-p1`，未提交到 PR #22）
 
@@ -1224,3 +1224,10 @@ Ming Workbench 不是因为拥有很多 Agent 能力而成功。
 - **Workbench 全链已接通（provider-free）**：onboarding 识别真实项目 → read-only Intake 返回 `blocked` 并透出真实 blocker（不伪造进度）→ blocked Work Unit 持久化可 resume → authorize 冻结 `exact(1 path)` `CURRENT_STATE.md` + 绑定真实 repo/branch/base → execute 无凭据 fail-closed 402 `provider-required` → 真实 HEAD 未变（零污染）。
 - **剩余 human blocker**：真实 provider 凭据 `DEEPSEEK_API_KEY`。有凭据后走 `intake → authorize → execute → git delta → aaop-family.cjs status=0 → evidence → outcome` 闭环。
 - 下一动作：**唯一剩余 human blocker = 真实 provider 凭据 `DEEPSEEK_API_KEY`**。凭据就绪后走 `intake → authorize → execute → git delta → smoke-family-space-fix.mjs 回归断言 → aaop-family.cjs setup/ready 全绿 → evidence → outcome` 闭环（回归断言已就绪，凭据到达即可直接执行）。
+
+## 2026-08-15 — P0 收口完成（PR #22，branch `agent/desktop-p0-reconciliation`）
+
+- **P0-4 已激活**：`.github/workflows.dist/desktop-windows-package-smoke.yml` 移入 `.github/workflows/desktop-windows-package-smoke.yml` 并 push（当前凭据具备 `workflow` scope），真实 `windows-latest` runner 对 exact head 全绿：win-unpacked + portable 真实启动、backend-ready、loopback HTTP 200、harness identity 与 `harness.lock.json` 一致、零残留进程、secret sentinel 无泄漏。
+- **修复真实 smoke 暴露的 bug**：electron >= 43 无 npm postinstall，干净 `npm install` 后 `node_modules/electron/dist` 为空导致 electron-builder 报 `electronDist does not exist`；`desktop-windows-package-smoke.ps1` 构建前经 `node_modules/electron/install.js`（幂等）确保二进制就绪，workflow 保持薄 runner。
+- **PR body evidence 已对齐**：exact head / CI 证据 / 测试计数（153 tests / 151 pass / 2 skip / 0 fail）/ workflow 激活状态全部 reconcile 到真实 head，Draft 保持，待 owner review/merge。
+- 下一动作：PR #22 四个 P0 merge gate 全部闭合 → owner review/merge。之后 P1 分支（`agent/execution-run-p1`，已含 P1-1/2/3 与 Family Space grounding）在完整 P0 基线上收口。

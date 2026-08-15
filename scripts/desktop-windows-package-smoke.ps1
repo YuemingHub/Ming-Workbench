@@ -286,6 +286,27 @@ function Write-BuildLog([string]$Name) {
 
 Write-Step "REPO $WorkDir"
 
+# electron >= 43 no longer ships an npm postinstall that downloads the binary,
+# so a clean `npm install` leaves node_modules/electron/dist empty and
+# electron-builder fails with "electronDist does not exist". Ensure the real
+# binary is present before any packaging step.
+$electronDist = Join-Path $WorkDir "node_modules\electron\dist"
+if (-not (Test-Path (Join-Path $electronDist "electron.exe"))) {
+  Write-Step "ENSURE electron binary (node_modules/electron/install.js)"
+  Push-Location $WorkDir
+  try {
+    & node.exe node_modules/electron/install.js 2>&1 | Out-File (Join-Path $ScratchRoot "electron-install.log") -Encoding utf8
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host "FAIL: electron binary install exited $LASTEXITCODE"
+      Write-BuildLog "electron-install.log"
+      exit 1
+    }
+    Assert-True (Test-Path (Join-Path $electronDist "electron.exe")) "electron binary present after install.js"
+  } finally {
+    Pop-Location
+  }
+}
+
 if (-not $SkipBuild) {
   Write-Step "BUILD win-unpacked (desktop:package:dir)"
   Push-Location $WorkDir
