@@ -14,6 +14,7 @@
 import type { WorkUnit } from '../core/model.js'
 import type { ExecutionRun, ExecutionRunPurpose } from '../execution/execution-run.js'
 import type { Verification } from '../execution/verification.js'
+import type { WriteLease } from '../execution/write-lease.js'
 
 /**
  * Store schema version.
@@ -21,11 +22,12 @@ import type { Verification } from '../execution/verification.js'
  * v1 -> v2: added `runs` (P1-1 first-class ExecutionRun).
  * v2 -> v3: added `verifications` (P1-4 Independent Verification) and the
  * `runs[].purpose` field.
+ * v3 -> v4: added `leases` (P1-6 Repository Write Lease).
  * Loaders accept any version in [min, max]; older files are read with the new
  * collections empty. This is the only supported forward migration; an unknown
  * newer version is never trusted as an authorization input.
  */
-export const WORK_UNIT_STORE_VERSION = 3
+export const WORK_UNIT_STORE_VERSION = 4
 export const WORK_UNIT_STORE_FILE_NAME = 'work-units.json'
 export const WORK_UNIT_STORE_MIN_SUPPORTED_VERSION = 1
 export interface MutableFacts {
@@ -185,6 +187,8 @@ export interface WorkUnitStore {
   runs: PersistedExecutionRun[]
   /** P1-4: every independent verification, oldest first. */
   verifications: PersistedVerification[]
+  /** P1-6: repository write leases (at most one active writer per repo). */
+  leases: WriteLease[]
   lastProjectRoot?: string
   lastMutableFacts?: MutableFacts
 }
@@ -203,6 +207,7 @@ export function emptyStore(projectRoot = ''): WorkUnitStore {
     grants: {},
     runs: [],
     verifications: [],
+    leases: [],
     lastProjectRoot: projectRoot || undefined,
   }
 }

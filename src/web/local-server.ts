@@ -34,6 +34,7 @@ import {
   type VerificationProbe,
 } from '../execution/verification.js'
 import { reconcileOrphanedRuns } from '../execution/orphan-recovery.js'
+import { acquireWriteLease, reconcileStaleLeases, releaseWriteLease } from '../execution/write-lease.js'
 import type { ProviderExecutionGrant } from '../execution/provider-grant.js'
 import { issueProviderExecutionGrant } from '../execution/grant-issuance.js'
 import { readRepositorySnapshot } from '../execution/repository.js'
@@ -420,8 +421,18 @@ export async function startLocalWorkbenchServer(
           grantsByRunId,
           sessionArtifactKnownForRunId: () => false,
         })
+        // P1-6: release stale write leases whose owner run is terminal.
+        const terminalRunIds = new Set(
+          (loaded.runs ?? [])
+            .filter((r) => !['started', 'running'].includes(r.status))
+            .map((r) => r.id),
+        )
+        const staleLeases = reconcileStaleLeases({
+          leases: loaded.leases ?? [],
+          isTerminalRun: (runId) => terminalRunIds.has(runId),
+        })
         // Persist the reconciled run status so the decision is durable.
-        if (results.length > 0) {
+        if (results.length > 0 || staleLeases.releasedStale.length > 0) {
           const statusByRunId = new Map(
             results.map((r) => [r.run.id, decisionRunStatus(r.decision)]),
           )
@@ -433,6 +444,7 @@ export async function startLocalWorkbenchServer(
                 ? { ...r, status: statusByRunId.get(r.id)! }
                 : r,
             ),
+            leases: staleLeases.leases,
             lastProjectRoot: projectRoot,
           })
         }
@@ -440,6 +452,7 @@ export async function startLocalWorkbenchServer(
           status: 'reconciled',
           projectRoot,
           orphaned: results.length,
+          staleLeasesReleased: staleLeases.releasedStale,
           results: results.map((r) => ({
             runId: r.run.id,
             workUnitId: r.run.workUnitId,
@@ -881,6 +894,36 @@ export async function startLocalWorkbenchServer(
             model: options.model,
             fingerprint,
           })
+
+          // P1-6: repository write lease. A write run acquires the exclusive
+          // lease for the working tree; a second active writer on the same
+          // repository is blocked. The lease is released when the run reaches a
+          // terminal/reconciled state.
+          if (process.env.MING_WORKBENCH_ALLOW_WRITE === '1') {
+            const acquisition = acquireWriteLease({
+              repository: projectRoot,
+              writerRunId: run.id,
+              workUnitId,
+              leases: loaded.leases ?? [],
+              purpose: run.purpose,
+            })
+            if (!acquisition.ok) {
+              const heldBy = acquisition.heldBy
+              sendJson(response, 409, {
+                status: 'write-lease-held',
+                message: heldBy
+                  ? `这个仓库已有另一个正在写入的执行（Run ${heldBy.writerRunId}）。请等待它结束后再执行。`
+                  : '这个仓库当前不能获得写租赁，无法执行。',
+                heldBy: heldBy ? { runId: heldBy.writerRunId, workUnitId: heldBy.workUnitId } : undefined,
+              })
+              return
+            }
+            if (acquisition.ok && acquisition.lease && acquisition.lease.released !== undefined) {
+              // Persist the acquired lease so a restart can reconcile it.
+              loaded.leases = [...(loaded.leases ?? []), acquisition.lease]
+            }
+          }
+
           try {
             executionResult = await runBoundedExecution(executionOptions)
 
@@ -921,11 +964,15 @@ export async function startLocalWorkbenchServer(
                 ? toPersistedWorkUnit(executionResult.workUnit)
                 : w,
             )
+            const release = releaseWriteLease(loaded.leases ?? [], projectRoot, run.id)
             store.save({
               ...loaded,
               projectRoot,
               workUnits: updated,
               runs: [...(loaded.runs ?? []), persistedRun],
+              leases: release.ok && release.lease
+                ? (loaded.leases ?? []).map((l) => (l.writerRunId === run.id ? release.lease! : l))
+                : loaded.leases,
               lastProjectRoot: projectRoot,
             })
             executedRunId = persistedRun.id
@@ -946,10 +993,14 @@ export async function startLocalWorkbenchServer(
                 evidenceRefs: [],
               }),
             )
+            const failedRelease = releaseWriteLease(loaded.leases ?? [], projectRoot, run.id)
             store.save({
               ...loaded,
               projectRoot,
               runs: [...(loaded.runs ?? []), persistedRun],
+              leases: failedRelease.ok && failedRelease.lease
+                ? (loaded.leases ?? []).map((l) => (l.writerRunId === run.id ? failedRelease.lease! : l))
+                : loaded.leases,
               lastProjectRoot: projectRoot,
             })
             throw error

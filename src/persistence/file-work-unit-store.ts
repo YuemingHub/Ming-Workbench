@@ -48,6 +48,8 @@ export function createFileWorkUnitStore(storeDir: string): WorkUnitStoreApi {
         runs: Array.isArray(raw.runs) ? raw.runs : [],
         // P1-4: a v1/v2 file simply has no verifications yet.
         verifications: Array.isArray(raw.verifications) ? raw.verifications : [],
+        // P1-6: a v1/v2/v3 file simply has no leases yet.
+        leases: Array.isArray(raw.leases) ? raw.leases : [],
         lastProjectRoot: raw.lastProjectRoot,
         // The last observed mutable-facts snapshot drives the stale-authority
         // check on /api/execute. Dropping it on load silently disabled the 409

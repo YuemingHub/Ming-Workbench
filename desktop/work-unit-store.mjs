@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from '
 import { join } from 'node:path'
 
 const STORE_FILE_NAME = 'work-units.json'
-const STORE_VERSION = 3
+const STORE_VERSION = 4
 const MIN_SUPPORTED_VERSION = 1
 
 function storePath() {
@@ -33,6 +33,7 @@ function emptyStore() {
     grants: {},
     runs: [],
     verifications: [],
+    leases: [],
     lastProjectRoot: undefined,
   }
 }
@@ -42,9 +43,8 @@ export function loadWorkUnitStore() {
     const path = storePath()
     if (!existsSync(path)) return emptyStore()
     const raw = JSON.parse(readFileSync(path, 'utf8'))
-    // v1 (no runs), v2 (P1-1 runs) and v3 (P1-4 verifications) are readable;
-    // an unknown newer or older version is never trusted as an authorization
-    // input.
+    // v1..v4 (runs / verifications / leases) are readable; an unknown newer or
+    // older version is never trusted as an authorization input.
     const version = raw?.storeVersion
     const supported =
       typeof version === 'number' &&
@@ -60,6 +60,7 @@ export function loadWorkUnitStore() {
       grants: raw.grants && typeof raw.grants === 'object' ? raw.grants : {},
       runs: Array.isArray(raw.runs) ? raw.runs : [],
       verifications: Array.isArray(raw.verifications) ? raw.verifications : [],
+      leases: Array.isArray(raw.leases) ? raw.leases : [],
       lastProjectRoot: raw.lastProjectRoot,
     }
   } catch {

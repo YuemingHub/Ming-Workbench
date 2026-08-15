@@ -202,3 +202,21 @@
 
 ### 下一轮入口
 - P1-6 Repository Write Lease 最小版本：`repository working tree → max one active writer ExecutionRun`；Run A 持 lease，Run B 同 repo 请求写 → blocked；terminal/reconciled 后释放；restart 后 stale lease reconciliation；read-only verifier 不需要 lease。
+
+## 2026-08-15 轮次 9 — P1-6 Repository Write Lease 完成（最小版本）
+
+### 做了什么
+- `src/execution/write-lease.ts`：acquire/release/reconcileStaleLeases 三个纯函数，一 repo 至多一个 active writer run；同 repo 第二 writer 被 blocked（409 write-lease-held）；仅持有者可释放；verifier（purpose=verification）默认 read-only，不申请也不被 lease 阻塞。
+- store v4：`leases` 集合 + desktop STORE_VERSION=4。
+- execute 路径接入：allowWrite 开启时 acquire → 执行 → 成功/失败都 release；reconcile-orphans 端点同时清 stale leases。
+
+### 验证证据
+- `test/write-lease.test.mjs` 8 项全过（含 HTTP 409 阻塞验证）。
+- FTS 全量（188+8）待本轮末确认。
+
+### 问题与弯路
+- **弯路**：LeaseRelease union 类型最初没声明 `lease`/`heldBy` 字段导致 TS 报错；补全类型后解决。
+- **弯路**：HTTP 集成测试 git commit 需先 config user，否则 exec 抛错。
+
+### 下一轮入口
+- P1-7 Effect-specific reconcilers：未知 external effect（deploy/publish/db/API）必须走对应 reconciler，绝不 fallback 到 git；先建 reconciler seam + 一个真实 vertical slice。

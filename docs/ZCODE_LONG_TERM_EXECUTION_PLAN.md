@@ -1093,7 +1093,7 @@ Ming Workbench 应越来越薄，而不是成为所有 AI 技术的收集箱。
 | P1-3 | Evidence Spine | DONE (04da0b3) | Session → projection → Run → Work Unit trace works |
 | P1-4 | Independent Verifier | DONE (p1-4 verifier) | verifier independently observes reality, never inherits executor conclusion |
 | P1-5 | Orphaned Run recovery | DONE (p1-5 recovery) | crash/restart reconciliation proven; UNKNOWN never blind-retried |
-| P1-6 | Repo write lease | TODO | concurrent writer prevented |
+| P1-6 | Repo write lease | DONE (p1-6 lease) | max one active writer per working tree; verifier never blocked |
 | P1-7 | Effect-specific reconcilers | TODO | unknown external effect cannot fallback to git |
 | P1-8 | AAOP authority boundary cleanup | TODO | Workbench no longer grows AAOP routing semantics |
 | P2-1 | Bounded Goal profile | BLOCKED BY P1 | long single-agent run bounded/resumable |
@@ -1251,3 +1251,12 @@ Ming Workbench 不是因为拥有很多 Agent 能力而成功。
 - **HTTP**：`POST /api/reconcile-orphans`——重启后扫描 store 中 non-terminal runs，持久化决策状态（orphaned），返回观测与决策；terminal run 不受影响。
 - **测试与真实入口证据**：`test/orphan-recovery.test.mjs` 10 项（Crash A/B/C/D + 越界 + 未知 slice + startup scan + 历史不可覆盖 + HTTP 集成）；`FAMILY SPACE ORPHAN RECOVERY: PASS`（真实 Family Space `3aec7ea` 副本：run 打开→mutation CURRENT_STATE.md→crash→restart→归因→requires-new-run→effect 满足验收且零污染）。
 - 下一动作：P1-6 Repository Write Lease 最小版本（一 repo 一 active writer，read-only verifier 不受 lease 阻塞）。
+
+## 2026-08-15 — P1-6 Repository Write Lease 完成（最小版本，branch `agent/p1-4-verifier`）
+
+- **最小 Write Lease**（`src/execution/write-lease.ts`）：`acquireWriteLease()`（一 repo 一 active writer，同 repo 第二 writer 被 blocked）、`releaseWriteLease()`（仅持有者可释放）、`reconcileStaleLeases()`（restart 后 owner run 已 terminal 的 stale lease 自动释放）。
+- **read-only verifier 不受阻塞**：purpose='verification' 的 run 不需要写 lease，永不被 writer lease 挡住。
+- **store v4 迁移**：新增 `leases` 集合；v1-v3 前向可读，未知新版本 fail-closed。desktop store STORE_VERSION 同步 4。
+- **HTTP 接入**：execute 在允许写时先 acquire lease（`409 write-lease-held` 返回 heldBy run）；execute 成功/失败路径 release lease；`/api/reconcile-orphans` 同时清理 stale leases。
+- **测试**：`test/write-lease.test.mjs` 8 项（first writer acquire / second writer blocked / 不同 repo 不冲突 / terminal 后释放 / 仅持有者可释放 / verifier 不阻塞 / restart stale release / 幂等 + HTTP 409）。
+- 下一动作：P1-7 Effect-specific reconcilers（未知 external effect 不可 fallback 到 git）。
