@@ -136,3 +136,30 @@
 ### 下一轮入口
 - **唯一剩余 human blocker**：真实 provider 凭据 `DEEPSEEK_API_KEY`（缺失时 `/api/execute` fail-closed 402）。凭据就绪后走 `intake → authorize(CURRENT_STATE.md, exact 1 path) → execute(真实 Harness + 真实 Agent) → git delta → scripts/smoke-family-space-fix.mjs 回归断言全绿 → aaop-family.cjs setup(AAOP 0.20.1) → ready 全绿 → Evidence 归档 → 非技术语言向 owner 汇报`。
 - P0-4 仍等 owner `gh auth refresh -s workflow` 激活 workflow 后合 PR #22。
+
+## 2026-08-15 轮次 6 — P0 收口（PR #22）+ P1 基线对齐 + 真实压测全链验证
+
+### 做了什么
+- **P0-4 正式激活并跑绿**：当前凭据已具备 `workflow` scope（历史上缺失），`.github/workflows.dist/desktop-windows-package-smoke.yml` 移入 `.github/workflows/` 并 push；真实 `windows-latest` runner 对 exact head 全绿——win-unpacked + portable 真实启动、backend-ready、loopback HTTP 200 + token meta、harness identity 与 `harness.lock.json` 一致、零残留进程、secret sentinel 无泄漏（`desktop-windows-package-smoke` 全 PASS）。
+- **修复真实 smoke 暴露的 bug**：electron >= 43 无 npm postinstall，干净 `npm install` 后 `node_modules/electron/dist` 为空，electron-builder 报 `electronDist does not exist`；`desktop-windows-package-smoke.ps1` 构建前运行仓库自带 `node_modules/electron/install.js`（幂等）确保二进制就绪，workflow 保持薄 runner。
+- **PR #22 evidence truth 已 reconcile**：PR body 的 exact SHA（旧 `68fc789` → 真实 head）、CI 证据、测试计数（128→153）、workflow 激活状态全部对齐真实；账本/激活 gate 文档同步。P0-1/2/3 在 exact head 复跑 153 tests / 151 pass / 2 skip / 0 fail 成立。
+- **P1 分支基线对齐**：`agent/execution-run-p1`（已含 P1-1/2/3 + Family Space grounding）并入 P0 收口（workflow 激活、electron 修复、账本），merge 冲突仅 ZCODE 账本，手动消解后 P1 分支测试仍全绿（169/163/0/6）。
+- **真实压测全链验证**：重新 clone 真实 `YuemingHub/Family-Space` production `3aec7ea`；`FAMILY SPACE GROUNDING RESULT: PASS`（16/16）与 `FAMILY SPACE FIX REGRESSION RESULT: PASS`（9/9）均成立；`SCRATCH MUTATION RESULT: PASS`（P1-1/2/3 真实 Harness smoke）。
+
+### 验证证据
+- FTS 全量 169 pass / 0 fail / 6 skip（P1 分支合并 P0 收口后）。
+- `SCRATCH MUTATION RESULT: PASS`、`FAMILY SPACE GROUNDING RESULT: PASS`、`FAMILY SPACE FIX REGRESSION RESULT: PASS`。
+- PR #22 四个 workflow 对 exact head 全绿（`ci` / `aaop-setup-smoke` / `harness-acp-smoke` / `desktop-windows-package-smoke`）。
+
+### 遇到的问题与弯路
+- **弯路**：electron-builder 在真实 Windows runner 首次失败，最初误以为是 workflow 权限或打包配置问题，实际根因是 electron 43 版本移除了 npm postinstall，CI 干净环境无二进制。经本地 `install.js` 复现确认后修复。
+- **弯路**：合并 P0 收口到 P1 分支时 ZCODE 账本两侧都改了 P0-4 状态，产生内容冲突；以「保留两侧真实事实」原则手工消解。
+
+### 好经验
+- 权限是**动态**的：历史记录「缺 workflow scope」不构成当前事实，每次以真实 push/CI 结果为准。
+- repository-owned 脚本是 workflow 的薄 runner 的正确形态：CI 发现的环境差异（electron 二进制缺失）修在 ps1，而不是给 workflow 加第二个实现。
+- 真实项目压测在凭据缺失时仍可闭环「grounding + 修复规格 + 回归断言」，把唯一 human blocker（provider 凭据）暴露到最小。
+
+### 下一轮入口
+- **唯一剩余 human blocker**：真实 provider 凭据 `DEEPSEEK_API_KEY`。凭据就绪后：`intake → authorize(CURRENT_STATE.md) → execute(真实 Harness 真实 Agent) → git delta → smoke-family-space-fix.mjs 回归断言 → aaop-family.cjs setup/ready → Evidence → outcome`。
+- **owner 动作**：review/merge PR #22（四个 P0 gate 全闭合，Draft 保持待审）；此后 P1 分支（`agent/execution-run-p1`，已含 P1-1/2/3 与完整 P0 基线）可进入 review。
