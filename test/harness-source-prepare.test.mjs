@@ -38,5 +38,8 @@ test('Workbench command surface exposes one-command Harness preparation', () => 
 
 test('managed Harness checkout is excluded from tracked Workbench state', () => {
   const gitignore = readFileSync(new URL('../.gitignore', import.meta.url), 'utf8')
-  assert.match(gitignore, /^\.workbench\/vendor\/$/m)
+  // The managed checkout directory is ignored, but the reviewed bundle
+  // artifact is explicitly tracked.
+  assert.match(gitignore, /^\.workbench\/vendor\/deepseek-harness\/$/m)
+  assert.match(gitignore, /^!\.workbench\/vendor\/deepseek-harness-.*\.bundle$/m)
 })

@@ -1,0 +1,74 @@
+/**
+ * File-based Work Unit store for the backend process.
+ *
+ * The backend runs as a separate Node process. It shares the same JSON file as
+ * the desktop main process (both resolve to the same userData directory), so a
+ * Work Unit authored in one process is visible after close/reopen in the other.
+ *
+ * Persisted content is never trusted as authorization: the caller must
+ * re-read live repository/provider/runtime facts before continuing any Work
+ * Unit. A mismatched storeVersion is treated as empty (not upgraded blindly).
+ */
+
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
+import { join } from 'node:path'
+
+import {
+  emptyStore,
+  WORK_UNIT_STORE_FILE_NAME,
+  WORK_UNIT_STORE_VERSION,
+  type WorkUnitStore,
+  type WorkUnitStoreApi,
+} from './work-unit-store.js'
+
+export function createFileWorkUnitStore(storeDir: string): WorkUnitStoreApi {
+  const path = join(storeDir, WORK_UNIT_STORE_FILE_NAME)
+
+  function load(): WorkUnitStore {
+    try {
+      if (!existsSync(path)) return emptyStore()
+      const raw = JSON.parse(readFileSync(path, 'utf8')) as Partial<WorkUnitStore>
+      if (!raw || raw.storeVersion !== WORK_UNIT_STORE_VERSION) {
+        // Schema mismatch or stale file: do not trust it as authorization input.
+        return emptyStore()
+      }
+      return {
+        storeVersion: WORK_UNIT_STORE_VERSION,
+        projectRoot: typeof raw.projectRoot === 'string' ? raw.projectRoot : '',
+        workUnits: Array.isArray(raw.workUnits) ? raw.workUnits : [],
+        grants: raw.grants && typeof raw.grants === 'object' ? raw.grants : {},
+        lastProjectRoot: raw.lastProjectRoot,
+        // The last observed mutable-facts snapshot drives the stale-authority
+        // check on /api/execute. Dropping it on load silently disabled the 409
+        // path; the snapshot itself is never trusted as an authorization input
+        // (the live repository is re-read before any continuation).
+        lastMutableFacts:
+          raw.lastMutableFacts && typeof raw.lastMutableFacts === 'object'
+            ? (raw.lastMutableFacts as WorkUnitStore['lastMutableFacts'])
+            : undefined,
+      }
+    } catch {
+      return emptyStore()
+    }
+  }
+
+  function save(store: WorkUnitStore): void {
+    try {
+      mkdirSync(storeDir, { recursive: true })
+      const persisted: WorkUnitStore = { ...store, storeVersion: WORK_UNIT_STORE_VERSION }
+      writeFileSync(path, `${JSON.stringify(persisted, null, 2)}\n`, 'utf8')
+    } catch {
+      // Best-effort persistence; never block the product flow on a save error.
+    }
+  }
+
+  function clear(): void {
+    try {
+      if (existsSync(path)) unlinkSync(path)
+    } catch {
+      // Best-effort cleanup.
+    }
+  }
+
+  return { load, save, clear }
+}

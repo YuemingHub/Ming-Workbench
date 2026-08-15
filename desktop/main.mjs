@@ -6,9 +6,29 @@ import { fileURLToPath } from 'node:url'
 
 import { resolveBackendScript, spawnBackend } from './backend.mjs'
 import { isAllowedBackendUrl, isTrustedDesktopSender, urlOrigin } from './validation.mjs'
+import { prepareHarnessRuntime } from '../.tmp/hosts/harness-runtime.js'
+import {
+  loadProviderSecret,
+  saveProviderSecret,
+  clearProviderSecret,
+  hasProviderSecret,
+} from './provider-secret.mjs'
+import {
+  loadWorkUnitStore,
+  saveWorkUnitStore,
+  clearWorkUnitStore,
+} from './work-unit-store.mjs'
 
 const desktopDir = resolve(fileURLToPath(new URL('.', import.meta.url)))
 const repoRoot = resolve(desktopDir, '..')
+
+// Optional explicit user-data relocation (portable/testing isolation). Must run
+// before the single-instance lock so each isolated launch gets its own lock,
+// startup log, Work Unit store and safeStorage secrets.
+const cliUserDataDir = cliArgValue('--user-data-dir')
+if (cliUserDataDir) {
+  app.setPath('userData', resolve(cliUserDataDir))
+}
 
 // The renderer may only ever talk to a loopback Workbench backend. Everything
 // else is denied by the navigation/window/permission guards below.
@@ -20,6 +40,9 @@ let backendUrl = ''
 let activeBackendOrigin = ''
 let switching = false
 let cleanShutdownDone = false
+let providerSecret = null
+let workUnitStore = null
+let currentProjectRoot = ''
 
 function resolveWorkbenchRoot() {
   return app.isPackaged ? resolve(process.resourcesPath, 'app') : repoRoot
@@ -105,21 +128,61 @@ async function startBackend(projectRoot) {
   const nodeBin = resolveNodeBin()
   const script = resolveBackendScriptPath(workbenchRoot)
   appendStartupLog(
-    `backend spawn nodeBin=${nodeBin} script=${script} project=${projectRoot} harnessCheckout=${harnessCheckout ?? 'default'}`,
+    `backend spawn nodeBin=${nodeBin} script=${script} project=${projectRoot} harnessCheckout=${harnessCheckout ?? 'auto-bundled'}`,
   )
+
+  // Resolve the exact reviewed Harness checkout automatically:
+  // 1) env var (backward compat)
+  // 2) bundled git bundle extraction + identity verification + deps install
+  let resolvedHarnessCheckout
+  try {
+    const runtime = await prepareHarnessRuntime({
+      workbenchRoot,
+      harnessCheckout,
+    })
+    resolvedHarnessCheckout = runtime.checkout
+    appendStartupLog(
+      `harness runtime ready source=${runtime.source} commit=${runtime.identity.commit}`,
+    )
+  } catch (error) {
+    appendStartupLog(
+      `harness runtime preparation failed: ${error instanceof Error ? error.message : String(error)}`,
+    )
+    dialog.showErrorBox(
+      'Ming Workbench 无法启动',
+      `Harness runtime 未准备好。\n\n${error instanceof Error ? error.message : String(error)}\n\n请检查网络连接或运行 \`npm run harness:prepare\`。`,
+    )
+    app.quit()
+    return
+  }
+
+  // The window may have been closed (app quitting) while the runtime was
+  // preparing; never spawn a backend for a quitting app.
+  if (cleanShutdownDone) return
 
   backend = spawnBackend({
     nodeBin,
     script,
     projectRoot,
     workbenchRoot,
-    harnessCheckout,
+    harnessCheckout: resolvedHarnessCheckout,
+    storeDir: app.getPath('userData'),
+    extraEnv: providerSecret ? { DEEPSEEK_API_KEY: providerSecret } : undefined,
   })
 
   backendUrl = await backend.ready
+  // The window closed while the backend child was starting; kill the child
+  // instead of leaving an orphaned backend behind.
+  if (cleanShutdownDone) {
+    const spawned = backend
+    backend = null
+    await spawned.kill()
+    return
+  }
   // Atomically set the exact backend origin BEFORE any renderer navigation or
   // IPC can observe it. Only the exact ready URL becomes trusted.
   activeBackendOrigin = urlOrigin(backendUrl) ?? ''
+  currentProjectRoot = projectRoot
   appendStartupLog(`backend ready ${backendUrl} origin=${activeBackendOrigin}`)
   writeLastProject(projectRoot)
   return backendUrl
@@ -265,10 +328,66 @@ function registerIpc() {
       switching = false
     }
   })
+
+  ipcMain.handle('desktop:has-provider-secret', async (event) => {
+    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) {
+      return { hasSecret: false }
+    }
+    return { hasSecret: hasProviderSecret() }
+  })
+
+  ipcMain.handle('desktop:set-provider-secret', async (event, secret) => {
+    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) {
+      return { ok: false }
+    }
+    if (typeof secret !== 'string' || secret.length > 10_000) {
+      return { ok: false }
+    }
+    try {
+      saveProviderSecret(secret)
+      providerSecret = secret
+      // Hot activation: restart the backend for the same fixed project so the
+      // new secret reaches the Harness child env without an app restart. The
+      // restart is fire-and-forget so the IPC response is not blocked; when the
+      // new backend is ready the window reloads and resumes persisted state.
+      void restartBackendForProviderActivation().catch((error) => {
+        appendStartupLog(
+          `provider activation failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      })
+      return { ok: true }
+    } catch {
+      return { ok: false }
+    }
+  })
+
   ipcMain.on('desktop:quit', (event) => {
     if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) return
     app.quit()
   })
+}
+
+/**
+ * Controlled backend restart after a provider secret change. The new child is
+ * spawned with the updated DEEPSEEK_API_KEY in its env; the exact backend
+ * origin is rotated atomically (same discipline as project switching). Once
+ * ready, the renderer reloads so it picks up the fresh per-process request
+ * token and resumes persisted Work Units with a fresh mutable-facts check.
+ */
+async function restartBackendForProviderActivation() {
+  if (!currentProjectRoot) return
+  if (switching) return
+  switching = true
+  try {
+    const url = await startBackend(currentProjectRoot)
+    if (win && !win.isDestroyed()) {
+      win.webContents.reload()
+    }
+    appendStartupLog('provider activation complete; backend restarted with updated provider secret')
+    return url
+  } finally {
+    switching = false
+  }
 }
 
 const gotLock = app.requestSingleInstanceLock()
@@ -308,6 +427,11 @@ if (!gotLock) {
     app.setName('Ming Workbench')
     buildMenu()
     registerIpc()
+
+    // Load persisted state for resume.
+    workUnitStore = loadWorkUnitStore()
+    // Load provider secret from Electron safeStorage (single authority path).
+    providerSecret = loadProviderSecret()
 
     appendStartupLog(`app ready packaged=${app.isPackaged} node=${process.version} execPath=${process.execPath}`)
 

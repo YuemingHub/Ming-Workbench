@@ -173,6 +173,114 @@ test('read-only grant still requires a git worktree but never invents a write ta
   }
 })
 
+test('local-path write grant (desktop issuance) passes without any origin remote', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'ming-workbench-local-grant-'))
+  try {
+    run(cwd, ['init'])
+    run(cwd, ['config', 'user.email', 'workbench@example.invalid'])
+    run(cwd, ['config', 'user.name', 'Ming Workbench Test'])
+    writeFileSync(join(cwd, 'README.md'), 'fixture\n')
+    run(cwd, ['add', 'README.md'])
+    run(cwd, ['commit', '-m', 'fixture'])
+    const head = run(cwd, ['rev-parse', 'HEAD'])
+    const branch = run(cwd, ['branch', '--show-current'])
+
+    const localGrant = grant({
+      authorization: {
+        mutation_boundary: 'write-authorized',
+        write_target: {
+          repository: cwd,
+          base_ref: head,
+          working_ref: branch,
+          environment: null,
+        },
+        allowed_effects: ['local-file-write'],
+        protected_effects: ['deploy', 'publish'],
+      },
+    })
+    assert.doesNotThrow(() => assertGrantWorkspace(localGrant, cwd))
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
+test('local-path write grant rejects a different workspace path', () => {
+  const cwd = createWorkspace()
+  try {
+    const head = run(cwd, ['rev-parse', 'HEAD'])
+    const branch = run(cwd, ['branch', '--show-current'])
+    const other = grant()
+    other.authorization = {
+      ...other.authorization,
+      write_target: {
+        ...other.authorization.write_target,
+        repository: join(tmpdir(), 'some-other-project'),
+        base_ref: head,
+        working_ref: branch,
+      },
+    }
+    assert.throws(() => assertGrantWorkspace(other, cwd), /does not match workspace origin/)
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
+test('local-path write grant accepts a detached-HEAD working_ref pinned to the SHA', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'ming-workbench-detached-grant-'))
+  try {
+    run(cwd, ['init'])
+    run(cwd, ['config', 'user.email', 'workbench@example.invalid'])
+    run(cwd, ['config', 'user.name', 'Ming Workbench Test'])
+    writeFileSync(join(cwd, 'README.md'), 'fixture\n')
+    run(cwd, ['add', 'README.md'])
+    run(cwd, ['commit', '-m', 'fixture'])
+    const head = run(cwd, ['rev-parse', 'HEAD'])
+    run(cwd, ['checkout', '--detach'])
+
+    const detachedGrant = grant({
+      authorization: {
+        mutation_boundary: 'write-authorized',
+        write_target: {
+          repository: cwd,
+          base_ref: head,
+          working_ref: head,
+          environment: null,
+        },
+        allowed_effects: ['local-file-write'],
+        protected_effects: ['deploy', 'publish'],
+      },
+    })
+    assert.doesNotThrow(() => assertGrantWorkspace(detachedGrant, cwd))
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
+test('slug grant with a GitHub origin still matches by slug, and a local path grant with a GitHub origin also passes', () => {
+  const cwd = createWorkspace()
+  try {
+    assert.doesNotThrow(() => assertGrantWorkspace(grant(), cwd))
+
+    // Desktop issuance records the local project path even when the clone has a
+    // GitHub origin; the workspace assertion must accept the path identity too.
+    const head = run(cwd, ['rev-parse', 'HEAD'])
+    const branch = run(cwd, ['branch', '--show-current'])
+    const pathGrant = grant()
+    pathGrant.authorization = {
+      ...pathGrant.authorization,
+      write_target: {
+        ...pathGrant.authorization.write_target,
+        repository: cwd,
+        base_ref: head,
+        working_ref: branch,
+      },
+    }
+    assert.doesNotThrow(() => assertGrantWorkspace(pathGrant, cwd))
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
 test('ACP child environment forwards provider infrastructure but drops task secrets', () => {
   const env = buildHarnessChildEnv(
     {

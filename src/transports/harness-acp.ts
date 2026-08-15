@@ -41,6 +41,16 @@ export interface HarnessAcpRunOptions {
   model?: string
   sessionRoot?: string
   shutdownGraceMs?: number
+  /**
+   * Execution-isolation context: when the Harness operates inside a disposable
+   * worktree of a real authorized repository, `cwd` is the worktree (not the
+   * real repo). The workspace assertion then validates worktree ownership +
+   * the granted base ref instead of the real repo's working ref.
+   */
+  isolation?: {
+    realRepository: string
+    baseRef: string
+  }
 }
 
 export interface HarnessAcpReadOnlyIntakeOptions {
@@ -170,6 +180,7 @@ export function assertHarnessAcpAdmission(
 export function assertGrantWorkspace(
   grant: ProviderExecutionGrant,
   cwd: string,
+  isolation?: { realRepository: string; baseRef: string },
 ): void {
   const workspace = resolve(cwd)
   // Establish that this is a real git worktree before any provider process starts.
@@ -182,16 +193,42 @@ export function assertGrantWorkspace(
     throw new Error('write-authorized grant has no exact write target')
   }
 
-  const remote = git(workspace, ['remote', 'get-url', 'origin'])
+  // The grant's repository identity is either a GitHub slug (CI worktrees) or
+  // the exact local project path the human authorized (desktop local projects).
+  // Accept both; reject everything else.
+  let remote = ''
+  try {
+    remote = git(workspace, ['remote', 'get-url', 'origin'])
+  } catch {
+    // A local-path grant is still valid for a repository without an origin.
+  }
   const repository = normalizeGitHubRepository(remote)
-  if (repository?.toLowerCase() !== target.repository.toLowerCase()) {
+  const matchesSlug =
+    repository !== undefined
+    && repository.toLowerCase() === target.repository.toLowerCase()
+  // Execution isolation: `cwd` is a disposable worktree, not the real repo, so
+  // the real-repo path is the authority for the grant workspace match.
+  const realRepo = isolation?.realRepository
+  const matchesPath = realRepo
+    ? sameResolvedPath(target.repository, realRepo)
+    : sameResolvedPath(target.repository, workspace)
+  if (!matchesSlug && !matchesPath) {
     throw new Error(
-      `Grant repository ${target.repository} does not match workspace origin ${repository ?? remote}.`,
+      `Grant repository ${target.repository} does not match workspace origin ${(repository ?? remote) || '<none>'}.`,
     )
   }
 
+  // The working ref may be a branch name or (detached HEAD) a commit SHA.
   const currentBranch = git(workspace, ['branch', '--show-current'])
-  if (currentBranch !== target.working_ref) {
+  const currentHead = git(workspace, ['rev-parse', 'HEAD'])
+  const isolationBase = isolation?.baseRef
+  const matchesWorkingRef =
+    target.working_ref === currentBranch
+    || target.working_ref === currentHead
+    // A disposable isolation worktree is detached at the granted base ref; the
+    // real repo's branch/working ref is out of reach there by design.
+    || (isolationBase !== undefined && currentHead === isolationBase)
+  if (!matchesWorkingRef) {
     throw new Error(
       `Grant working_ref ${target.working_ref} does not match current branch ${currentBranch || '<detached HEAD>'}.`,
     )
@@ -208,6 +245,14 @@ export function assertGrantWorkspace(
       throw new Error(`Grant base_ref ${target.base_ref} does not resolve in the workspace.`)
     }
   }
+}
+
+function sameResolvedPath(left: string, right: string): boolean {
+  const a = resolve(left)
+  const b = resolve(right)
+  return process.platform === 'win32'
+    ? a.toLowerCase() === b.toLowerCase()
+    : a === b
 }
 
 export function buildHarnessChildEnvForPermission(
@@ -389,7 +434,7 @@ export async function runHarnessAcpGrant(
 ): Promise<HarnessAcpRunResult> {
   assertHarnessAcpAdmission(options)
   assertReviewedHarnessCheckout(options.harnessCheckout)
-  assertGrantWorkspace(options.grant, options.cwd)
+  assertGrantWorkspace(options.grant, options.cwd, options.isolation)
 
   return runHarnessAcpPrompt({
     prompt: renderHarnessGrantMessage(options.grant),

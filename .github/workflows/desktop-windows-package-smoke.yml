@@ -1,0 +1,69 @@
+name: desktop-windows-package-smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'scripts/start-local-web.mjs'
+      - 'scripts/desktop-windows-package-smoke.ps1'
+      - 'src/web/**'
+      - 'src/hosts/**'
+      - 'src/persistence/**'
+      - 'package.json'
+      - '.workbench/vendor/**'
+      - '.github/workflows/desktop-windows-package-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'scripts/start-local-web.mjs'
+      - 'scripts/desktop-windows-package-smoke.ps1'
+      - 'src/web/**'
+      - 'src/hosts/**'
+      - 'src/persistence/**'
+      - 'package.json'
+      - '.workbench/vendor/**'
+      - '.github/workflows/desktop-windows-package-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  windows-package-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout Ming Workbench
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package.json
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Run repository-owned packaged smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $artifact = Join-Path $env:RUNNER_TEMP 'packaged-smoke-artifacts'
+          & pwsh -NoProfile -File scripts/desktop-windows-package-smoke.ps1 -ArtifactDir $artifact
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "packaged smoke failed (exit $LASTEXITCODE)"
+          }
+
+      - name: Upload smoke diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: packaged-smoke-logs
+          path: |
+            ${{ runner.temp }}/packaged-smoke-artifacts/**
+            dist-desktop/builder-debug.yml
+          if-no-files-found: ignore

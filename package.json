@@ -15,7 +15,8 @@
     "web:local": "npm run build:test && node scripts/start-local-web.mjs",
     "desktop:dev": "npm run build:test && electron .",
     "desktop:package": "npm run build:test && electron-builder --win",
-    "desktop:package:dir": "npm run build:test && electron-builder --win dir"
+    "desktop:package:dir": "npm run build:test && electron-builder --win dir",
+    "desktop:package:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-windows-package-smoke.ps1"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.25.1",
@@ -36,7 +37,10 @@
       "scripts/**/*",
       "src/**/*",
       "harness/**/*",
+      ".workbench/vendor/**/*",
+      "!.workbench/vendor/deepseek-harness/**",
       ".tmp/**/*",
+      "!.tmp/harness-runtime-test/**",
       "package.json",
       "harness.lock.json",
       "tsconfig.json",
