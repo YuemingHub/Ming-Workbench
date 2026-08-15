@@ -476,7 +476,7 @@ P0 阶段允许先做最小收紧：非 authoritative/session activity evidence 
 
 ## P0-4 激活 packaged Windows exact-artifact smoke
 
-PR #22 当前已经有 `.github/workflows.dist/desktop-windows-package-smoke.yml` 与 PowerShell smoke script，但正式 workflow 尚未激活。
+PR #22 的 `desktop-windows-package-smoke.yml` 已激活于 `.github/workflows/`（原始文件仍在 `.github/workflows.dist/` 作为归档副本），由真实 `windows-latest` runner 对 exact head 跑绿。PS1 脚本确保 electron >= 43 的二进制在构建前就绪（该版本无 npm postinstall）。
 
 目标：
 
@@ -1087,7 +1087,7 @@ Ming Workbench 应越来越薄，而不是成为所有 AI 技术的收集箱。
 | P0-1 | Exact `MutationSlice` / file-bounded mutation | DONE (a33fafa) | unknown scope blocked; out-of-slice writes hard-fail; scratch-repo proofs |
 | P0-2 | Split run/effect/verification/acceptance semantics | DONE (a33fafa) | no-op/pre-green and mutation/failing-test regressions covered |
 | P0-3 | Strong completion/evidence invariant | DONE (a33fafa) | session claim alone can never complete Work Unit |
-| P0-4 | Packaged Windows exact-artifact smoke | LOCAL DONE, CI BLOCKED (HUMAN_AUTHORIZATION_REQUIRED) | activated GitHub workflow green on exact head |
+| P0-4 | Packaged Windows exact-artifact smoke | DONE (b4ae1e5) | `.github/workflows/desktop-windows-package-smoke.yml` green on exact head |
 | P1-1 | `ExecutionRun` | TODO | multiple runs per Work Unit, durable persistence |
 | P1-2 | `ExecutionFingerprint` | TODO | runtime/profile/model/config identity traceable |
 | P1-3 | Evidence Spine | TODO | Session → projection → Run → Work Unit trace works |
@@ -1187,5 +1187,5 @@ Ming Workbench 不是因为拥有很多 Agent 能力而成功。
   - 执行路径：run 记录证据 = harness-session claim（pending），测试证据 = test-run 真实验证判定。
   - 5 个必需用例 + 边界用例在 `test/completion-invariant.test.mjs`。
 - **测试与真实入口证据**：151 unit pass / 0 fail / 2 skip；`SCRATCH MUTATION RESULT: PASS`（真实 reviewed Harness + mock LLM + 真实 scratch Git repo，P0-1/P0-2 后各跑一轮，P0-3 后重跑中）；CI `ci`/`aaop-setup-smoke`/`harness-acp-smoke` 在 `ff1c13e` 与 `f9fc651` 全绿，`a33fafa` 运行中。
-- **P0-4 状态**：本地 packaged smoke 在跑；workflow 激活 commit 被 GitHub 拒绝：`refusing to allow an OAuth App to create or update workflow ... without 'workflow' scope` → `HUMAN_AUTHORIZATION_REQUIRED`（见 docs/P0-4_ACTIVATION_GATE.md）。
-- 下一动作：P0-4 owner 授权（`gh auth refresh -s workflow`）→ 激活 workflow → exact head 跑绿 → PR #22 review/merge。之后 P1-1 ExecutionRun。
+- **P0-4 状态**：已激活 `.github/workflows/desktop-windows-package-smoke.yml`（从 `.github/workflows.dist/` 移入），真实 Windows runner 对 exact head `b4ae1e5` 全绿：win-unpacked + portable 真实启动、backend-ready、loopback HTTP 200、harness identity 与 `harness.lock.json` 一致、零残留进程、secret sentinel 无泄漏。期间修复：electron >= 43 无 npm postinstall，`npm install` 后 `node_modules/electron/dist` 为空导致 electron-builder 失败；`desktop-windows-package-smoke.ps1` 构建前经 `install.js`（幂等）确保二进制就绪。
+- 下一动作：PR #22 四个 P0 merge gate 全部闭合（P0-1/2/3 测试绿 + P0-4 CI 绿 + PR body evidence 已对齐 exact head）→ owner review/merge。之后 P1-1 ExecutionRun。
