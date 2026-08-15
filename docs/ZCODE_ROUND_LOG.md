@@ -163,3 +163,31 @@
 ### 下一轮入口
 - **唯一剩余 human blocker**：真实 provider 凭据 `DEEPSEEK_API_KEY`。凭据就绪后：`intake → authorize(CURRENT_STATE.md) → execute(真实 Harness 真实 Agent) → git delta → smoke-family-space-fix.mjs 回归断言 → aaop-family.cjs setup/ready → Evidence → outcome`。
 - **owner 动作**：review/merge PR #22（四个 P0 gate 全闭合，Draft 保持待审）；此后 P1 分支（`agent/execution-run-p1`，已含 P1-1/2/3 与完整 P0 基线）可进入 review。
+
+## 2026-08-15 轮次 7 — P0-1 重新 open：Execution Isolation 实现 + adversarial 证据 + RWU001 provenance 修正
+
+### 做了什么
+- **总审查判定**：此前执行是 POST-HOC SCOPE DETECTION（Harness 直接在真实 repo 上 workspace-write，事后检测 delta），要求改为 EXECUTION-TIME ISOLATED MUTATION。MutationSlice / stale authority / readback / completion invariant 全部保留。
+- **新增 `src/execution/execution-isolation.ts`**：真实 repo 上 `git worktree add --detach` 创建一次性隔离 worktree（Harness 永不接触真实 repo）；`computeIsolatedDelta` 只读 worktree 快照做 MutationSlice 判定；`applyAuthorizedDelta` 是唯一写回真实 repo 的路径（只复制授权 slice 内文件）；`discardExecutionIsolation` 幂等清理（含失败路径）；`mirrorDependenciesIntoIsolation` best-effort 镜像 node_modules（非 symlink）。
+- **`bounded-execution.ts` 集成**：`runBoundedExecution` 改为「reconcile → 隔离执行 → 越界丢弃 → 授权+验证通过才 apply-back → 真实 repo readback」。越界时连授权文件也不回写（整个隔离丢弃）。
+- **`harness-acp.ts` / `local-server.ts`**：isolation 上下文传递 + working_ref 放宽为 granted base_ref；Evidence Projection cwd 指向 worktree。
+- **adversarial regression（4 项）**：授权 A + Harness 改 A+B → B 从未污染真实 repo、越界检测、隔离丢弃、真实 repo 逐字节未变；正常路径证明隔离执行/仅授权 delta/测试绿/apply-back/readback/完成不变量。
+- **RWU001 provenance 修正**：严格区分 `repository_observation`（production@3aec7ea…，git 可证明）与 `runtime_deployment`（服务器真实运行 revision = UNKNOWN，git ls-remote 不能证明），写声明用 repository observation，汇报必须分开两行。
+
+### 验证证据
+- FTS 全量 **167 pass / 0 fail / 6 skip**（新增 4 项 isolation 测试）。
+- adversarial 场景实测：授权 `answer.mjs`，rogue harness 改 `answer.mjs` + `answer.test.mjs` → scopeViolations=['answer.test.mjs']、appliedBack=[]、isolationDiscarded=true、真实 repo dirty=[]。
+- 正常路径实测：applyBack=['answer.mjs']、workUnit.state=verifying、真实 repo dirty=['answer.mjs']、worktree 已清理。
+
+### 遇到的问题与弯路
+- **弯路**：最初 `computeIsolatedDelta` 复用了 `computeExecutionDelta`，后者用 `isWithin(slice.repository, after.root)` 检查——隔离场景下 slice.repository 是真实 repo、after.root 是 worktree，全部文件被误判越界。改为在 isolation 内自实现 delta（worktree 本身就是授权工作区，只做 MutationSlice 表面判定）。
+- **弯路**：`.tmp` 编译产物未更新导致调试误判（`npm run check` 是 noEmit）；改用 `npm run build:test` 后调试正常。
+
+### 好经验
+- 隔离是「边界在执行的物理层」，不是「执行后在逻辑层纠正」：越界发生在 disposable worktree 里，真实工作树从物理上不可能被污染，这是 P0-1 的根治而非缓解。
+- adversarial 证据比 100 个 happy-path 断言更能证明边界：授权 A + 改 B 是「Harness 本身是敌对方」的最严假设。
+- apply-back 是唯一真实 repo 写路径，意味着审计只需审查这一个函数即可穷尽「什么会进入真实工作树」。
+
+### 下一轮入口
+- 总审查重新 final-review PR #22（隔离实现已就绪）。
+- RWU001 唯一 human blocker 仍为真实 `DEEPSEEK_API_KEY`；凭据就绪后走隔离路径真实 execute（intake → authorize(CURRENT_STATE.md) → 隔离执行 → apply-back → status=0 回归断言 → AAOP ready → evidence → outcome）。

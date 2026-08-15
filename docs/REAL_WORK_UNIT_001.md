@@ -39,12 +39,37 @@ Family Space 生产 HEAD 上，本地 AAOP 接入命令 `node scripts/aaop-famil
 
 ## 需要人类裁决的部分（不可由 Agent 擅自决定）
 
-`production@<40-hex-sha>` 中的 SHA 必须是**所有者已核验的当前生产基线**，不是 Agent 从 `git ls-remote` 猜的：
-
-- 候选值：GitHub `production` 分支 HEAD = `3aec7ea47230c2c8b447178ea8238947ccbd748e`（commit `docs(state): record parent repair deployment`）。
-- 但 `CURRENT_STATE.md` 自述「服务器底层 checkout 仍是历史 detached 脏工作区，本轮按备份后的精确三文件更新完成」，即**真实运行 revision 未必等于任何干净 git SHA**。因此声明哪个 SHA 属于产品裁决，须由所有者确认。
+`production@<40-hex-sha>` 中的 SHA 必须是**所有者已核验的当前生产基线**，不是 Agent 从 `git ls-remote` 猜的。
 
 > **基线核验已自动完成（2026-08-15）**：`git ls-remote origin production` 实测返回 `3aec7ea47230…`，与本地 clone HEAD 完全一致，消除「线上与 GitHub 记录不一致」的不确定性，此裁决项**不再需要人确认**（`scripts/smoke-family-space-fix.mjs` 会自动核验远端基线，不手工猜 SHA）。
+>
+> **基线已推进（2026-08-16 重核验）**：Family Space `production` 分支 HEAD 已推进到 `81e21d433da4c047a8505d11299a1aad809c62fd`（commit `docs: merge Family Space product compass into production`）。`CURRENT_STATE.md` 仍缺 `production@` 声明（真实 bug 仍存在）。修复写入的声明应使用**重核验当日的最新 `git ls-remote origin production` 结果**，不能写死历史 SHA。
+
+## Provenance 严格区分（2026-08-16 修正）
+
+本次修复涉及的「生产基线」必须拆成两个**不可混为一谈**的事实，任何证据归档/汇报都不得合并：
+
+### repository_observation —— 可证明，写入声明
+
+- 观察对象：GitHub 仓库 `YuemingHub/Family-Space` 的 `production` 分支 HEAD。
+- 观察方式：`git ls-remote origin production`（2026-08-16 重核验实测 `81e21d433da4c047a8505d11299a1aad809c62fd`；2026-08-15 实测 `3aec7ea47230…`），与本地干净 clone HEAD 交叉核对一致。
+- 结论：**`production@<重核验日 git ls-remote 结果>` 这一声明是 repository-observation 证据**，可以被写入 `CURRENT_STATE.md` 的 `production@<40-hex-sha>` 行，并且可以通过 `scripts/smoke-family-space-fix.mjs` 的基线自动核验复现（该脚本不硬编码 SHA，自动取 `git ls-remote origin production`）。
+
+### runtime_deployment —— 不可由 git 证明，默认 UNKNOWN
+
+- 观察对象：服务器上**实际运行**的 checkout / revision。
+- 已知事实：`CURRENT_STATE.md` 自述「服务器底层 checkout 仍是历史 detached 脏工作区，本轮按备份后的精确三文件更新完成」——即服务器 checkout 是**部分文件更新、detached、有未提交脏文件**的真实部署状态。
+- 推论：**服务器运行中的完整 revision 未必等于任何干净 git SHA**。`git ls-remote` 只能证明远端仓库的 HEAD，**不能证明服务器进程实际加载的字节**。
+- 结论：除非对服务器进程/部署产物做**独立、直接**的核验（例如登录服务器核对 `CURRENT_STATE.md` 实际内容 + 进程工作目录 + git 状态，或核对部署清单/镜像 digest），否则：
+  - `runtime_deployment.exact_full_revision = UNKNOWN`
+  - 任何「服务器已运行 production@3aec7ea…」的表述都是**推断**，必须标注为 UNKNOWN，不得写成已确认事实。
+
+### 使用规则
+
+- 写声明：用 `repository_observation`（`production@<git ls-remote 当日结果>`，有 git 证据）。
+- 汇报 Owner：明确分开两行——「仓库 production HEAD = <当日 git ls-remote 结果>（repository observation，已核验）」与「服务器真实运行 revision = UNKNOWN（未独立核验）」。
+- 验收标准 1/2 的 `status`/`setup` 只依赖 `CURRENT_STATE.md` 中**存在**合法 `production@<40-hex>` 声明（语法 gate），不依赖该 SHA 是否等于服务器真实运行 revision；后者单独作为 UNKNOWN 记录，不并入「修复完成」结论。
+- 若后续对服务器做了独立核验，才把 `runtime_deployment.exact_full_revision` 从 UNKNOWN 升级为已确认值，并补上核验方式与时间戳。
 
 ## 为什么值得作为第一个真实 Work Unit
 
@@ -64,7 +89,7 @@ Reality Owner 提供真实 `DEEPSEEK_API_KEY`（缺失时 `/api/execute` fail-cl
 
 ```text
 intake → authorize(CURRENT_STATE.md, exact 1 path) → execute(真实 Harness + 真实 Agent)
-→ git delta(CURRENT_STATE.md 加 production@3aec7ea…)
+→ git delta(CURRENT_STATE.md 加 production@<当日 ls-remote 基线>)
 → scripts/smoke-family-space-fix.mjs 回归断言全绿
 → aaop-family.cjs setup 安装 AAOP 0.20.1 → ready 全绿
 → Evidence 归档 → 非技术语言向 owner 汇报

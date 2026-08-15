@@ -163,10 +163,19 @@ ordinary-language goal
 → fresh repository-frontier execution gate
 → AAOP Provider Execution Grant
 → Workbench-owned Work Unit ↔ grant binding
-→ guarded Harness ACP execution
-→ repository + test/runtime readback
+→ disposable isolation worktree (git worktree @ granted base ref)
+→ guarded Harness ACP execution INSIDE the isolation only
+→ isolated delta + MutationSlice verification
+→ tests/evidence inside the isolation
+→ violation → discard isolation, real repo untouched
+→ authorized + verified delta applied back to the real repo
+→ authoritative real repository readback
 → AAOP engineering acceptance
 → evidence-backed Work Unit completion
 ```
+
+The real repository is never the Harness mutation target. A bounded run mutates a
+disposable worktree detached at the granted base ref; only the authorized and
+verified delta is ever written back (see `src/execution/execution-isolation.ts`).
 
 Family Space remains the first real proving ground, but Workbench must respect its current active PR ownership before selecting any mutation slice.

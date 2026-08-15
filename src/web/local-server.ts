@@ -811,7 +811,10 @@ export async function startLocalWorkbenchServer(
               .map((e) => e.id)
             // P1-3: the run carries a pointer-only projection of the canonical
             // Harness session. Best-effort: a missing/unreadable artifact must
-            // never swallow the run record itself.
+            // never swallow the run record itself. The session actually ran in
+            // the disposable isolation worktree, so its cwd is the projection
+            // cwd — the durable artifact lives under the session root and
+            // survives worktree cleanup.
             let projection
             try {
               projection = options.sessionRoot && executionResult.sessionId
@@ -819,7 +822,7 @@ export async function startLocalWorkbenchServer(
                     workbenchRoot,
                     harnessCheckout,
                     sessionRoot: options.sessionRoot,
-                    cwd: projectRoot,
+                    cwd: executionResult.isolation.worktree,
                     sessionId: executionResult.sessionId,
                   })
                 : undefined

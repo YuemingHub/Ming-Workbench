@@ -1231,3 +1231,15 @@ Ming Workbench 不是因为拥有很多 Agent 能力而成功。
 - **修复真实 smoke 暴露的 bug**：electron >= 43 无 npm postinstall，干净 `npm install` 后 `node_modules/electron/dist` 为空导致 electron-builder 报 `electronDist does not exist`；`desktop-windows-package-smoke.ps1` 构建前经 `node_modules/electron/install.js`（幂等）确保二进制就绪，workflow 保持薄 runner。
 - **PR body evidence 已对齐**：exact head / CI 证据 / 测试计数（153 tests / 151 pass / 2 skip / 0 fail）/ workflow 激活状态全部 reconcile 到真实 head，Draft 保持，待 owner review/merge。
 - 下一动作：PR #22 四个 P0 merge gate 全部闭合 → owner review/merge。之后 P1 分支（`agent/execution-run-p1`，已含 P1-1/2/3 与 Family Space grounding）在完整 P0 基线上收口。
+
+## 2026-08-15 — P0-1 重新 open：Execution Isolation 实现（branch `agent/execution-run-p1`）
+
+> 总审查判定：此前 `runBoundedExecution` 让 Harness 直接在真实 `projectRoot` 上 `workspace-write`、事后 `computeExecutionDelta` 检测越界，属于 **POST-HOC SCOPE DETECTION**，不是 **EXECUTION-TIME ISOLATED MUTATION**。MutationSlice / stale authority / readback / completion invariant 全部保留，不推翻已有成果。
+
+- **新增 `src/execution/execution-isolation.ts`**：`createExecutionIsolation`（真实 repo 在授权 base ref 上 `git worktree add --detach`，真实 repo 永不作为 Harness cwd）/ `discardExecutionIsolation`（`worktree remove --force` + 目录清理，幂等，任何路径含失败都执行）/ `readIsolationBaseline` / `computeIsolatedDelta`（仅读 worktree 快照，绝读真实 repo，MutationSlice 判定越界）/ `applyAuthorizedDelta`（唯一写回真实 repo 的路径：只复制授权 slice 内文件，删除的授权文件在真实 repo 删除，真实 HEAD 不动）/ `mirrorDependenciesIntoIsolation`（best-effort 镜像 node_modules，非 symlink，Harness 无法穿透改真实依赖树）/ `assertWorktreeBelongsTo`。
+- **`bounded-execution.ts` 集成**：`runBoundedExecution` 流程改为 `真实 repo reconcile → worktree 隔离 → Harness workspace-write 只在隔离内 → computeIsolatedDelta → 越界则丢弃隔离（真实 repo 原样）→ 授权+验证通过才 apply-back → 真实 repo authoritative readback`。四轴 outcome 语义不变：越界 → verification failed / acceptance rejected；测试绿 + mutation → verifying（永远不 completed）。
+- **`harness-acp.ts`**：`HarnessAcpRunOptions.isolation {realRepository, baseRef}`；`assertGrantWorkspace` 接受 isolation 上下文，worktree 是 detached，working_ref 匹配放宽为「worktree HEAD == granted base_ref」，repository 匹配基于真实 repo 路径。
+- **`local-server.ts`**：Evidence Projection 的 `cwd` 改为 `executionResult.isolation.worktree`（session 实际运行目录；artifact 在 sessionRoot 下独立存活，worktree 清理不影响）。
+- **adversarial regression（`test/execution-isolation.test.mjs` 4 项全绿）**：授权仅 `answer.mjs`，Harness 改 `answer.mjs` + 故意改 `answer.test.mjs` → B 从未污染真实工作树、scope violation 被检测、整个隔离丢弃（连授权的 A 也不 apply-back）、真实 repo 逐字节未变（HEAD 与 dirty 均保持）；正常路径证明 isolated execution / allowed delta only / tests pass / apply-back / real repo readback / Harness session complete ≠ Work Unit complete；isolation 原语生命周期；stale base ref 拒绝。
+- **证据**：FTS 全量 **167 pass / 0 fail / 6 skip**；`npm run check`（tsc --noEmit）通过。既有 P0-1/2/3 测试在隔离语义下全部保持绿（fake harness 写入 worktree → apply-back → 真实 repo 断言仍成立）。
+- 下一动作：总审查重新 final-review PR #22；随后在真实项目（Family Space RWU001）上以隔离路径跑真实 execute（仍需 owner 提供 `DEEPSEEK_API_KEY`）。
