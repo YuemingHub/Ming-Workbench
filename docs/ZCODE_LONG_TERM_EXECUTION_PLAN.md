@@ -1189,3 +1189,15 @@ Ming Workbench 不是因为拥有很多 Agent 能力而成功。
 - **测试与真实入口证据**：151 unit pass / 0 fail / 2 skip；`SCRATCH MUTATION RESULT: PASS`（真实 reviewed Harness + mock LLM + 真实 scratch Git repo，P0-1/P0-2 后各跑一轮，P0-3 后重跑中）；CI `ci`/`aaop-setup-smoke`/`harness-acp-smoke` 在 `ff1c13e` 与 `f9fc651` 全绿，`a33fafa` 运行中。
 - **P0-4 状态**：已激活 `.github/workflows/desktop-windows-package-smoke.yml`（从 `.github/workflows.dist/` 移入），真实 Windows runner 对 exact head `b4ae1e5` 全绿：win-unpacked + portable 真实启动、backend-ready、loopback HTTP 200、harness identity 与 `harness.lock.json` 一致、零残留进程、secret sentinel 无泄漏。期间修复：electron >= 43 无 npm postinstall，`npm install` 后 `node_modules/electron/dist` 为空导致 electron-builder 失败；`desktop-windows-package-smoke.ps1` 构建前经 `install.js`（幂等）确保二进制就绪。
 - 下一动作：PR #22 四个 P0 merge gate 全部闭合（P0-1/2/3 测试绿 + P0-4 CI 绿 + PR body evidence 已对齐 exact head）→ owner review/merge。之后 P1-1 ExecutionRun。
+
+## 2026-08-16 — P0-1 重新 open → 关闭：Execution-time Isolation（独立 disposable clone，PR #22 exact head `ac0c3b4`）
+
+> 总审查判定：此前执行是 POST-HOC SCOPE DETECTION（Harness 直接在真实 repo 上 workspace-write，事后检测 delta）。要求改为 EXECUTION-TIME ISOLATED MUTATION，并做 P0 isolation hardening。MutationSlice / stale authority / readback / completion invariant 全部保留，不推翻已有成果。
+
+- **独立 disposable clone 替代 linked worktree**（`src/execution/execution-isolation.ts`）：`git clone --no-local` 创建完全独立的执行仓库（origin remote 移除、detached at granted base ref）。linked worktree 与真实 repo **共享 .git metadata**——实测 worktree 内 `git branch` / `git update-ref` 会直接创建真实 repo 的分支和 tag；独立 clone 下这些操作只影响 clone 自身。
+- **A. Git metadata isolation 已证明**：clone 内 `git branch evil-branch` / `git update-ref refs/tags/evil-tag` / `git config user.name=hacked` / `git commit` → 真实 repo 的 branches 仅 `main`、tags 空、config 保持、HEAD 不变、working tree 干净（`test/execution-isolation.test.mjs`）。
+- **B. Symlink / junction escape fail-closed**：`computeIsolatedDelta` 与 `applyAuthorizedDelta` 对每个文件做 `realpath` 校验，逃逸隔离根 → scope violation（隔离丢弃，绝不 apply-back）。依赖镜像 `mirrorDependenciesIntoIsolation` 用 `dereference: true`（内容复制，绝不创建链接）。实测隔离内植入指向真实 repo 的 symlink 被检测并拒绝。
+- **C. 跨平台 cleanup**：Node `rmSync`（非 shell `rm -rf`）。success / scope violation / harness throw / test failure 四条路径均删除隔离目录，真实 repo 零污染、零 git metadata 残留（非 worktree，无注册需清理）。
+- **Adversarial A+B**：授权仅 `answer.mjs`，Harness 改 `answer.mjs` + `answer.test.mjs` → 越界文件从未污染真实 repo、越界被检测、整个隔离丢弃（连授权文件也不回写）、真实 repo 逐字节未变。
+- **证据**：P0 分支 161 tests / 161 pass / 2 skip / 0 fail；`SCRATCH MUTATION RESULT: PASS`（真实 reviewed Harness + mock LLM + 真实 scratch repo，隔离路径含 resume/stale-authority/二次执行）；CI 四 workflow 在 exact head `ac0c3b4` 全绿（`ci` / `aaop-setup-smoke` / `harness-acp-smoke` / `desktop-windows-package-smoke`）。
+- 下一动作：owner final review / merge 决定（PR #22 保持 Draft）。
