@@ -6,6 +6,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { openExecutionRun, closeExecutionRun } from '../.tmp/execution/execution-run.js'
+import {
+  buildExecutionFingerprint,
+  sameExecutionFingerprint,
+  WORKBENCH_WRITE_PROFILE_ID,
+} from '../.tmp/execution/execution-fingerprint.js'
 import { createFileWorkUnitStore } from '../.tmp/persistence/file-work-unit-store.js'
 import {
   emptyStore,
@@ -22,6 +27,10 @@ import { startLocalWorkbenchServer } from '../.tmp/index.js'
  * A Work Unit is the human's durable goal; a retry / re-authorization / provider
  * switch / verifier each open a NEW run. The run record (not the Work Unit)
  * carries execution detail, and runs must survive close/reopen via the store.
+ *
+ * P1-2: each run additionally records its reconstructable runtime identity
+ * (ExecutionFingerprint) so we can answer "what environment produced this?"
+ * months later without replaying the session.
  */
 
 function makeScratchRepo() {
@@ -33,6 +42,43 @@ function makeScratchRepo() {
   execFileSync('git', ['-C', dir, 'add', '.'])
   execFileSync('git', ['-C', dir, 'commit', '-qm', 'init'])
   return dir
+}
+
+/** A fake reviewed-Harness checkout: enough for inspectHarnessCheckout. */
+function makeHarnessCheckout() {
+  const dir = mkdtempSync(join(tmpdir(), 'mw-harness-'))
+  execFileSync('git', ['-C', dir, 'init', '-q'])
+  execFileSync('git', ['-C', dir, 'config', 'user.email', 't@example.com'])
+  execFileSync('git', ['-C', dir, 'config', 'user.name', 'tester'])
+  mkdirSync(join(dir, 'apps', 'cli'), { recursive: true })
+  writeFileSync(join(dir, 'apps', 'cli', 'package.json'), JSON.stringify({ version: '0.1.0-rc.5' }))
+  execFileSync('git', ['-C', dir, 'add', '.'])
+  execFileSync('git', ['-C', dir, 'commit', '-qm', 'harness'])
+  return dir
+}
+
+function makeGrant({ repository, baseRef = 'main', boundary = 'write-authorized' }) {
+  return {
+    schema_version: '1.0',
+    grant_id: 'GRANT-fp',
+    provider: 'deepseek-official',
+    route: 'bug-fix',
+    working_contract_revision: 1,
+    goal: 'fix',
+    baseline: [],
+    execution_mode: 'single-agent',
+    tasks: [],
+    authorization: {
+      mutation_boundary: boundary,
+      write_target: boundary === 'read-only' ? null : { repository, base_ref: baseRef, working_ref: 'main' },
+      allowed_effects: ['local-git-mutation'],
+      protected_effects: [],
+    },
+    acceptance_evidence: [],
+    human_open_questions: [],
+    references: [],
+    issued_at: '2026-08-15T00:00:00.000Z',
+  }
 }
 
 function cleanup(dir) {
@@ -219,6 +265,128 @@ test('P1-1: run persistence round-trips without grant internals', () => {
   const persisted = toPersistedExecutionRun(closed)
   const restored = fromPersistedExecutionRun(persisted)
   assert.deepEqual(restored, closed)
+})
+
+// --- P1-2 ExecutionFingerprint ---------------------------------------------
+
+test('P1-2: buildExecutionFingerprint captures the reconstructable runtime identity', () => {
+  const harness = makeHarnessCheckout()
+  const repo = makeScratchRepo()
+  try {
+    const repoHead = execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+    const harnessHead = execFileSync('git', ['-C', harness, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+    const grant = makeGrant({ repository: repo, baseRef: 'main' })
+
+    const fp = buildExecutionFingerprint({
+      workbenchRoot: '/workspace',
+      harnessCheckout: harness,
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-pro',
+      grant,
+    })
+
+    assert.equal(fp.harness.version, '0.1.0-rc.5')
+    assert.equal(fp.harness.commit, harnessHead)
+    assert.equal(fp.profile.id, WORKBENCH_WRITE_PROFILE_ID)
+    assert.ok(fp.profile.digest.length === 64, 'profile digest is a sha256')
+    assert.equal(fp.provider, 'deepseek-official')
+    assert.equal(fp.model, 'deepseek-v4-pro')
+    assert.equal(fp.permissionPreset, 'write-authorized')
+    assert.equal(fp.sandboxMode, 'workspace-write')
+    assert.equal(fp.workspace.repository, repo)
+    assert.equal(fp.workspace.baseRef, 'main')
+    assert.ok(fp.workbenchConfigDigest.length === 64, 'config digest is a sha256')
+
+    // The fingerprint is stable for the same environment.
+    const again = buildExecutionFingerprint({
+      workbenchRoot: '/workspace',
+      harnessCheckout: harness,
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-pro',
+      grant,
+    })
+    assert.equal(sameExecutionFingerprint(fp, again), true)
+  } finally {
+    cleanup(harness)
+    cleanup(repo)
+  }
+})
+
+test('P1-2: read-only grants record a read-only sandbox and no write target', () => {
+  const harness = makeHarnessCheckout()
+  const repo = makeScratchRepo()
+  try {
+    const grant = makeGrant({ repository: repo, boundary: 'read-only' })
+    const fp = buildExecutionFingerprint({
+      workbenchRoot: '/workspace',
+      harnessCheckout: harness,
+      grant,
+    })
+    assert.equal(fp.permissionPreset, 'read-only')
+    assert.equal(fp.sandboxMode, 'read-only')
+    assert.equal(fp.workspace.repository, '')
+    assert.equal(fp.workspace.baseRef, '')
+  } finally {
+    cleanup(harness)
+    cleanup(repo)
+  }
+})
+
+test('P1-2: a changed profile or model changes the fingerprint (drift detection)', () => {
+  const harness = makeHarnessCheckout()
+  const repo = makeScratchRepo()
+  try {
+    const grant = makeGrant({ repository: repo })
+    const fpA = buildExecutionFingerprint({
+      workbenchRoot: '/workspace',
+      harnessCheckout: harness,
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-pro',
+      grant,
+    })
+    const fpB = buildExecutionFingerprint({
+      workbenchRoot: '/workspace',
+      harnessCheckout: harness,
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+      grant,
+    })
+    assert.equal(sameExecutionFingerprint(fpA, fpB), false)
+  } finally {
+    cleanup(harness)
+    cleanup(repo)
+  }
+})
+
+test('P1-2: the fingerprint round-trips with the run through the persisted store', () => {
+  const harness = makeHarnessCheckout()
+  const repo = makeScratchRepo()
+  try {
+    const grant = makeGrant({ repository: repo })
+    const fp = buildExecutionFingerprint({
+      workbenchRoot: '/workspace',
+      harnessCheckout: harness,
+      provider: 'deepseek-official',
+      grant,
+    })
+    const run = openExecutionRun({
+      workUnitId: 'WU-x',
+      authorizationRef: 'GRANT-a',
+      provider: 'deepseek-official',
+      fingerprint: fp,
+    })
+    const closed = closeExecutionRun(run, { status: 'completed', outcome: { runStatus: 'completed', effect: 'mutation-observed', verification: 'passed', acceptance: 'pending', reason: 'ok' } })
+    const persisted = toPersistedExecutionRun(closed)
+    assert.ok(persisted.fingerprint, 'persisted run keeps the fingerprint')
+    const restored = fromPersistedExecutionRun(persisted)
+    assert.ok(restored.fingerprint, 'restored run keeps the fingerprint')
+    assert.equal(restored.fingerprint?.harness.commit, fp.harness.commit)
+    assert.equal(restored.fingerprint?.workspace.repository, repo)
+    assert.equal(sameExecutionFingerprint(restored.fingerprint, fp), true)
+  } finally {
+    cleanup(harness)
+    cleanup(repo)
+  }
 })
 
 // --- /api/runs endpoint -----------------------------------------------------

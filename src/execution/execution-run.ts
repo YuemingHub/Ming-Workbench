@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { RunOutcome, RunStatus } from './run-outcome.js'
+import type { ExecutionFingerprint } from './execution-fingerprint.js'
 
 /**
  * P1-1: first-class ExecutionRun.
@@ -32,6 +33,8 @@ export interface ExecutionRun {
   outcome?: RunOutcome
   /** Evidence ids produced by this run (referenced from the Work Unit). */
   evidenceRefs: string[]
+  /** P1-2: reconstructable identity of the runtime that produced this run. */
+  fingerprint?: ExecutionFingerprint
 }
 
 export interface OpenExecutionRunInput {
@@ -40,6 +43,7 @@ export interface OpenExecutionRunInput {
   provider: string
   model?: string
   runtime?: ExecutionRuntime
+  fingerprint?: ExecutionFingerprint
   now?: string
 }
 
@@ -52,6 +56,7 @@ export function openExecutionRun(input: OpenExecutionRunInput): ExecutionRun {
     runtime: input.runtime ?? 'deepseek-harness',
     provider: input.provider,
     model: input.model,
+    fingerprint: input.fingerprint,
     status: 'started',
     startedAt: input.now ?? new Date().toISOString(),
     evidenceRefs: [],

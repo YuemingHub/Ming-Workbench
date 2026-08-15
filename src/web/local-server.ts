@@ -26,6 +26,7 @@ import {
   type BoundedExecutionOptions,
 } from '../execution/bounded-execution.js'
 import { closeExecutionRun, openExecutionRun } from '../execution/execution-run.js'
+import { buildExecutionFingerprint } from '../execution/execution-fingerprint.js'
 import type { ProviderExecutionGrant } from '../execution/provider-grant.js'
 import { issueProviderExecutionGrant } from '../execution/grant-issuance.js'
 import { readRepositorySnapshot } from '../execution/repository.js'
@@ -365,6 +366,7 @@ export async function startLocalWorkbenchServer(
               finishedAt: run.finishedAt,
               outcome: run.outcome,
               evidenceRefs: run.evidenceRefs,
+              fingerprint: run.fingerprint,
             }
           })
         sendJson(response, 200, { status: 'ok', workUnitId: workUnitId ?? null, runs })
@@ -775,12 +777,29 @@ export async function startLocalWorkbenchServer(
           // P1-1: every authorized attempt is a NEW first-class ExecutionRun.
           // A retry / re-authorization / provider switch opens a fresh run, and
           // the run record (not the Work Unit) carries the execution detail.
+          // P1-2: the run also captures its reconstructable runtime identity so
+          // months later we can still answer "what environment produced this?".
+          // The fingerprint is best-effort: an unreachable profile/harness must
+          // never swallow the run record itself.
           const evidenceBefore = workUnit.evidence.length
+          let fingerprint
+          try {
+            fingerprint = buildExecutionFingerprint({
+              workbenchRoot,
+              harnessCheckout,
+              provider: options.provider,
+              model: options.model,
+              grant,
+            })
+          } catch {
+            fingerprint = undefined
+          }
           const run = openExecutionRun({
             workUnitId,
             authorizationRef: grant.grant_id,
             provider: grant.provider,
             model: options.model,
+            fingerprint,
           })
           try {
             executionResult = await runBoundedExecution(executionOptions)

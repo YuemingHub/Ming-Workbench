@@ -118,6 +118,17 @@ export interface PersistedExecutionRun {
     reason: string
   }
   evidenceRefs: string[]
+  /** P1-2: reconstructable runtime identity (identity + digest + pointer). */
+  fingerprint?: {
+    harness: { version: string; commit: string }
+    profile: { id: string; digest: string }
+    provider: string
+    model?: string
+    permissionPreset: string
+    sandboxMode: string
+    workspace: { repository: string; baseRef: string }
+    workbenchConfigDigest: string
+  }
 }
 
 export interface WorkUnitStore {
@@ -195,6 +206,7 @@ export function toPersistedExecutionRun(run: ExecutionRun): PersistedExecutionRu
     finishedAt: run.finishedAt,
     outcome: run.outcome,
     evidenceRefs: [...run.evidenceRefs],
+    fingerprint: run.fingerprint,
   }
 }
 
@@ -213,6 +225,7 @@ export function fromPersistedExecutionRun(record: PersistedExecutionRun): Execut
     finishedAt: record.finishedAt,
     outcome: record.outcome as ExecutionRun['outcome'],
     evidenceRefs: [...(record.evidenceRefs ?? [])],
+    fingerprint: record.fingerprint as ExecutionRun['fingerprint'],
   }
 }
 

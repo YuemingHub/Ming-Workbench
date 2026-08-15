@@ -353,6 +353,14 @@ async function main() {
     )
     check(Array.isArray(firstRun?.evidenceRefs) && firstRun?.evidenceRefs.length > 0, 'run references its evidence', `${firstRun?.evidenceRefs?.length ?? 0} refs`)
 
+    // P1-2: the run carries a reconstructable runtime identity.
+    check(firstRun?.fingerprint?.harness?.version === '0.1.0-rc.5', 'run fingerprint pins the reviewed harness version', firstRun?.fingerprint?.harness?.version ?? '<none>')
+    check(typeof firstRun?.fingerprint?.harness?.commit === 'string' && firstRun?.fingerprint?.harness?.commit.length > 0, 'run fingerprint pins the harness commit', firstRun?.fingerprint?.harness?.commit?.slice(0, 8) ?? '<none>')
+    check(typeof firstRun?.fingerprint?.profile?.digest === 'string' && firstRun?.fingerprint?.profile?.digest.length === 64, 'run fingerprint digests the workbench profile')
+    check(firstRun?.fingerprint?.provider === 'deepseek-official' && firstRun?.fingerprint?.model === 'deepseek-v4-pro', 'run fingerprint records provider/model', `${firstRun?.fingerprint?.provider ?? '<none>'}/${firstRun?.fingerprint?.model ?? '<none>'}`)
+    check(firstRun?.fingerprint?.sandboxMode === 'workspace-write', 'run fingerprint records the sandbox mode', firstRun?.fingerprint?.sandboxMode ?? '<none>')
+    check(firstRun?.fingerprint?.workspace?.baseRef === baselineHead, 'run fingerprint records the workspace baseRef', firstRun?.fingerprint?.workspace?.baseRef?.slice(0, 8) ?? '<none>')
+
     // --- phase 2: resume/stale-authority pressure on the same Work Unit ---
     // P0-1 frontier semantics: the phase-1 output (uncommitted app.js) now
     // overlaps the re-authorized exact slice, so re-execution would be blocked

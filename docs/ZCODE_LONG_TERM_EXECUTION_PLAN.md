@@ -1197,3 +1197,12 @@ Ming Workbench 不是因为拥有很多 Agent 能力而成功。
 - **HTTP API**：新增只读 `GET /api/runs?workUnitId=`；`/api/execute` 改为 open→runBoundedExecution→close→持久化 run，失败 fail-closed 记录 failed run，成功响应带 `runId`。
 - **测试与真实入口证据**：`test/execution-run.test.mjs`（store 迁移 / run 生命周期 / /api/runs 端点 / 真实 authorize→execute 写边界阻断记录 failed run）全过；FTS 全量 **157 pass / 0 fail / 2 skip**；scratch smoke 增强 P1-1 断言并 `SCRATCH MUTATION RESULT: PASS`（真实 Harness + mock LLM + 真实 scratch Git repo：execute 产生唯一 run 且绑定 grant → 重启后 run 持久化且 identity 不变 → 重授权产生第二个新 run）。
 - 下一动作：P1-1 收尾（如需则补桌面 UI 层或文档）；P0-4 owner 授权后激活 workflow 并合 PR #22。
+
+## 2026-08-15 — P1-2 ExecutionFingerprint 完成（branch `agent/execution-run-p1`）
+
+- **一等对象 ExecutionFingerprint**（`src/execution/execution-fingerprint.ts` 新增）：`buildExecutionFingerprint()` 实时采集 run 的可重建运行身份——harness version/commit（`inspectHarnessCheckout` 实读 checkout）、profile id+digest（`workbench.cordis.yml` sha256）、provider/model、permission preset（AAOP `mutation_boundary`）、sandbox mode（read-only/workspace-write）、workspace repository/baseRef（grant `write_target`）、workbenchConfigDigest（profile+lock 摘要）。`sameExecutionFingerprint()` 供半年后对比候选环境回答"这个结果由什么环境产生"。
+- **ExecutionRun 扩展**：`ExecutionRun.fingerprint?` 与 `PersistedExecutionRun.fingerprint?`，`openExecutionRun` 接收 fingerprint，store round-trip 保留；`/api/runs` 响应暴露 fingerprint。
+- **best-effort 采集**：execute handler 中 fingerprint 构建失败不得吞掉 run 记录（try/catch → undefined）——指纹是身份证据，不是授权输入，缺失不应阻止 failed run 落盘。
+- **测试与真实入口证据**：FTS 全量 **161 pass / 0 fail / 2 skip**；`test/execution-run.test.mjs` 新增 4 项 P1-2（环境身份捕获 / read-only 无 write target / profile 或 model 变更→drift 检测 / fingerprint 随 run round-trip 持久化）；scratch smoke 增强 P1-2 断言并 `SCRATCH MUTATION RESULT: PASS`（真实 Harness + mock LLM + 真实 scratch Git repo：run fingerprint 记录 reviewed version `0.1.0-rc.5` + commit `47f94385` + profile digest + provider/model + `workspace-write` + baseRef）。
+- 弯路记录：最初 fingerprint 直接在 `openExecutionRun` 参数中求值，scratch 测试环境 harnessCheckout 路径无效时抛出异常导致 run 未落盘（期望 1 个 run 却得到 0）；改为 best-effort 采集后修复。
+- 下一动作：P1-3 Ming Evidence Spine（用现有 durable Harness Session Persistence/Query 投影证据，不创建第二套 Harness 日志）；P0-4 仍等 owner workflow scope。
