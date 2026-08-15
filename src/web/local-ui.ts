@@ -58,15 +58,17 @@ export function renderLocalWorkbenchHtml(requestToken: string): string {
 
     <section class="execute-card card hidden" id="execute-card" aria-live="polite">
       <p class="label">执行变更</p>
-      <p class="muted" id="execute-message">只读理解已完成。执行授权只覆盖你确认的文件，不会默认放开整个仓库。</p>
+      <p class="muted" id="execute-message">只读理解已完成。请查看 Workbench 建议的修改范围。</p>
+      <div class="execute-scope" id="execute-scope-area">
+        <p class="muted">Workbench 正在分析建议的修改范围…</p>
+      </div>
       <div class="execute-actions">
-        <label for="execute-files" class="execute-label">这次改动涉及的文件（逗号分隔，仓库内相对路径）</label>
-        <input id="execute-files" type="text" placeholder="例如：app.js, test/app.test.mjs" autocomplete="off" />
+        <button id="execute-approve-button" class="primary" type="button" disabled>允许这次修改</button>
+        <button id="execute-cancel-button" class="secondary" type="button">取消</button>
         <label class="execute-whole">
           <input id="execute-whole" type="checkbox" />
           整个仓库（显式授权，要求工作区干净）
         </label>
-        <button id="execute-button" class="primary" type="button">执行这个变更</button>
       </div>
       <p class="execute-status" id="execute-status"></p>
     </section>
@@ -111,6 +113,17 @@ export function renderLocalWorkbenchHtml(requestToken: string): string {
         <p id="route-summary"></p>
         <ul id="project-evidence" class="evidence-list"></ul>
       </article>
+    </section>
+
+    <section id="update-notice" class="update-notice hidden" aria-live="polite">
+      <div class="update-content">
+        <p id="update-message"></p>
+        <div class="update-actions">
+          <button id="update-download-button" class="primary" type="button">下载更新</button>
+          <button id="update-restart-button" class="primary hidden" type="button">重新启动并更新</button>
+          <button id="update-later-button" class="secondary" type="button">稍后</button>
+        </div>
+      </div>
     </section>
 
     <details class="advanced card">
@@ -178,6 +191,9 @@ textarea:focus { border-color: #8da2c6; box-shadow: 0 0 0 4px rgba(103, 132, 184
 .advanced summary { cursor: pointer; font-weight: 700; color: #364258; }
 .advanced-content { margin-top: 12px; white-space: pre-wrap; }
 .hidden { display: none !important; }
+.update-notice { margin: 18px 0; border-radius: 16px; padding: 15px 17px; background: #e8f6ef; color: #19633f; border: 1px solid #b4e6cf; }
+.update-content { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+.update-actions { display: flex; gap: 8px; align-items: center; }
 @media (max-width: 720px) {
   .shell { width: min(100% - 22px, 980px); padding-top: 28px; }
   .hero, .project-card, .request-actions { flex-direction: column; align-items: stretch; }
@@ -186,11 +202,11 @@ textarea:focus { border-color: #8da2c6; box-shadow: 0 0 0 4px rgba(103, 132, 184
   .span-two { grid-column: span 1; }
   .request-actions .primary, .project-card button { width: 100%; }
 .execute-card { margin-top: 18px; }
-.execute-actions { margin-top: 12px; }
-.execute-label { display: block; margin: 10px 0 4px; font-size: 13px; color: #43506a; }
-.execute-actions input[type="text"] { width: 100%; padding: 10px 12px; border: 1px solid #d8deea; border-radius: 10px; background: #fbfcfe; color: #172033; }
+.execute-actions { margin-top: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .execute-whole { display: flex; gap: 8px; align-items: center; margin: 10px 0 0; font-size: 13px; color: #596579; }
-.execute-actions button { margin-top: 12px; }
+.execute-scope { margin: 12px 0; padding: 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; }
+.execute-scope ul { margin: 6px 0 0; padding-left: 20px; color: #43506a; }
+.execute-scope ul li + li { margin-top: 4px; }
 .execute-status { margin: 10px 0 0; font-size: 13px; color: #43506a; }
 .execute-status.ok { color: #19633f; }
 .execute-status.error { color: #963d35; }
@@ -370,6 +386,18 @@ function renderResume(data) {
     const executeCard = $('execute-card')
     if (!gate?.open && !data.factsChanged) {
       executeCard.classList.remove('hidden')
+      const scopeArea = $('execute-scope-area')
+      const proposedPaths = data.workUnit?.proposedFiles || []
+      window.__mingProposedScope = proposedPaths
+      if (proposedPaths.length > 0) {
+        scopeArea.innerHTML = '<p class="muted">Workbench 准备修改：</p><ul>' +
+          proposedPaths.map((p) => '<li>' + p + '</li>').join('') +
+          '</ul>'
+        $('execute-approve-button').disabled = false
+      } else {
+        scopeArea.innerHTML = '<p class="muted">Workbench 正在分析建议的修改范围…如果没有明确范围，可以勾选"整个仓库"进行显式授权。</p>'
+        $('execute-approve-button').disabled = false
+      }
     } else {
       executeCard.classList.add('hidden')
     }
@@ -513,6 +541,19 @@ $('intake-button').addEventListener('click', async () => {
     const executeCard = $('execute-card')
     if (body.status === 'ready' && !body.workUnit?.gate?.open) {
       executeCard.classList.remove('hidden')
+      // Show Workbench-proposed scope from intake evidence.
+      const scopeArea = $('execute-scope-area')
+      const proposedPaths = body.workUnit?.proposedFiles || body.proposedFiles || []
+      window.__mingProposedScope = proposedPaths
+      if (proposedPaths.length > 0) {
+        scopeArea.innerHTML = '<p class="muted">Workbench 准备修改：</p><ul>' +
+          proposedPaths.map((p) => '<li>' + p + '</li>').join('') +
+          '</ul>'
+        $('execute-approve-button').disabled = false
+      } else {
+        scopeArea.innerHTML = '<p class="muted">Workbench 正在分析建议的修改范围…如果没有明确范围，可以勾选“整个仓库”进行显式授权。</p>'
+        $('execute-approve-button').disabled = false
+      }
     } else {
       executeCard.classList.add('hidden')
     }
@@ -522,33 +563,34 @@ $('intake-button').addEventListener('click', async () => {
   }
 })
 
-$('execute-button').addEventListener('click', async () => {
-  const button = $('execute-button')
+$('execute-approve-button').addEventListener('click', async () => {
+  const button = $('execute-approve-button')
   const status = $('execute-status')
   if (!currentWorkUnitId) {
     status.textContent = '请先完成项目理解。'
     status.className = 'execute-status error'
     return
   }
-  // P0-1: the mutation boundary comes from the human-confirmed file surface.
-  // There is no default — unknown surface refuses write authorization.
-  const filesInput = $('execute-files')
   const wholeRepo = $('execute-whole').checked
-  const rawFiles = filesInput.value.split(',').map((s) => s.trim()).filter(Boolean)
-  const filePaths = wholeRepo ? undefined : rawFiles
+  const proposedPaths = window.__mingProposedScope || []
+  const filePaths = wholeRepo ? undefined : proposedPaths
   if (!wholeRepo && filePaths.length === 0) {
-    status.textContent = '请先填写这次改动涉及的文件（或明确勾选“整个仓库”）。'
+    status.textContent = 'Workbench 尚未确定修改范围，请稍后再试。'
     status.className = 'execute-status error'
     return
   }
   const ok = window.confirm(wholeRepo
     ? '你选择了“整个仓库”范围。Workbench 要求工作区干净，并且允许在任何仓库内文件上执行。确认吗？'
-    : 'Workbench 将只在授权文件上执行：' + filePaths.join(', ') + '。确认吗？')
+    : 'Workbench 准备修改以下文件：\n\n  ' + filePaths.join('\n  ') + '\n\n确认允许这次修改吗？')
   if (!ok) return
   button.disabled = true
+  $('execute-cancel-button').disabled = true
   status.textContent = '正在请求执行授权…'
   status.className = 'execute-status'
   try {
+    if (isDesktop && window.mingWorkbench?.setWorkUnitRunning) {
+      window.mingWorkbench.setWorkUnitRunning(true)
+    }
     const authRes = await api('/api/authorize', {
       method: 'POST',
       body: JSON.stringify({
@@ -584,12 +626,65 @@ $('execute-button').addEventListener('click', async () => {
     await refreshProject()
   } finally {
     button.disabled = false
+    $('execute-cancel-button').disabled = false
+    if (isDesktop && window.mingWorkbench?.setWorkUnitRunning) {
+      window.mingWorkbench.setWorkUnitRunning(false)
+    }
   }
+})
+
+$('execute-cancel-button').addEventListener('click', () => {
+  $('execute-card').classList.add('hidden')
+  $('execute-status').textContent = ''
 })
 
 if (isDesktop) {
   $('provider-save-button').addEventListener('click', saveProviderSecret)
   checkProviderStatus().catch(() => {})
+
+  // Auto-update UI
+  if (window.mingWorkbench?.onUpdateAvailable) {
+    window.mingWorkbench.onUpdateAvailable((info) => {
+      const notice = $('update-notice')
+      const msg = $('update-message')
+      msg.textContent = '发现新版本 ' + info.version + '。'
+      $('update-download-button').classList.remove('hidden')
+      $('update-restart-button').classList.add('hidden')
+      notice.classList.remove('hidden')
+    })
+  }
+  if (window.mingWorkbench?.onUpdateReady) {
+    window.mingWorkbench.onUpdateReady((info) => {
+      const notice = $('update-notice')
+      const msg = $('update-message')
+      msg.textContent = '新版本 ' + info.version + ' 已经准备好。'
+      $('update-download-button').classList.add('hidden')
+      $('update-restart-button').classList.remove('hidden')
+      notice.classList.remove('hidden')
+    })
+  }
+  if (window.mingWorkbench?.onUpdateProgress) {
+    window.mingWorkbench.onUpdateProgress((info) => {
+      const msg = $('update-message')
+      msg.textContent = '正在下载更新… ' + Math.round(info.percent) + '%'
+    })
+  }
+  if ($('update-download-button')) {
+    $('update-download-button').addEventListener('click', async () => {
+      $('update-download-button').disabled = true
+      await window.mingWorkbench?.downloadUpdate()
+    })
+  }
+  if ($('update-restart-button')) {
+    $('update-restart-button').addEventListener('click', async () => {
+      await window.mingWorkbench?.installUpdate()
+    })
+  }
+  if ($('update-later-button')) {
+    $('update-later-button').addEventListener('click', () => {
+      $('update-notice').classList.add('hidden')
+    })
+  }
 }
 
 refreshProject().catch(() => setNotice('暂时无法读取项目状态。', true))

@@ -14,6 +14,15 @@ contextBridge.exposeInMainWorld('mingWorkbench', {
   setProviderSecret: (secret) => ipcRenderer.invoke('desktop:set-provider-secret', secret),
   // Whether this renderer is running inside the Electron desktop shell.
   isDesktop: true,
+  // Auto-update bridge. Renderer can query and trigger updates through IPC.
+  checkForUpdates: () => ipcRenderer.invoke('desktop:check-for-updates'),
+  downloadUpdate: () => ipcRenderer.invoke('desktop:download-update'),
+  installUpdate: () => ipcRenderer.invoke('desktop:install-update'),
+  getUpdateStatus: () => ipcRenderer.invoke('desktop:update-status'),
+  setWorkUnitRunning: (running) => ipcRenderer.send('desktop:work-unit-running', running),
+  onUpdateAvailable: (callback) => ipcRenderer.on('desktop:update-available', (_e, info) => callback(info)),
+  onUpdateReady: (callback) => ipcRenderer.on('desktop:update-ready', (_e, info) => callback(info)),
+  onUpdateProgress: (callback) => ipcRenderer.on('desktop:update-progress', (_e, info) => callback(info)),
 })
 
 // Small desktop-only affordance so a normal user can switch the fixed project

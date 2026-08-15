@@ -1,6 +1,6 @@
 {
   "name": "ming-workbench",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "description": "Intent-to-evidence AI workbench built on DeepSeek Harness with domain control packs.",
   "type": "module",
@@ -20,6 +20,8 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.25.1",
+    "electron-updater": "^6.6.2",
+    "pnpm": "11.7.0",
     "zod": "^4.0.0"
   },
   "devDependencies": {
@@ -52,16 +54,31 @@
     },
     "npmRebuild": false,
     "electronDist": "node_modules/electron/dist",
+    "publish": {
+      "provider": "github",
+      "owner": "YuemingHub",
+      "repo": "Ming-Workbench"
+    },
     "win": {
       "target": [
         {
-          "target": "portable",
+          "target": "nsis",
           "arch": [
             "x64"
           ]
         }
       ],
       "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Ming Workbench",
+      "uninstallDisplayName": "Ming Workbench",
+      "deleteAppDataOnUninstall": false
     }
   }
 }

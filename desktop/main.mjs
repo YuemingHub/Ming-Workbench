@@ -44,6 +44,115 @@ let providerSecret = null
 let workUnitStore = null
 let currentProjectRoot = ''
 
+// ── Auto-update ───────────────────────────────────────────────────────────
+// electron-updater is loaded dynamically so dev mode (no release feed) does not
+// crash. In packaged mode it checks GitHub Releases for the latest stable.
+let autoUpdater = null
+let updateInfo = null
+let isDownloadingUpdate = false
+let workUnitRunning = false
+
+function tryLoadAutoUpdater() {
+  if (!app.isPackaged) return null
+  try {
+    const { autoUpdater: au } = require('electron-updater')
+    return au
+  } catch {
+    return null
+  }
+}
+
+function setupAutoUpdater() {
+  autoUpdater = tryLoadAutoUpdater()
+  if (!autoUpdater) return
+
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = false
+
+  autoUpdater.on('update-available', (info) => {
+    updateInfo = info
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('desktop:update-available', {
+        version: info.version,
+        releaseNotes: info.releaseNotes,
+      })
+    }
+  })
+
+  autoUpdater.on('update-not-available', () => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('desktop:update-not-available')
+    }
+  })
+
+  autoUpdater.on('download-progress', (progress) => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('desktop:update-progress', {
+        percent: progress.percent,
+      })
+    }
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    updateInfo = info
+    isDownloadingUpdate = false
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('desktop:update-ready', {
+        version: info.version,
+      })
+    }
+  })
+
+  autoUpdater.on('error', (error) => {
+    isDownloadingUpdate = false
+    appendStartupLog(`auto-updater error: ${error?.message ?? String(error)}`)
+  })
+
+  // Quietly check for updates shortly after launch.
+  setTimeout(() => {
+    if (autoUpdater) {
+      autoUpdater.checkForUpdates().catch(() => {})
+    }
+  }, 5000)
+}
+
+function checkForUpdatesNow() {
+  if (!autoUpdater) {
+    dialog.showMessageBox(win ?? undefined, {
+      type: 'info',
+      title: '检查更新',
+      message: '当前环境不支持自动更新。',
+      detail: '自动更新仅在已安装的桌面版中可用。',
+    })
+    return
+  }
+  autoUpdater.checkForUpdates().catch((error) => {
+    dialog.showErrorBox('检查更新失败', error?.message ?? String(error))
+  })
+}
+
+function downloadAndInstallUpdate() {
+  if (!autoUpdater || isDownloadingUpdate || !updateInfo) return
+  if (workUnitRunning) {
+    dialog.showMessageBox(win ?? undefined, {
+      type: 'warning',
+      title: '更新已暂停',
+      message: 'Workbench 正在执行工作单元，更新将在完成后进行。',
+    })
+    return
+  }
+  isDownloadingUpdate = true
+  autoUpdater.downloadUpdate().catch((error) => {
+    isDownloadingUpdate = false
+    dialog.showErrorBox('下载更新失败', error?.message ?? String(error))
+  })
+}
+
+function quitAndInstall() {
+  if (!updateInfo || workUnitRunning) return
+  autoUpdater.quitAndInstall(true, true)
+}
+
 function resolveWorkbenchRoot() {
   return app.isPackaged ? resolve(process.resourcesPath, 'app') : repoRoot
 }
@@ -260,6 +369,27 @@ function buildMenu() {
         },
       ],
     },
+    {
+      label: '帮助',
+      submenu: [
+        {
+          label: '检查更新…',
+          click: () => checkForUpdatesNow(),
+        },
+        { type: 'separator' },
+        {
+          label: '关于 Ming Workbench',
+          click: () => {
+            dialog.showMessageBox(win ?? undefined, {
+              type: 'info',
+              title: '关于 Ming Workbench',
+              message: 'Ming Workbench',
+              detail: `版本 ${app.getVersion()}\n\n把一句想法，变成看得见的工作。`,
+            })
+          },
+        },
+      ],
+    },
   ]
   if (!app.isPackaged) {
     template.push({
@@ -365,6 +495,55 @@ function registerIpc() {
     if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) return
     app.quit()
   })
+
+  // Auto-update IPC: renderer can request update actions via preload bridge.
+  ipcMain.handle('desktop:check-for-updates', async (event) => {
+    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) {
+      return { ok: false }
+    }
+    if (autoUpdater) {
+      await autoUpdater.checkForUpdates().catch(() => {})
+    }
+    return { ok: true, hasUpdate: Boolean(updateInfo) }
+  })
+
+  ipcMain.handle('desktop:download-update', async (event) => {
+    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) {
+      return { ok: false }
+    }
+    if (!autoUpdater || !updateInfo || isDownloadingUpdate) return { ok: false }
+    isDownloadingUpdate = true
+    autoUpdater.downloadUpdate().catch(() => { isDownloadingUpdate = false })
+    return { ok: true }
+  })
+
+  ipcMain.handle('desktop:install-update', async (event) => {
+    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) {
+      return { ok: false }
+    }
+    if (!updateInfo || workUnitRunning) return { ok: false }
+    quitAndInstall()
+    return { ok: true }
+  })
+
+  ipcMain.handle('desktop:update-status', async (event) => {
+    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) {
+      return { ok: false }
+    }
+    return {
+      ok: true,
+      isPackaged: app.isPackaged,
+      hasUpdate: Boolean(updateInfo),
+      updateVersion: updateInfo?.version ?? null,
+      isDownloading: isDownloadingUpdate,
+      isDownloaded: Boolean(updateInfo && !isDownloadingUpdate),
+    }
+  })
+
+  ipcMain.on('desktop:work-unit-running', (event, running) => {
+    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) return
+    workUnitRunning = Boolean(running)
+  })
 }
 
 /**
@@ -427,6 +606,9 @@ if (!gotLock) {
     app.setName('Ming Workbench')
     buildMenu()
     registerIpc()
+
+    // Start auto-updater (no-op in dev mode).
+    setupAutoUpdater()
 
     // Load persisted state for resume.
     workUnitStore = loadWorkUnitStore()

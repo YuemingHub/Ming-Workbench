@@ -118,14 +118,38 @@ function assertSupportedNode(): void {
   }
 }
 
-function installDependencies(checkout: string): void {
+function installDependencies(checkout: string, workbenchRoot: string): void {
   assertSupportedNode()
-  const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+
+  // Use the bundled pnpm package (dependency of Ming Workbench) instead of
+  // requiring the user to have npx or pnpm installed globally. In a packaged
+  // desktop app, the bundled pnpm is in node_modules; in dev mode it is too.
+  const pnpmDir = resolve(workbenchRoot, 'node_modules', 'pnpm')
+  const pnpmBin = process.platform === 'win32'
+    ? resolve(pnpmDir, 'bin', 'pnpm.cjs')
+    : resolve(pnpmDir, 'bin', 'pnpm.cjs')
+
+  let pnpmExecutable: string
+  let pnpmArgs: string[]
+  if (existsSync(pnpmBin)) {
+    pnpmExecutable = process.execPath
+    pnpmArgs = [pnpmBin, '--dir', checkout, 'install', '--no-frozen-lockfile', '--config.node-linker=hoisted']
+  } else {
+    // Fallback: npx (dev/CI environments that already have pnpm globally).
+    pnpmExecutable = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+    pnpmArgs = ['-y', 'pnpm@11.7.0', '--dir', checkout, 'install', '--no-frozen-lockfile', '--config.node-linker=hoisted']
+  }
+
   try {
-    execFileSync(npx, ['-y', `pnpm@11.7.0`, '--dir', checkout, 'install', '--frozen-lockfile'], {
+    execFileSync(pnpmExecutable, pnpmArgs, {
       encoding: 'utf8',
       stdio: 'inherit',
       shell: process.platform === 'win32',
+      env: {
+        ...process.env,
+        // Ensure pnpm's store is writable for per-user installs.
+        PNPM_HOME: process.env.PNPM_HOME ?? join(workbenchRoot, '.workbench', 'pnpm-store'),
+      },
     })
   } catch {
     throw new Error(`Harness dependency installation failed in ${checkout}.`)
@@ -239,7 +263,7 @@ export async function prepareHarnessRuntime(
 
   extractBundle(bundlePath, bundledDir)
   const identity = verifyIdentity(bundledDir, lock)
-  installDependencies(bundledDir)
+  installDependencies(bundledDir, workbenchRoot)
 
   return { checkout: bundledDir, source: 'bundled', identity }
 }
