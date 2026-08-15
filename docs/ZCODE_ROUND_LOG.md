@@ -111,3 +111,28 @@
 1. **真实修复目标已锁定**：让 Family Space 的 `CURRENT_STATE.md` 重新声明 `production@<40-hex-sha>`（当前真实 production 基线），使 `node scripts/aaop-family.cjs status` 退出码回到 0。小、可验证、有产品意义（AAOP 本地接入恢复）。
 2. **剩余 human blocker**：真实 provider 凭据（`DEEPSEEK_API_KEY`）。有凭据后，走 `intake → authorize(CURRENT_STATE.md) → execute(真实 Harness 真实 Agent) → git delta → aaop-family.cjs status=0 验证 → evidence → outcome`。
 3. 无凭据期间可继续的无凭据工作：把 `scripts/aaop-family.cjs setup` 契约修复链路、以及「真实修复」的 regression（一个断言 status 退出码=0 的测试）预先准备好。
+
+## 2026-08-15 轮次 5 — RWU001 生产基线自动核验 + 「真实修复」回归断言固化
+
+### 做了什么
+- **消除生产基线裁决不确定性**：用 `git ls-remote origin production` 实测远端 production HEAD = `3aec7ea47230c2c8b447178ea8238947ccbd748e`，与本地 clone HEAD 完全一致 → 「线上与 GitHub 记录不一致」的不确定性消除，RWU001 中原本标为「须所有者裁决」的 SHA 项不再需要人确认（回归 smoke 会自动核验远端基线，不手工猜 SHA）。
+- **确认 mock LLM 无法驱动修改已存在文件**：读完 `llm-mock-server/src/index.ts` + `cli.ts`，确认 `tool_call_success` 只能带单一 `toolName`+`toolArguments`；配合 harness `workbench.cordis.yml` 启用的 `fs-observation-policy`（read-before-write），scratch smoke 也只能创建新文件（`app.js`）。RWU001 修复对象是**已存在**的 `CURRENT_STATE.md`，因此 mock 路径不足，**真实 provider 凭据是唯一硬阻塞**。
+- **新增 `scripts/smoke-family-space-fix.mjs`（9 项回归断言）**：零污染副本（`cp -R --reflink=auto`）上：①复现真实 bug（status exit 2）→ ②在「当前仓库观察基线：」行加入 `production@<baseline>` → ③status 退出码回到 0 且打印 `declared product observation` → ④S0 无连带行为变化 → ⑤HEAD 未变且仅 `CURRENT_STATE.md` 有 tracked change。基线用 `git ls-remote` 自动检测并交叉核对本地 HEAD。
+- 更新 `docs/REAL_WORK_UNIT_001.md`（状态改为「规格锁定 + 回归断言全绿，仅剩 owner 提供凭据」）、plan 账本、轮次日志。
+
+### 验证证据
+- `FAMILY SPACE FIX REGRESSION RESULT: PASS`（9/9），baseline `3aec7ea47230…`（`git ls-remote origin production == local HEAD`）。
+- 修复前复制品 status exit=2（复现）；修复后 exit=0，输出 `declared product observation: 3aec7ea47230c2c8b447178ea8238947ccbd748e`、`life-validation stage: S0`。
+- 零污染确认：副本 HEAD 不变，`--porcelain --untracked-files=no` 仅 `CURRENT_STATE.md` 一行。
+
+### 遇到的问题与弯路
+- **弯路**：`cp -R <src> <已存在目录>` 会把 src 复制成目标目录的子目录，导致副本路径错位；改为 `cp -R --reflink=auto <src>/. <copy>` 复制内容。
+- **弯路**：`git status --porcelain` 输出经 `run()` 的 `.trim()` 处理后首字符空格被吃掉，`l.slice(3)` 切出 `URRENT_STATE.md`（丢首字符）；改用 `trimStart()` + 正则 `^\S\s+(.+)$` 解析路径，断言修复。
+
+### 好经验
+- 生产基线是**可自动消除**的裁决项：`git ls-remote` + 本地 HEAD 交叉核对即可，不必把可核验的事实上升为人的裁决。
+- 回归断言固化为零污染副本 smoke，比在真实仓库上试更安全：修复规格的可验证性在凭据就绪前就能全绿，凭据一到即可直接触发真实 execute 并复用同一断言验收。
+
+### 下一轮入口
+- **唯一剩余 human blocker**：真实 provider 凭据 `DEEPSEEK_API_KEY`（缺失时 `/api/execute` fail-closed 402）。凭据就绪后走 `intake → authorize(CURRENT_STATE.md, exact 1 path) → execute(真实 Harness + 真实 Agent) → git delta → scripts/smoke-family-space-fix.mjs 回归断言全绿 → aaop-family.cjs setup(AAOP 0.20.1) → ready 全绿 → Evidence 归档 → 非技术语言向 owner 汇报`。
+- P0-4 仍等 owner `gh auth refresh -s workflow` 激活 workflow 后合 PR #22。

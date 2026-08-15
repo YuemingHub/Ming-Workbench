@@ -1219,7 +1219,8 @@ Ming Workbench 不是因为拥有很多 Agent 能力而成功。
 
 - **方向切换（总指令）**：停止继续扩建 P1-x 能力，直接进入「用 Ming-Workbench 跑通第一个真实项目 Family Space」。Verifier v0 = Reality（不是第二个 Agent），P1-4 第二 Agent Verifier 暂停；「No capability without pressure」——先找到真实阻塞，再为它建能力。
 - **真实项目 grounding**：浅克隆 `YuemingHub/Family-Space`（production `3aec7ea47230…`）到 `.workbench/projects/family-space`（已 gitignore）；新增 `scripts/smoke-family-space.mjs`（16 项 provider-free 断言）并 `FAMILY SPACE GROUNDING RESULT: PASS`。
+- **「真实修复」回归断言已固化**：新增 `scripts/smoke-family-space-fix.mjs`（9 项全绿，`FAMILY SPACE FIX REGRESSION RESULT: PASS`）——在零污染副本上复现 bug → 应用精确单行修复（`CURRENT_STATE.md` 加 `production@<baseline>`）→ status 回到 0 且打印 `declared product observation` → S0 无连带行为变化 → HEAD 未变且仅 `CURRENT_STATE.md` 有 tracked change；基线自动用 `git ls-remote` 核验（`3aec7ea…` = 本地 HEAD，生产基线裁决已自动消除，无需人确认）。
 - **REAL WORK UNIT 001 候选（真实 bug，可复现）**：Family Space 生产 HEAD 上 `node scripts/aaop-family.cjs status` 退出码 2，stderr = `CURRENT_STATE must declare a current product observation as production@<40-hex-sha>.`（`grep -c "production@" CURRENT_STATE.md` = 0）。其 AAOP 桥接 `status`/`ready`/`setup` 全部因此失败，是「入口级」阻塞：不修就无法本地接入 AAOP。
 - **Workbench 全链已接通（provider-free）**：onboarding 识别真实项目 → read-only Intake 返回 `blocked` 并透出真实 blocker（不伪造进度）→ blocked Work Unit 持久化可 resume → authorize 冻结 `exact(1 path)` `CURRENT_STATE.md` + 绑定真实 repo/branch/base → execute 无凭据 fail-closed 402 `provider-required` → 真实 HEAD 未变（零污染）。
 - **剩余 human blocker**：真实 provider 凭据 `DEEPSEEK_API_KEY`。有凭据后走 `intake → authorize → execute → git delta → aaop-family.cjs status=0 → evidence → outcome` 闭环。
-- 下一动作：先准备「真实修复」回归断言（status 退出码=0 的测试），待 owner 提供凭据后由 Workbench authorize gate 执行最小真实修复（`CURRENT_STATE.md` 声明当前 production 基线）。
+- 下一动作：**唯一剩余 human blocker = 真实 provider 凭据 `DEEPSEEK_API_KEY`**。凭据就绪后走 `intake → authorize → execute → git delta → smoke-family-space-fix.mjs 回归断言 → aaop-family.cjs setup/ready 全绿 → evidence → outcome` 闭环（回归断言已就绪，凭据到达即可直接执行）。

@@ -1,7 +1,7 @@
 # REAL WORK UNIT 001 — Family Space AAOP bridge 无法 ready（`production@` 声明缺失）
 
-> 状态：**候选（候选锁定，等待 owner 提供真实 provider 凭据 + 生产基线裁决）**
-> 记录：2026-08-15（Ming-Workbench branch `agent/execution-run-p1`，commit `11e65b2`）
+> 状态：**规格锁定 + 副本回归断言全绿（仅剩 owner 提供真实 provider 凭据触发真实 execute）**
+> 记录：2026-08-15（Ming-Workbench branch `agent/execution-run-p1`，commit `11e65b2`；回归断言 `7f0cb88…` 之后新增 `scripts/smoke-family-space-fix.mjs`）
 
 ## 一句话
 
@@ -44,6 +44,8 @@ Family Space 生产 HEAD 上，本地 AAOP 接入命令 `node scripts/aaop-famil
 - 候选值：GitHub `production` 分支 HEAD = `3aec7ea47230c2c8b447178ea8238947ccbd748e`（commit `docs(state): record parent repair deployment`）。
 - 但 `CURRENT_STATE.md` 自述「服务器底层 checkout 仍是历史 detached 脏工作区，本轮按备份后的精确三文件更新完成」，即**真实运行 revision 未必等于任何干净 git SHA**。因此声明哪个 SHA 属于产品裁决，须由所有者确认。
 
+> **基线核验已自动完成（2026-08-15）**：`git ls-remote origin production` 实测返回 `3aec7ea47230…`，与本地 clone HEAD 完全一致，消除「线上与 GitHub 记录不一致」的不确定性，此裁决项**不再需要人确认**（`scripts/smoke-family-space-fix.mjs` 会自动核验远端基线，不手工猜 SHA）。
+
 ## 为什么值得作为第一个真实 Work Unit
 
 - **真实、可复现、入口级**：一次 `status` 调用即可复现，且阻断所有本地 AAOP 接入。
@@ -53,4 +55,17 @@ Family Space 生产 HEAD 上，本地 AAOP 接入命令 `node scripts/aaop-famil
 ## 无凭据期间已就绪的前置工作
 
 - `scripts/smoke-family-space.mjs`（16 项全绿）：grounding + RED 状态固化（断言 status exit 2、authorize 冻结 `exact(1 path)` `CURRENT_STATE.md`、execute 无凭据 402、真实 HEAD 零污染）。
-- 本规格文档：修复面、验收标准、需裁决项均已锁定，凭据就绪后可直接由 Workbench authorize gate 执行最小修复并验证。
+- `scripts/smoke-family-space-fix.mjs`（**9 项全绿**，`FAMILY SPACE FIX REGRESSION RESULT: PASS`）：零污染副本上的「真实修复」回归断言——复现 bug → 应用精确单行修复 → status 回到 0 且输出 `declared product observation` → S0 无连带行为变化 → HEAD 未变且仅 `CURRENT_STATE.md` 有 tracked change；基线自动用 `git ls-remote` 核验。
+- 本规格文档：修复面、验收标准、需裁决项均已锁定，凭据就绪后可直接由 Workbench authorize gate 执行最小修复，再用上述回归断言验证。
+
+## 触发真实 execute 的唯一剩余输入
+
+Reality Owner 提供真实 `DEEPSEEK_API_KEY`（缺失时 `/api/execute` fail-closed 402 `provider-required`）。凭据就绪后的最短闭环：
+
+```text
+intake → authorize(CURRENT_STATE.md, exact 1 path) → execute(真实 Harness + 真实 Agent)
+→ git delta(CURRENT_STATE.md 加 production@3aec7ea…)
+→ scripts/smoke-family-space-fix.mjs 回归断言全绿
+→ aaop-family.cjs setup 安装 AAOP 0.20.1 → ready 全绿
+→ Evidence 归档 → 非技术语言向 owner 汇报
+```
