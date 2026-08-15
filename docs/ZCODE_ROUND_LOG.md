@@ -191,3 +191,31 @@
 ### 下一轮入口
 - 总审查重新 final-review PR #22（隔离实现已就绪）。
 - RWU001 唯一 human blocker 仍为真实 `DEEPSEEK_API_KEY`；凭据就绪后走隔离路径真实 execute（intake → authorize(CURRENT_STATE.md) → 隔离执行 → apply-back → status=0 回归断言 → AAOP ready → evidence → outcome）。
+
+## 2026-08-16 轮次 8 — P0 Isolation Hardening + #22 Candidate Packaging
+
+### 做了什么
+- **总审查 P0 ISOLATION HARDENING**：发现 linked worktree 与真实 repo 共享 .git metadata（实测 worktree 内 `git branch evil` / `git update-ref refs/tags/evil-tag` 会直接在真实 repo 创建分支和 tag），不满足「执行仓库 metadata 与真实 repo 隔离」。
+- **A. 独立 disposable clone**：`git clone --no-local`（origin remote 移除、detached @ base ref）。clone 的 refs/HEAD/config/tags/index 物理独立，Harness 的任何 git mutation 只影响 clone 自身。
+- **B. Symlink/junction escape**：`computeIsolatedDelta` + `applyAuthorizedDelta` 对每个文件 `realpath` 校验，逃逸隔离根 → scope violation（fail-closed），绝不 apply-back；`mirrorDependenciesIntoIsolation` 用 `dereference: true`。
+- **C. 跨平台 cleanup**：Node `rmSync`（非 shell rm -rf）；success / violation / harness throw / test failure 四路径均清理，真实 repo 零污染零 metadata 残留。
+- **D. #22 candidate packaging**：P0 isolation 最小集移植到 `agent/desktop-p0-reconciliation`（exact head `74d6380`），不含 P1 内容。
+
+### 验证证据
+- `test/execution-isolation.test.mjs` 扩展至 10 项全绿（A metadata / B symlink / C 四路径 cleanup / stale base ref / A+B / normal）。
+- FTS 177 pass / 0 fail / 2 skip（P1 分支）。
+- P0 分支 161 pass / 0 fail / 2 skip；`SCRATCH MUTATION RESULT: PASS`。
+- CI 四 workflow 在 #22 exact head `74d6380` 全绿（ci / aaop-setup-smoke / harness-acp-smoke / desktop-windows-package-smoke）。
+- PR #22 body 已更新，Draft 保持，MERGEABLE / clean。
+
+### 遇到的问题与弯路
+- **弯路**：移植时最初从远程 `origin/agent/execution-run-p1`（85bddf3）复制 isolation 文件，那是 worktree 版；hardening 在本地未推送 commit `1e81362`。导致 `.tmp` 编译缺 `isInsideIsolation` 导出 → SyntaxError。改用本地分支文件后修复。
+- **弯路**：symlink 写入通过 OS 层可穿透到真实 repo（Harness 主动构造 symlink 写入），代码层无法完全阻止（需 OS sandbox）。Workbench 的承诺是：不植入 symlink（镜像 dereference）、检测并拒绝（realpath 校验 fail-closed）、metadata 完全隔离。主动 symlink 写入的即时穿透需 reviewed Harness sandbox，已如实标注边界。
+
+### 好经验
+- 边界要在「执行发生的地方」物理隔离，而不是事后纠正：独立 clone 使 metadata 攻击从物理上不可能污染真实 repo。
+- 移植 P0 集时只带「该 P0 需要的最小代码」，P1 架构（run/evidence/fingerprint）完全留在 P1 分支。
+
+### 下一轮入口
+- 总审查 final review PR #22（P0 全部 gate 闭合）。
+- P1 分支保持为后续 P1 PR 候选；RWU001 真实 execute 仍需 owner `DEEPSEEK_API_KEY`。
