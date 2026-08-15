@@ -14,7 +14,7 @@
     "harness:prepare": "node ./scripts/prepare-harness.mjs",
     "web:local": "npm run build:test && node scripts/start-local-web.mjs",
     "desktop:dev": "npm run build:test && electron .",
-    "desktop:package": "npm run build:test && electron-builder --win",
+    "desktop:package": "npm run build:test && electron-builder --win --publish never",
     "desktop:package:dir": "npm run build:test && electron-builder --win dir",
     "desktop:package:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-windows-package-smoke.ps1"
   },
