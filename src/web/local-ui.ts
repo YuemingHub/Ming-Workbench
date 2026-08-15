@@ -387,15 +387,15 @@ function renderResume(data) {
     if (!gate?.open && !data.factsChanged) {
       executeCard.classList.remove('hidden')
       const scopeArea = $('execute-scope-area')
-      const proposedPaths = data.workUnit?.proposedFiles || []
-      window.__mingProposedScope = proposedPaths
-      if (proposedPaths.length > 0) {
+      const proposed = data.proposedMutation || { paths: [], source: 'none' }
+      window.__mingProposedScope = proposed.paths || []
+      if (proposed.paths && proposed.paths.length > 0) {
         scopeArea.innerHTML = '<p class="muted">Workbench 准备修改：</p><ul>' +
-          proposedPaths.map((p) => '<li>' + p + '</li>').join('') +
-          '</ul>'
+          proposed.paths.map((p) => '<li>' + p + '</li>').join('') +
+          '</ul><p class="muted" style="margin-top:8px;font-size:12px;">这是 Workbench 根据项目理解提出的建议范围，不是最终授权。确认后才会生成受边界约束的执行授权。</p>'
         $('execute-approve-button').disabled = false
       } else {
-        scopeArea.innerHTML = '<p class="muted">Workbench 正在分析建议的修改范围…如果没有明确范围，可以勾选"整个仓库"进行显式授权。</p>'
+        scopeArea.innerHTML = '<p class="muted">我现在还不能确定安全的修改范围，需要再理解一下项目。</p><p class="muted" style="margin-top:8px;font-size:12px;">如果确有必要，可以勾选"整个仓库"进行显式授权。</p>'
         $('execute-approve-button').disabled = false
       }
     } else {
@@ -541,17 +541,17 @@ $('intake-button').addEventListener('click', async () => {
     const executeCard = $('execute-card')
     if (body.status === 'ready' && !body.workUnit?.gate?.open) {
       executeCard.classList.remove('hidden')
-      // Show Workbench-proposed scope from intake evidence.
+      // B3: Show Workbench-proposed scope from the real backend-derived proposal.
       const scopeArea = $('execute-scope-area')
-      const proposedPaths = body.workUnit?.proposedFiles || body.proposedFiles || []
-      window.__mingProposedScope = proposedPaths
-      if (proposedPaths.length > 0) {
+      const proposed = body.proposedMutation || { paths: [], source: 'none' }
+      window.__mingProposedScope = proposed.paths || []
+      if (proposed.paths && proposed.paths.length > 0) {
         scopeArea.innerHTML = '<p class="muted">Workbench 准备修改：</p><ul>' +
-          proposedPaths.map((p) => '<li>' + p + '</li>').join('') +
-          '</ul>'
+          proposed.paths.map((p) => '<li>' + p + '</li>').join('') +
+          '</ul><p class="muted" style="margin-top:8px;font-size:12px;">这是 Workbench 根据项目理解提出的建议范围，不是最终授权。确认后才会生成受边界约束的执行授权。</p>'
         $('execute-approve-button').disabled = false
       } else {
-        scopeArea.innerHTML = '<p class="muted">Workbench 正在分析建议的修改范围…如果没有明确范围，可以勾选“整个仓库”进行显式授权。</p>'
+        scopeArea.innerHTML = '<p class="muted">我现在还不能确定安全的修改范围，需要再理解一下项目。</p><p class="muted" style="margin-top:8px;font-size:12px;">如果确有必要，可以勾选“整个仓库”进行显式授权。</p>'
         $('execute-approve-button').disabled = false
       }
     } else {

@@ -36,6 +36,10 @@ import {
   type MutationSlice,
 } from '../execution/mutation-slice.js'
 import {
+  proposeMutationScope,
+  type ProposedMutation,
+} from '../execution/scope-proposal.js'
+import {
   fromPersistedWorkUnit,
   noopWorkUnitStore,
   toPersistedWorkUnit,
@@ -389,6 +393,7 @@ export async function startLocalWorkbenchServer(
           },
           factsChanged,
           currentFacts,
+          proposedMutation: deriveProposedMutationFromRecord(projectRoot, record),
         })
         return
       }
@@ -482,7 +487,10 @@ export async function startLocalWorkbenchServer(
           sendJson(response, 503, intakeUnavailable(rawRequest))
           return
         }
-        sendJson(response, 200, result)
+        sendJson(response, 200, {
+          ...result,
+          proposedMutation: deriveProposedMutation(projectRoot, result),
+        })
 
         // Persist the authoritative Work Unit so the product survives close/reopen.
         try {
@@ -738,6 +746,16 @@ export async function startLocalWorkbenchServer(
             // disabled unless an operator explicitly enables write mutation.
             allowWrite: process.env.MING_WORKBENCH_ALLOW_WRITE === '1',
           }
+          // B2: persist the 'running' state BEFORE execution starts so the
+          // authoritative Work Unit store reflects active execution.  The
+          // desktop main process reads this store to gate updates.
+          const runningUnits = loaded.workUnits.map((w) =>
+            w.id === workUnit.id
+              ? { ...w, state: 'running', updatedAt: new Date().toISOString() }
+              : w,
+          )
+          store.save({ ...loaded, projectRoot, workUnits: runningUnits, lastProjectRoot: projectRoot })
+
           executionResult = await runBoundedExecution(executionOptions)
 
           // Persist the evidence-backed Work Unit update so resume survives close.
@@ -871,6 +889,46 @@ function mutableFactsChanged(a: MutableFacts, b: MutableFacts): boolean {
     a.providerAvailable !== b.providerAvailable ||
     a.harnessAvailable !== b.harnessAvailable
   )
+}
+
+/**
+ * B3: Derive a proposed mutation scope from a persisted Work Unit record
+ * (for the resume flow). Uses the Work Unit title and nextFrontier as
+ * context for keyword extraction.
+ */
+function deriveProposedMutationFromRecord(
+  projectRoot: string,
+  record: { title: string; outcome: string; nextFrontier?: string },
+): ProposedMutation | undefined {
+  return proposeMutationScope({
+    projectRoot,
+    rawRequest: record.title,
+    intakeEvidence: record.nextFrontier ? [record.nextFrontier] : [],
+    nextAction: record.nextFrontier ?? '',
+    route: '',
+  })
+}
+
+/**
+ * B3: Derive a non-authoritative proposed mutation scope from the read-only
+ * intake result. This is a Workbench product-owned suggestion — not AAOP Core,
+ * not Provider Execution Grant. The real authority is the frozen MutationSlice
+ * created by buildExactSlice after human approval.
+ */
+function deriveProposedMutation(
+  projectRoot: string,
+  result: DevelopmentIntakeApplicationResult,
+): ProposedMutation | undefined {
+  if (result.status !== 'ready' && result.status !== 'needs-human') return undefined
+  if (!result.intake) return undefined
+
+  return proposeMutationScope({
+    projectRoot,
+    rawRequest: result.workUnit.title,
+    intakeEvidence: result.intake.projectEvidenceSummary,
+    nextAction: result.intake.nextAction,
+    route: result.intake.route,
+  })
 }
 
 /**

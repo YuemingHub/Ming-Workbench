@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createRequire } from 'node:module'
 
 import { resolveBackendScript, spawnBackend } from './backend.mjs'
 import { isAllowedBackendUrl, isTrustedDesktopSender, urlOrigin } from './validation.mjs'
@@ -50,21 +51,44 @@ let currentProjectRoot = ''
 let autoUpdater = null
 let updateInfo = null
 let isDownloadingUpdate = false
-let workUnitRunning = false
+
+// ── B2: Execution state authority ─────────────────────────────────────────
+// The renderer is NOT the execution truth owner.  The authoritative source for
+// "is a Work Unit executing right now?" is the persisted Work Unit store that
+// the backend writes to.  The renderer may *display* execution status, but it
+// may not *decide* it.  We re-read the shared store before any install.
+const EXECUTING_STATES = new Set(['running', 'verifying'])
+
+function isExecutionActiveFromStore() {
+  if (!workUnitStore) return false
+  const store = loadWorkUnitStore()
+  return store.workUnits.some((w) => EXECUTING_STATES.has(w.state))
+}
 
 function tryLoadAutoUpdater() {
   if (!app.isPackaged) return null
   try {
-    const { autoUpdater: au } = require('electron-updater')
+    // electron-updater is ESM — require() does not work in an ESM main.
+    // Use createRequire to load it from node_modules in the packaged app.
+    const requireFromApp = createRequire(desktopDir + '/')
+    const { autoUpdater: au } = requireFromApp('electron-updater')
+    if (!au || typeof au.checkForUpdates !== 'function') {
+      throw new Error('electron-updater loaded but autoUpdater API is missing')
+    }
     return au
-  } catch {
+  } catch (error) {
+    appendStartupLog(
+      `auto-updater load failed: ${error instanceof Error ? error.message : String(error)}`,
+    )
     return null
   }
 }
 
 function setupAutoUpdater() {
-  autoUpdater = tryLoadAutoUpdater()
-  if (!autoUpdater) return
+  const loaded = tryLoadAutoUpdater()
+  if (!loaded) return
+  autoUpdater = loaded
+  appendStartupLog(`auto-updater loaded: ${autoUpdater.constructor?.name ?? typeof autoUpdater}`)
 
   autoUpdater.autoDownload = false
   autoUpdater.autoInstallOnAppQuit = false
@@ -133,7 +157,8 @@ function checkForUpdatesNow() {
 
 function downloadAndInstallUpdate() {
   if (!autoUpdater || isDownloadingUpdate || !updateInfo) return
-  if (workUnitRunning) {
+  // B2: check the authoritative backend store, not the renderer boolean.
+  if (isExecutionActiveFromStore()) {
     dialog.showMessageBox(win ?? undefined, {
       type: 'warning',
       title: '更新已暂停',
@@ -149,7 +174,10 @@ function downloadAndInstallUpdate() {
 }
 
 function quitAndInstall() {
-  if (!updateInfo || workUnitRunning) return
+  if (!updateInfo) return
+  // B2: re-read the authoritative store right before install — the renderer
+  // boolean is never the gate.
+  if (isExecutionActiveFromStore()) return
   autoUpdater.quitAndInstall(true, true)
 }
 
@@ -257,9 +285,13 @@ async function startBackend(projectRoot) {
     appendStartupLog(
       `harness runtime preparation failed: ${error instanceof Error ? error.message : String(error)}`,
     )
+    // B4: packaged error messages must never show npm/node/terminal commands.
+    const userMessage = app.isPackaged
+      ? 'Ming Workbench 需要准备运行环境，但未能完成。\n\n请检查网络连接后重新启动。如果问题持续，可能需要安装 Git。'
+      : `Harness runtime 未准备好。\n\n${error instanceof Error ? error.message : String(error)}\n\n请检查网络连接或运行 \`npm run harness:prepare\`。`
     dialog.showErrorBox(
       'Ming Workbench 无法启动',
-      `Harness runtime 未准备好。\n\n${error instanceof Error ? error.message : String(error)}\n\n请检查网络连接或运行 \`npm run harness:prepare\`。`,
+      userMessage,
     )
     app.quit()
     return
@@ -521,7 +553,8 @@ function registerIpc() {
     if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) {
       return { ok: false }
     }
-    if (!updateInfo || workUnitRunning) return { ok: false }
+    if (!updateInfo) return { ok: false }
+    // B2: the authoritative check is in quitAndInstall itself.
     quitAndInstall()
     return { ok: true }
   })
@@ -540,9 +573,14 @@ function registerIpc() {
     }
   })
 
+  // B2: renderer may display execution status but cannot unlock updates.
+  // The desktop:work-unit-running IPC is kept as a display hint only; it is
+  // never used as the install gate.  The install gate is
+  // isExecutionActiveFromStore() which re-reads the authoritative backend
+  // Work Unit store.
   ipcMain.on('desktop:work-unit-running', (event, running) => {
     if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) return
-    workUnitRunning = Boolean(running)
+    // Display hint only — not authoritative.
   })
 }
 
@@ -647,9 +685,13 @@ if (!gotLock) {
       }
     } catch (error) {
       appendStartupLog(`backend startup failed: ${error instanceof Error ? error.message : String(error)}`)
+      // B4: packaged error messages must never show npm/node/terminal commands.
+      const userMessage = app.isPackaged
+        ? 'Ming Workbench 后端没有准备好。\n\n请重新启动。如果问题持续，请检查网络连接或确认 Git 已安装。'
+        : `Workbench 后端没有准备好。\n\n${error instanceof Error ? error.message : String(error)}\n\n先运行 \`npm run build:test\` 和 \`npm run harness:prepare\`。`
       dialog.showErrorBox(
         'Ming Workbench 无法启动',
-        `Workbench 后端没有准备好。\n\n${error instanceof Error ? error.message : String(error)}\n\n先运行 \`npm run build:test\` 和 \`npm run harness:prepare\`。`,
+        userMessage,
       )
       app.quit()
     }
