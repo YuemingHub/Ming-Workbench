@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, writeFileSync, rmSync, symlinkSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -15,6 +15,8 @@ import {
   readIsolationBaseline,
   computeIsolatedDelta,
   applyAuthorizedDelta,
+  resolveIsolationPath,
+  isInsideIsolation,
 } from '../.tmp/execution/execution-isolation.js'
 
 /**
@@ -231,4 +233,185 @@ test('isolation refuses a stale base ref (real HEAD drifted from the grant)', ()
   } finally {
     cleanup(dir)
   }
+})
+
+/**
+ * A. Git metadata isolation adversarial. The isolation is a fully independent
+ * clone, NOT a linked worktree: `git branch`, `git update-ref`, `git tag`,
+ * `git config`, `git commit` executed inside the isolation must never change
+ * the real repository's refs / HEAD / config / tags / working tree.
+ */
+test('A: git metadata mutation inside the isolation never touches the real repository', async () => {
+  const dir = makeScratchRepo()
+  try {
+    const snapshot = readRepositorySnapshot(dir)
+    const realHead = snapshot.head
+    const iso = createExecutionIsolation({ repository: dir, baseRef: realHead })
+
+    // Deliberate git metadata attacks inside the isolation.
+    execFileSync('git', ['-C', iso.worktree, 'branch', 'evil-branch'])
+    execFileSync('git', ['-C', iso.worktree, 'update-ref', 'refs/tags/evil-tag', realHead])
+    execFileSync('git', ['-C', iso.worktree, 'config', 'user.name', 'hacked'])
+    writeFileSync(join(iso.worktree, 'evil.txt'), 'evil')
+    execFileSync('git', ['-C', iso.worktree, 'add', '.'])
+    execFileSync('git', ['-C', iso.worktree, '-c', 'user.name=t', '-c', 'user.email=t@e.c', 'commit', '-qm', 'attack commit'])
+
+    // The real repository's metadata is completely unchanged.
+    const realBranches = execFileSync('git', ['-C', dir, 'branch'], { encoding: 'utf8' })
+    assert.equal(realBranches.includes('evil-branch'), false, 'real repo must not gain the evil branch')
+    const realTags = execFileSync('git', ['-C', dir, 'tag'], { encoding: 'utf8' })
+    assert.equal(realTags.includes('evil-tag'), false, 'real repo must not gain the evil tag')
+    const realUser = execFileSync('git', ['-C', dir, 'config', '--get', 'user.name'], { encoding: 'utf8' }).trim()
+    assert.equal(realUser, 'tester', 'real repo config must stay untouched')
+    const realAfter = readRepositorySnapshot(dir)
+    assert.equal(realAfter.head, realHead, 'real repo HEAD must not move')
+    assert.deepEqual(realAfter.dirtyFiles, [], 'real repo working tree must stay clean')
+
+    // The isolation carries its own metadata (proving independence).
+    const isoBranches = execFileSync('git', ['-C', iso.worktree, 'branch'], { encoding: 'utf8' })
+    assert.equal(isoBranches.includes('evil-branch'), true, 'isolation owns the evil branch privately')
+    assert.equal(existsSync(join(iso.worktree, 'evil.txt')), true)
+
+    // Cleanup leaves the real repo with zero git worktree/clone metadata.
+    discardExecutionIsolation(iso)
+    assert.equal(existsSync(iso.worktree), false, 'isolation directory removed')
+    const worktreeList = execFileSync('git', ['-C', dir, 'worktree', 'list'], { encoding: 'utf8' })
+    assert.equal(worktreeList.includes(iso.worktree), false, 'no worktree registration residue')
+  } finally {
+    cleanup(dir)
+  }
+})
+
+/**
+ * B. Symlink / junction escape adversarial. A symlink planted inside the
+ * isolation that points at the real repo or an external sentinel must be
+ * detected as a scope violation and must never be applied back.
+ */
+test('B: symlink escape inside the isolation is detected and never applied back', () => {
+  const dir = makeScratchRepo()
+  const sentinel = mkdtempSync(join(tmpdir(), 'mw-iso-sentinel-'))
+  try {
+    // A sentinel outside the real repo (simulates "external" targets).
+    writeFileSync(join(sentinel, 'target.txt'), 'ORIGINAL-SENTINEL')
+    const snapshot = readRepositorySnapshot(dir)
+    const iso = createExecutionIsolation({ repository: dir, baseRef: snapshot.head })
+    const baseline = readIsolationBaseline(iso)
+
+    // Harness plants a symlink pointing at the external sentinel AND one at the
+    // real repo's working tree.
+    symlinkSync(join(sentinel, 'target.txt'), join(iso.worktree, 'link-external'))
+    symlinkSync(join(dir, 'answer.mjs'), join(iso.worktree, 'link-repo'))
+
+    // The delta verification must flag both as scope violations (fail-closed),
+    // regardless of slice membership.
+    const slice = buildExactSlice(dir, snapshot.head, ['link-external', 'link-repo'])
+    const delta = computeIsolatedDelta(iso, slice, baseline)
+    assert.equal(delta.scopeViolations.includes('link-external'), true, 'external symlink flagged')
+    assert.equal(delta.scopeViolations.includes('link-repo'), true, 'real-repo symlink flagged')
+    assert.deepEqual(delta.executionProducedChanges, [], 'no symlink may be produced')
+
+    // resolveIsolationPath refuses both.
+    assert.throws(() => resolveIsolationPath(iso, 'link-external'), /escapes the execution sandbox/)
+    assert.throws(() => resolveIsolationPath(iso, 'link-repo'), /escapes the execution sandbox/)
+    assert.equal(isInsideIsolation(iso, join(sentinel, 'target.txt')), false)
+
+    // applyAuthorizedDelta refuses to copy a symlink back (fail-closed throw).
+    assert.throws(() => applyAuthorizedDelta(iso, slice, ['link-external']), /escapes the execution sandbox/)
+    // The sentinel is untouched.
+    assert.equal(readFileSync(join(sentinel, 'target.txt'), 'utf8'), 'ORIGINAL-SENTINEL')
+
+    discardExecutionIsolation(iso)
+    assert.equal(existsSync(iso.worktree), false)
+  } finally {
+    cleanup(dir)
+    cleanup(sentinel)
+  }
+})
+
+/**
+ * C. Cross-platform cleanup on every path: success, scope violation, harness
+ * throw, and test failure must all remove the isolation and leave the real repo
+ * clean. Cleanup uses Node rmSync only (no shell rm -rf), which is the same
+ * path a Windows packaged run uses.
+ */
+async function runIsolationPathScenario(harnessImpl) {
+  const dir = makeScratchRepo()
+  const beforeHead = readRepositorySnapshot(dir).head
+  const beforeDirty = readRepositorySnapshot(dir).dirtyFiles
+  const workUnit = makeWorkUnit(`WU-ISO-${Math.random().toString(36).slice(2)}`)
+  const snapshot = readRepositorySnapshot(dir)
+  const slice = buildExactSlice(dir, snapshot.head, ['answer.mjs'])
+  const { grant, binding } = issueProviderExecutionGrant({ workUnit, projectRoot: dir, snapshot, slice })
+  let result
+  let threw = null
+  try {
+    result = await runBoundedExecution({
+      workUnit,
+      grant,
+      binding,
+      slice,
+      projectRoot: dir,
+      harnessCheckout: dir,
+      workbenchRoot: dir,
+      testCommand: ['node', '--test', 'answer.test.mjs'],
+      allowWrite: true,
+      dependencies: { runHarnessAcpGrant: harnessImpl },
+    })
+  } catch (error) {
+    threw = error
+  }
+  return { dir, beforeHead, beforeDirty, result, threw }
+}
+
+test('C1: cleanup on success removes the isolation and leaves the real repo clean', async () => {
+  const { dir, beforeHead } = await runIsolationPathScenario(async (opts) => {
+    writeFileSync(join(opts.cwd, 'answer.mjs'), 'export function answer() { return 42 }\n')
+    return { sessionId: 'c1', stopReason: 'stop', assistantText: 'ok' }
+  })
+  const after = readRepositorySnapshot(dir)
+  assert.deepEqual(after.dirtyFiles, ['answer.mjs'])
+  assert.equal(after.head, beforeHead)
+  const wtList = execFileSync('git', ['-C', dir, 'worktree', 'list'], { encoding: 'utf8' })
+  assert.equal(wtList.includes('mw-isolation'), false, 'no worktree residue')
+  cleanup(dir)
+})
+
+test('C2: cleanup on scope violation removes the isolation and leaves the real repo untouched', async () => {
+  const { dir, beforeHead } = await runIsolationPathScenario(async (opts) => {
+    writeFileSync(join(opts.cwd, 'answer.mjs'), 'export function answer() { return 42 }\n')
+    writeFileSync(join(opts.cwd, 'answer.test.mjs'), 'export const tampered = true\n')
+    return { sessionId: 'c2', stopReason: 'stop', assistantText: 'A+B' }
+  })
+  const after = readRepositorySnapshot(dir)
+  assert.deepEqual(after.dirtyFiles, [], 'real repo untouched on violation')
+  assert.equal(after.head, beforeHead)
+  const wtList = execFileSync('git', ['-C', dir, 'worktree', 'list'], { encoding: 'utf8' })
+  assert.equal(wtList.includes('mw-isolation'), false, 'no worktree residue')
+  cleanup(dir)
+})
+
+test('C3: cleanup on harness throw removes the isolation and leaves the real repo untouched', async () => {
+  const { dir, beforeHead, threw } = await runIsolationPathScenario(async () => {
+    throw new Error('harness exploded')
+  })
+  assert.ok(threw, 'harness throw propagates as a failed run attempt')
+  const after = readRepositorySnapshot(dir)
+  assert.deepEqual(after.dirtyFiles, [])
+  assert.equal(after.head, beforeHead)
+  const wtList = execFileSync('git', ['-C', dir, 'worktree', 'list'], { encoding: 'utf8' })
+  assert.equal(wtList.includes('mw-isolation'), false, 'no worktree residue')
+  cleanup(dir)
+})
+
+test('C4: cleanup on test failure removes the isolation and applies nothing back', async () => {
+  const { dir, beforeHead } = await runIsolationPathScenario(async (opts) => {
+    writeFileSync(join(opts.cwd, 'answer.mjs'), 'export function answer() { return 40 }\n')
+    return { sessionId: 'c4', stopReason: 'stop', assistantText: 'broken' }
+  })
+  const after = readRepositorySnapshot(dir)
+  assert.deepEqual(after.dirtyFiles, [], 'failed verification applies nothing back')
+  assert.equal(after.head, beforeHead)
+  const wtList = execFileSync('git', ['-C', dir, 'worktree', 'list'], { encoding: 'utf8' })
+  assert.equal(wtList.includes('mw-isolation'), false, 'no worktree residue')
+  cleanup(dir)
 })
