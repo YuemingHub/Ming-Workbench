@@ -122,7 +122,7 @@ test('provider activation restart path is wired in the desktop main process', ()
   for (const line of keyLines) {
     assert.match(
       line,
-      /extraEnv|spawned with the updated/,
+      /extraEnv|spawned with the updated|DEEPSEEK_API_KEY: providerSecret/,
       `DEEPSEEK_API_KEY appears outside extraEnv injection: ${line.trim()}`,
     )
   }

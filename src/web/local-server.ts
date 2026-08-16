@@ -48,6 +48,11 @@ import {
 } from '../persistence/work-unit-store.js'
 import { createFileWorkUnitStore } from '../persistence/file-work-unit-store.js'
 import type { WorkUnit } from '../core/model.js'
+import {
+  runHarnessProviderProbe,
+  type HarnessProviderProbeOptions,
+} from '../transports/harness-acp.js'
+import { sanitizeDiagnosticText } from '../hosts/harness-runtime.js'
 
 const LOOPBACK_HOST = '127.0.0.1'
 const MAX_JSON_BODY_BYTES = 64 * 1024
@@ -74,6 +79,7 @@ export interface LocalWorkbenchServerDependencies {
     options: { projectRoot: string; authorized: boolean },
   ) => Promise<EnableProjectAaopResult>
   runIntake?: typeof runDevelopmentIntakeApplication
+  runProviderProbe?: (options: HarnessProviderProbeOptions) => Promise<unknown>
   logError?: (error: unknown) => void
   /** Work Unit store. Defaults to a file store at storeDir, or no-op. */
   store?: WorkUnitStoreApi
@@ -434,6 +440,7 @@ export async function startLocalWorkbenchServer(
         sendJson(response, 200, {
           status: result.status,
           project: projectOnboardingSnapshot(result.onboarding),
+          projectPath: projectRoot,
           aaopVersion: result.onboarding.aaopVersion,
         })
         return
@@ -813,6 +820,44 @@ export async function startLocalWorkbenchServer(
           repositoryReadback: executionResult.repositoryReadback,
           runOutcome: executionResult.runOutcome,
         })
+        return
+      }
+
+      // Provider connectivity: a REAL round trip through the reviewed Harness
+      // (one minimal read-only ACP session), never just "an API key string
+      // exists". Failures are human-readable and sanitized — the API key,
+      // auth headers and secret-bearing URLs never reach the response.
+      if (method === 'POST' && url.pathname === '/api/test-provider-connection') {
+        if (!process.env.DEEPSEEK_API_KEY) {
+          sendJson(response, 402, {
+            status: 'provider-required',
+            message: '还没有配置模型服务密钥。请先在「配置 AI」里保存 API Key。',
+          })
+          return
+        }
+        const probe = dependencies.runProviderProbe ?? runHarnessProviderProbe
+        try {
+          const result = await probe({
+            harnessCheckout,
+            workbenchRoot,
+            provider: options.provider,
+            model: options.model,
+            sessionRoot: options.sessionRoot,
+            shutdownGraceMs: 90_000,
+          })
+          sendJson(response, 200, {
+            ok: true,
+            provider: options.provider ?? 'deepseek-official',
+            model: options.model ?? 'deepseek-v4-pro',
+            sessionId: (result as { sessionId?: string })?.sessionId ?? null,
+          })
+        } catch (error) {
+          const raw = error instanceof Error ? error.message : String(error)
+          sendJson(response, 200, {
+            ok: false,
+            message: sanitizeDiagnosticText(raw),
+          })
+        }
         return
       }
 

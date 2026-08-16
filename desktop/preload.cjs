@@ -12,6 +12,12 @@ contextBridge.exposeInMainWorld('mingWorkbench', {
   // Provider secret management. The renderer never sees the plaintext key.
   hasProviderSecret: () => ipcRenderer.invoke('desktop:has-provider-secret'),
   setProviderSecret: (secret) => ipcRenderer.invoke('desktop:set-provider-secret', secret),
+  // Remove the stored provider secret (safeStorage) and restart the backend.
+  clearProviderSecret: () => ipcRenderer.invoke('desktop:clear-provider-secret'),
+  // Non-secret provider preferences (provider/model/base URL). The API key is
+  // never part of these — it lives only in safeStorage.
+  getProviderPreferences: () => ipcRenderer.invoke('desktop:get-provider-preferences'),
+  setProviderPreferences: (preferences) => ipcRenderer.invoke('desktop:set-provider-preferences', preferences),
   // Whether this renderer is running inside the Electron desktop shell.
   isDesktop: true,
   // Auto-update bridge. Renderer can query and trigger updates through IPC.
@@ -23,36 +29,3 @@ contextBridge.exposeInMainWorld('mingWorkbench', {
   onUpdateReady: (callback) => ipcRenderer.on('desktop:update-ready', (_e, info) => callback(info)),
   onUpdateProgress: (callback) => ipcRenderer.on('desktop:update-progress', (_e, info) => callback(info)),
 })
-
-// Small desktop-only affordance so a normal user can switch the fixed project
-// from inside the window without touching the shared Stage B UI.
-function injectSwitchProjectButton() {
-  if (window.__mingWorkbenchSwitchButtonInjected) return
-  window.__mingWorkbenchSwitchButtonInjected = true
-
-  const button = document.createElement('button')
-  button.type = 'button'
-  button.textContent = '更换项目'
-  button.setAttribute(
-    'style',
-    'position:fixed;right:18px;bottom:18px;z-index:100;font:700 13px/1 Inter,ui-sans-serif,system-ui,sans-serif;color:#172033;background:#fff;border:1px solid #cfd7e5;border-radius:999px;padding:9px 14px;cursor:pointer;box-shadow:0 8px 24px rgba(43,55,78,.14);',
-  )
-  button.addEventListener('click', async () => {
-    button.disabled = true
-    try {
-      const result = await window.mingWorkbench.selectProject()
-      if (result && !result.canceled && result.url) {
-        window.location.href = result.url
-      }
-    } finally {
-      button.disabled = false
-    }
-  })
-  document.body.appendChild(button)
-}
-
-if (document.readyState === 'loading') {
-  window.addEventListener('DOMContentLoaded', injectSwitchProjectButton)
-} else {
-  injectSwitchProjectButton()
-}

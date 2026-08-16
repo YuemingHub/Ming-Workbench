@@ -15,6 +15,11 @@ import {
   hasProviderSecret,
 } from './provider-secret.mjs'
 import {
+  loadProviderPreferences,
+  saveProviderPreferences,
+  defaultProviderPreferences,
+} from './preferences.mjs'
+import {
   loadWorkUnitStore,
   saveWorkUnitStore,
   clearWorkUnitStore,
@@ -22,6 +27,7 @@ import {
 
 const desktopDir = resolve(fileURLToPath(new URL('.', import.meta.url)))
 const repoRoot = resolve(desktopDir, '..')
+const welcomePagePath = join(desktopDir, 'welcome.html')
 
 // Optional explicit user-data relocation (portable/testing isolation). Must run
 // before the single-instance lock so each isolated launch gets its own lock,
@@ -42,6 +48,7 @@ let activeBackendOrigin = ''
 let switching = false
 let cleanShutdownDone = false
 let providerSecret = null
+let providerPreferences = defaultProviderPreferences()
 let workUnitStore = null
 let currentProjectRoot = ''
 
@@ -308,7 +315,13 @@ async function startBackend(projectRoot) {
     workbenchRoot,
     harnessCheckout: resolvedHarnessCheckout,
     storeDir: app.getPath('userData'),
-    extraEnv: providerSecret ? { DEEPSEEK_API_KEY: providerSecret } : undefined,
+    extraEnv: {
+      ...(providerSecret ? { DEEPSEEK_API_KEY: providerSecret } : {}),
+      // User-configurable provider/model (non-secret preferences) reach the
+      // backend child env and flow into the Harness ACP child.
+      MING_HARNESS_PROVIDER: providerPreferences.provider,
+      MING_HARNESS_MODEL: providerPreferences.model,
+    },
   })
 
   backendUrl = await backend.ready
@@ -474,9 +487,23 @@ async function requestProjectSwitch() {
   }
 }
 
+/**
+ * Trusted sender for desktop-only actions. Normal mode accepts only the exact
+ * loopback backend origin. Before any project exists, the local welcome page
+ * (file:) may open the OS folder picker — nothing else is exposed to it.
+ */
+function isTrustedDesktopSenderForAction(sender) {
+  if (isTrustedDesktopSender(sender.getURL(), activeBackendOrigin)) return true
+  return (
+    activeBackendOrigin === ''
+    && sender === (win ? win.webContents : undefined)
+    && sender.getURL().startsWith('file:')
+  )
+}
+
 function registerIpc() {
   ipcMain.handle('desktop:select-project', async (event) => {
-    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) {
+    if (!isTrustedDesktopSenderForAction(event.sender)) {
       return { canceled: true }
     }
     if (switching) return { canceled: true }
@@ -489,6 +516,52 @@ function registerIpc() {
     } finally {
       switching = false
     }
+  })
+
+  ipcMain.handle('desktop:get-provider-preferences', async (event) => {
+    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) {
+      return { ok: false }
+    }
+    return { ok: true, preferences: providerPreferences }
+  })
+
+  ipcMain.handle('desktop:set-provider-preferences', async (event, preferences) => {
+    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) {
+      return { ok: false }
+    }
+    if (!preferences || typeof preferences !== 'object') {
+      return { ok: false, message: '配置格式不正确。' }
+    }
+    try {
+      const saved = saveProviderPreferences(preferences)
+      providerPreferences = saved
+      if (currentProjectRoot) {
+        void restartBackendForProviderActivation().catch((error) => {
+          appendStartupLog(
+            `provider preferences activation failed: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        })
+      }
+      return { ok: true, preferences: saved }
+    } catch {
+      return { ok: false, message: '配置没有保存成功，请稍后重试。' }
+    }
+  })
+
+  ipcMain.handle('desktop:clear-provider-secret', async (event) => {
+    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) {
+      return { ok: false }
+    }
+    clearProviderSecret()
+    providerSecret = null
+    if (currentProjectRoot) {
+      void restartBackendForProviderActivation().catch((error) => {
+        appendStartupLog(
+          `provider secret clear failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      })
+    }
+    return { ok: true }
   })
 
   ipcMain.handle('desktop:has-provider-secret', async (event) => {
@@ -642,6 +715,8 @@ if (!gotLock) {
     workUnitStore = loadWorkUnitStore()
     // Load provider secret from Electron safeStorage (single authority path).
     providerSecret = loadProviderSecret()
+    // Load non-secret provider preferences (provider/model/base URL).
+    providerPreferences = loadProviderPreferences()
 
     appendStartupLog(`app ready packaged=${app.isPackaged} node=${process.version} execPath=${process.execPath}`)
 
@@ -658,16 +733,17 @@ if (!gotLock) {
       projectRoot = readLastProject()
       if (projectRoot && !existsSync(projectRoot)) projectRoot = undefined
     }
+
+    createWindow()
     if (!projectRoot) {
-      projectRoot = await pickProjectViaDialog()
-      if (!projectRoot) {
-        app.quit()
-        return
-      }
+      // First run: never pop a dialog out of nowhere. Show the welcome page
+      // whose [选择项目] button opens the OS folder picker through IPC.
+      appendStartupLog('no project yet; showing welcome page')
+      void win.loadFile(welcomePagePath)
+      return
     }
     appendStartupLog(`project fixed ${projectRoot}`)
 
-    createWindow()
     try {
       const url = await startBackend(projectRoot)
       if (win && !win.isDestroyed()) {

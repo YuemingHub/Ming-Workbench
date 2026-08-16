@@ -460,21 +460,27 @@ test('local UI HTML and JS are DOM-consistent: every JS id exists in HTML, no st
   assert.equal(js.includes('/api/provider/status'), false)
 
   // Legacy DOM ids tied to the old browser secret form must not exist.
-  assert.ok(!htmlIds.has('provider-save-button') === false)
-  // The HTML now intentionally includes provider-* ids for the Desktop-only
-  // provider setup affordance. Verify they are present.
+  assert.ok(!htmlIds.has('provider-message'), 'legacy provider-card message id is gone')
+  // The Desktop-only provider setup is now a permanent AI card + panel.
   assert.ok(htmlIds.has('provider-save-button'))
   assert.ok(htmlIds.has('provider-key-input'))
-  assert.ok(htmlIds.has('provider-message'))
-  assert.ok(htmlIds.has('provider-status'))
+  assert.ok(htmlIds.has('provider-panel'))
+  assert.ok(htmlIds.has('provider-panel-status'))
+  assert.ok(htmlIds.has('ai-summary-card'))
+  assert.ok(htmlIds.has('project-summary-card'))
+  assert.ok(htmlIds.has('select-project-button'))
+  assert.ok(htmlIds.has('switch-project-button'))
+  assert.ok(htmlIds.has('readiness-checklist'))
 
   // The legacy provider-check in JS must not reference those ids in the old
   // browser-side way (no direct IPC to /api/provider/secret).
-  assert.ok(!js.includes('provider-save-button') === false)
   assert.ok(js.includes('provider-save-button'))
   assert.ok(js.includes('provider-key-input'))
-  assert.ok(js.includes('provider-message'))
-  assert.ok(js.includes('provider-status'))
+  assert.ok(js.includes('provider-panel'))
+  assert.ok(js.includes('window.mingWorkbench.setProviderSecret'))
+  assert.ok(js.includes('window.mingWorkbench.getProviderPreferences'))
+  assert.ok(js.includes('window.mingWorkbench.setProviderPreferences'))
+  assert.ok(js.includes('window.mingWorkbench.clearProviderSecret'))
 
   // Verify the new Desktop-only secret path uses window.mingWorkbench, not HTTP.
   assert.ok(js.includes('window.mingWorkbench.setProviderSecret'))
@@ -665,4 +671,85 @@ test('resume restores persisted Work Unit and detects mutable facts changes', as
       // git HEAD/dirty/provider/harness availability changes.
     },
   )
+})
+
+test('provider connection test requires a configured key', async () => {
+  const previous = process.env.DEEPSEEK_API_KEY
+  delete process.env.DEEPSEEK_API_KEY
+  try {
+    await withServer({}, async (handle) => {
+      const res = await fetch(`${handle.url}/api/test-provider-connection`, {
+        method: 'POST',
+        headers: apiHeaders(handle, { 'content-type': 'application/json' }),
+        body: JSON.stringify({}),
+      })
+      assert.equal(res.status, 402)
+      const body = await res.json()
+      assert.equal(body.status, 'provider-required')
+    })
+  } finally {
+    if (previous === undefined) delete process.env.DEEPSEEK_API_KEY
+    else process.env.DEEPSEEK_API_KEY = previous
+  }
+})
+
+test('provider connection test reports a real round trip through the probe', async () => {
+  const previous = process.env.DEEPSEEK_API_KEY
+  process.env.DEEPSEEK_API_KEY = 'test-key'
+  try {
+    let probeOptions = null
+    await withServer({
+      runProviderProbe: async (options) => {
+        probeOptions = options
+        return { sessionId: 'SESSION-probe', stopReason: 'end_turn', assistantText: 'OK' }
+      },
+    }, async (handle) => {
+      const res = await fetch(`${handle.url}/api/test-provider-connection`, {
+        method: 'POST',
+        headers: apiHeaders(handle, { 'content-type': 'application/json' }),
+        body: JSON.stringify({}),
+      })
+      assert.equal(res.status, 200)
+      const body = await res.json()
+      assert.equal(body.ok, true)
+      assert.equal(body.provider, 'deepseek-official')
+      assert.equal(body.model, 'deepseek-v4-pro')
+      assert.equal(body.sessionId, 'SESSION-probe')
+      assert.ok(probeOptions, 'probe was invoked with harness/workbench context')
+      assert.equal(probeOptions.harnessCheckout, resolve('/harness'))
+    }, { provider: 'deepseek-official', model: 'deepseek-v4-pro' })
+  } finally {
+    if (previous === undefined) delete process.env.DEEPSEEK_API_KEY
+    else process.env.DEEPSEEK_API_KEY = previous
+  }
+})
+
+test('provider connection failure is human-readable and secret-safe', async () => {
+  const previous = process.env.DEEPSEEK_API_KEY
+  process.env.DEEPSEEK_API_KEY = 'test-key'
+  try {
+    await withServer({
+      runProviderProbe: async () => {
+        throw new Error(
+          '401 unauthorized request https://api.deepseek.com/v1/chat/completions ' +
+          'with key sk-abcdefghijklmnopqrstuvwxyz0123456789ABCDEF',
+        )
+      },
+    }, async (handle) => {
+      const res = await fetch(`${handle.url}/api/test-provider-connection`, {
+        method: 'POST',
+        headers: apiHeaders(handle, { 'content-type': 'application/json' }),
+        body: JSON.stringify({}),
+      })
+      assert.equal(res.status, 200)
+      const body = await res.json()
+      assert.equal(body.ok, false)
+      assert.ok(body.message.includes('401'), 'human-readable status preserved')
+      assert.ok(!body.message.includes('sk-'), 'credential shape redacted')
+      assert.ok(!body.message.includes('test-key'), 'key value never echoed')
+    })
+  } finally {
+    if (previous === undefined) delete process.env.DEEPSEEK_API_KEY
+    else process.env.DEEPSEEK_API_KEY = previous
+  }
 })
