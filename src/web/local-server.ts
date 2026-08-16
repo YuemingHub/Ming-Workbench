@@ -76,7 +76,7 @@ export interface LocalWorkbenchServerOptions {
 export interface LocalWorkbenchServerDependencies {
   resolveOnboarding?: (projectRoot: string) => ProjectOnboardingResult
   enableAaop?: (
-    options: { projectRoot: string; authorized: boolean },
+    options: { projectRoot: string; authorized: boolean; workbenchRoot?: string },
   ) => Promise<EnableProjectAaopResult>
   runIntake?: typeof runDevelopmentIntakeApplication
   runProviderProbe?: (options: HarnessProviderProbeOptions) => Promise<unknown>
@@ -261,7 +261,8 @@ export async function startLocalWorkbenchServer(
   const projectRoot = resolve(options.projectRoot)
   const workbenchRoot = resolve(options.workbenchRoot)
   const harnessCheckout = resolve(options.harnessCheckout)
-  const resolveOnboarding = dependencies.resolveOnboarding ?? resolveProjectOnboarding
+  const resolveOnboarding = dependencies.resolveOnboarding
+    ?? ((project: string) => resolveProjectOnboarding(project, { workbenchRoot: options.workbenchRoot }))
   const enableAaop = dependencies.enableAaop ?? enableProjectAaop
   const runIntake = dependencies.runIntake ?? runDevelopmentIntakeApplication
   const logError = dependencies.logError ?? ((error: unknown) => console.error(error))
@@ -431,7 +432,11 @@ export async function startLocalWorkbenchServer(
         }
         // Browser-provided filesystem paths are intentionally ignored. The
         // server can mutate only the project selected before startup.
-        const result = await enableAaop({ projectRoot, authorized: true })
+        const result = await enableAaop({
+          projectRoot,
+          authorized: true,
+          workbenchRoot: options.workbenchRoot,
+        })
         if (result.status === 'failed') {
           sendJson(response, 409, {
             status: 'setup-failed',

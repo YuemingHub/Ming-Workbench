@@ -39,6 +39,8 @@ export interface EnableProjectAaopOptions {
   projectRoot: string
   /** Must be true only after a human explicitly authorizes project setup. */
   authorized: boolean
+  /** Packaged workbench root carrying a bundled Python runtime, if any. */
+  workbenchRoot?: string
 }
 
 export type EnableProjectAaopResult =
@@ -78,7 +80,6 @@ export interface AaopSetupDependencies {
   runBootstrap?: (input: BootstrapRunInput) => BootstrapRunResult
   targetIsDirectory?: (projectRoot: string) => boolean
 }
-
 interface GitHubRefResponse {
   object?: {
     sha?: unknown
@@ -306,7 +307,10 @@ export async function enableProjectAaop(
     return { status: 'failed', reason: before.reason }
   }
 
-  const pythonCommand = (dependencies.resolvePythonCommand ?? resolveProjectPythonCommand)()
+  const pythonCommand = (
+    dependencies.resolvePythonCommand
+    ?? (() => resolveProjectPythonCommand({ workbenchRoot: options.workbenchRoot }))
+  )()
   if (!pythonCommand) {
     return {
       status: 'failed',

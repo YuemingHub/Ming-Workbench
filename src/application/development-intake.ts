@@ -193,7 +193,8 @@ export async function runDevelopmentIntakeApplication(
   options: DevelopmentIntakeApplicationOptions,
   dependencies: DevelopmentIntakeApplicationDependencies = {},
 ): Promise<DevelopmentIntakeApplicationResult> {
-  const onboard = dependencies.resolveOnboarding ?? resolveProjectOnboarding
+  const onboard = dependencies.resolveOnboarding
+    ?? ((project: string) => resolveProjectOnboarding(project, { workbenchRoot: options.workbenchRoot }))
   const prepare = dependencies.prepareProjectIntake ?? prepareProjectDevelopmentIntake
   const coordinate = dependencies.runCoordinator ?? runProjectAaopCoordinator
   const now = options.now ?? (() => new Date())

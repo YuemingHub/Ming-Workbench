@@ -7,6 +7,7 @@ import {
   parseWorkbenchProjectManifest,
   type WorkbenchProjectManifest,
 } from './manifest.js'
+import { resolveProductPythonCommand } from './python-runtime.js'
 
 export interface ProjectOnboardingIdentity {
   id: string
@@ -46,6 +47,8 @@ export interface ProjectOnboardingDependencies {
   commandAvailable?: (command: string) => boolean
   platform?: NodeJS.Platform
   env?: NodeJS.ProcessEnv
+  /** Packaged root that may carry a bundled Python runtime. */
+  workbenchRoot?: string
 }
 
 const AAOP_ORCHESTRATOR_IDENTITY = '# AAOP Runtime Protocol'
@@ -84,6 +87,14 @@ export function resolveProjectPythonCommand(
   const platform = dependencies.platform ?? process.platform
   const env = dependencies.env ?? process.env
   const commandAvailable = dependencies.commandAvailable ?? defaultCommandAvailable
+
+  // Packaged product path: a bundled, hash-verified Python runtime wins over
+  // any system Python. Consumers must not install Python.
+  if (dependencies.workbenchRoot) {
+    const bundled = resolveProductPythonCommand(dependencies.workbenchRoot, platform)
+    if (bundled) return bundled
+  }
+
   const candidates = uniqueNonEmpty([
     env.PYTHON,
     ...(platform === 'win32'

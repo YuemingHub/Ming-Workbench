@@ -237,6 +237,7 @@ test('setup cannot run without token and browser-supplied projectRoot cannot cha
       assert.deepEqual(observed, {
         projectRoot: resolve('/workspace/fixture'),
         authorized: true,
+        workbenchRoot: resolve('/workbench'),
       })
     },
   )

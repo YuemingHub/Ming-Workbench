@@ -10,6 +10,7 @@ import {
   assertHarnessAcpAdmission,
   assertReviewedHarnessCheckout,
   buildHarnessChildEnv,
+  inspectHarnessCheckout,
 } from '../.tmp/transports/harness-acp.js'
 
 function run(cwd, args) {
@@ -388,4 +389,54 @@ test('ACP launcher anchors bare plugins to Harness and does not load project .en
   assert.match(launcher, /boot\(NAME, configPath, undefined, undefined, appBootUrl\)/)
   assert.equal(launcher.includes('loadEnv('), false)
   assert.match(launcher, /ACP owns stdout/)
+})
+
+test('checkout identity reads from the bundled capsule manifest without git', () => {
+  const capsuleDir = mkdtempSync(join(tmpdir(), 'ming-workbench-capsule-'))
+  try {
+    mkdirSync(join(capsuleDir, 'apps', 'cli'), { recursive: true })
+    writeFileSync(
+      join(capsuleDir, 'apps', 'cli', 'package.json'),
+      JSON.stringify({ version: '0.1.0-rc.5' }),
+    )
+    writeFileSync(
+      join(capsuleDir, 'harness-runtime-manifest.json'),
+      `${JSON.stringify({
+        schemaVersion: 1,
+        harness: {
+          commit: '47f943859bef60e4160492346772ded9b24f765a',
+          version: '0.1.0-rc.5',
+        },
+        keyFiles: {},
+      }, null, 2)}\n`,
+      'utf8',
+    )
+
+    // No .git anywhere in the capsule, so git-based identity would fail by
+    // walking up to an unrelated parent repository. Manifest must win.
+    const identity = inspectHarnessCheckout(capsuleDir)
+    assert.equal(identity.commit, '47f943859bef60e4160492346772ded9b24f765a')
+    assert.equal(identity.sourceVersion, '0.1.0-rc.5')
+
+    // assertReviewedHarnessCheckout must accept the manifest-backed identity.
+    assert.doesNotThrow(() => assertReviewedHarnessCheckout(capsuleDir))
+  } finally {
+    rmSync(capsuleDir, { recursive: true, force: true })
+  }
+})
+
+test('checkout identity falls back to git for a non-capsule checkout', () => {
+  const workspace = createWorkspace()
+  try {
+    mkdirSync(join(workspace, 'apps', 'cli'), { recursive: true })
+    writeFileSync(
+      join(workspace, 'apps', 'cli', 'package.json'),
+      JSON.stringify({ version: '0.1.0-rc.5' }),
+    )
+    const identity = inspectHarnessCheckout(workspace)
+    assert.equal(identity.sourceVersion, '0.1.0-rc.5')
+    assert.match(identity.commit, /^[0-9a-f]{40}$/)
+  } finally {
+    rmSync(workspace, { recursive: true, force: true })
+  }
 })

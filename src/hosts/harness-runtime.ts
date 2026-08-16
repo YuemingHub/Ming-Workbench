@@ -1,16 +1,23 @@
 /**
- * Harness runtime preparation: bundled extraction + identity verification.
+ * Harness runtime preparation: prebuilt capsule + bundled extraction + identity
+ * verification.
  *
- * Normal users should not need to manually clone or set MING_HARNESS_CHECKOUT.
- * This module tries, in order:
+ * Normal users must never need to clone the Harness or run `pnpm install`. This
+ * module tries, in order:
  *   1. MING_HARNESS_CHECKOUT env var (backward-compat escape hatch)
  *   2. An explicit harnessCheckout path supplied by the caller
- *   3. A bundled git bundle shipped with the Workbench package
+ *   3. A bundled PREBUILT runtime capsule shipped with the Workbench package
+ *      (build-time prepared; runtime only verifies identity — no git, no
+ *      pnpm, no network)
+ *   4. A bundled git bundle shipped with the Workbench package (developer
+ *      fallback; requires git + pnpm install)
  *
- * The bundled path is extracted to a platform cache directory, identity-
- * verified against harness.lock.json, and dependencies installed.
+ * The bundled capsule is the product runtime: it carries the full reviewed
+ * Harness source plus a prod-only node_modules closure prepared at build time,
+ * verified here by SHA-256 + exact commit/version, then executed in place.
  */
 
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { join, resolve, dirname, basename } from 'node:path'
@@ -28,11 +35,15 @@ export interface HarnessRuntimeOptions {
 
 export interface HarnessRuntimeResult {
   checkout: string
-  source: 'bundled' | 'env' | 'existing'
+  source: 'bundled-capsule' | 'bundled' | 'env' | 'existing'
   identity: { commit: string; version: string }
 }
 
 const BUNDLE_NAME = 'deepseek-harness-0.1.0-rc.5.bundle'
+
+/** Prebuilt runtime capsule name, produced by scripts/build-harness-capsule.mjs. */
+export const BUNDLED_CAPSULE_DIR = 'deepseek-harness-capsule'
+export const CAPSULE_MANIFEST_NAME = 'harness-runtime-manifest.json'
 
 function defaultLockPath(workbenchRoot: string): string {
   return resolve(workbenchRoot, 'harness.lock.json')
@@ -52,6 +63,84 @@ function defaultBundledRuntimeDir(workbenchRoot: string): string {
     ? resolve(process.env.MING_HARNESS_CACHE)
     : join(tmpdir(), 'ming-workbench-harness')
   return join(cacheRoot, 'deepseek-harness')
+}
+
+function defaultBundledCapsuleDir(workbenchRoot: string): string {
+  return resolve(workbenchRoot, '.workbench', 'vendor', BUNDLED_CAPSULE_DIR)
+}
+
+function sha256File(file: string): string {
+  return createHash('sha256').update(readFileSync(file)).digest('hex')
+}
+
+export interface HarnessCapsuleManifest {
+  schemaVersion: number
+  harness: { commit: string; version: string; sourcePackagePath: string }
+  keyFiles: Record<string, string>
+}
+
+function readCapsuleManifest(capsuleDir: string): HarnessCapsuleManifest {
+  const raw = JSON.parse(
+    readFileSync(join(capsuleDir, CAPSULE_MANIFEST_NAME), 'utf8'),
+  ) as HarnessCapsuleManifest
+  if (
+    !raw
+    || raw.schemaVersion !== 1
+    || !raw.harness
+    || typeof raw.harness.commit !== 'string'
+    || typeof raw.harness.version !== 'string'
+    || !raw.keyFiles
+    || typeof raw.keyFiles !== 'object'
+  ) {
+    throw new Error('Bundled Harness capsule manifest is not in the reviewed shape.')
+  }
+  return raw
+}
+
+/**
+ * Verify a prebuilt capsule in place: every pinned key file must exist and
+ * match its recorded SHA-256, and the recorded commit/version must match
+ * harness.lock.json. Deliberately needs NO git executable and NO network.
+ */
+export function verifyBundledCapsule(
+  capsuleDir: string,
+  lock: { reviewedCommit: string; sourcePackage: { version: string; path: string } },
+): { commit: string; version: string } {
+  const manifest = readCapsuleManifest(capsuleDir)
+
+  const expectedKeyFiles: Record<string, string> = {
+    ...manifest.keyFiles,
+  }
+  const manifestPath = join(capsuleDir, CAPSULE_MANIFEST_NAME)
+  expectedKeyFiles[CAPSULE_MANIFEST_NAME] = sha256File(manifestPath)
+
+  for (const [relative, expected] of Object.entries(expectedKeyFiles)) {
+    const absolute = join(capsuleDir, relative)
+    if (!existsSync(absolute)) {
+      throw new Error(
+        `Bundled Harness capsule is missing pinned file ${relative}.`,
+      )
+    }
+    const actual = sha256File(absolute)
+    if (actual !== expected) {
+      throw new Error(
+        `Bundled Harness capsule file ${relative} failed SHA-256 verification.`,
+      )
+    }
+  }
+
+  if (manifest.harness.commit !== lock.reviewedCommit) {
+    throw new Error(
+      `Bundled Harness capsule commit mismatch: expected ${lock.reviewedCommit}, detected ${manifest.harness.commit}.`,
+    )
+  }
+  if (manifest.harness.version !== lock.sourcePackage.version) {
+    throw new Error(
+      `Bundled Harness capsule version mismatch: expected ${lock.sourcePackage.version}, detected ${manifest.harness.version}.`,
+    )
+  }
+
+  return { commit: manifest.harness.commit, version: manifest.harness.version }
 }
 
 function git(cwd: string, args: string[]): string {
@@ -347,7 +436,16 @@ export async function prepareHarnessRuntime(
     return { checkout, source: 'existing', identity }
   }
 
-  // 3. Bundled runtime.
+  // 3. Bundled prebuilt runtime capsule (product path). Prepared at build
+  // time; the consumer machine only verifies identity. No git, no pnpm, no
+  // network. This is the first-class product runtime.
+  const capsuleDir = defaultBundledCapsuleDir(workbenchRoot)
+  if (existsSync(join(capsuleDir, CAPSULE_MANIFEST_NAME))) {
+    const identity = verifyBundledCapsule(capsuleDir, lock)
+    return { checkout: capsuleDir, source: 'bundled-capsule', identity }
+  }
+
+  // 4. Bundled runtime (developer fallback: requires git + pnpm install).
   const bundlePath = defaultBundlePath(workbenchRoot)
   const bundledDir = defaultBundledRuntimeDir(workbenchRoot)
 

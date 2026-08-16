@@ -138,16 +138,47 @@ function normalizeGitHubRepository(remote: string): string | undefined {
   return undefined
 }
 
+/**
+ * Read the Harness identity without relying on a git executable. The prebuilt
+ * bundled capsule ships `harness-runtime-manifest.json` (commit + version);
+ * developer checkouts fall back to git. The manifest is the SAME reviewed
+ * authority as the git commit — the capsule build only records an already
+ * verified commit. Consumer machines therefore need no git for identity.
+ */
+function identityFromManifest(checkout: string): HarnessCheckoutIdentity | undefined {
+  try {
+    const manifestPath = join(checkout, 'harness-runtime-manifest.json')
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      harness?: { commit?: unknown; version?: unknown }
+    }
+    if (
+      typeof manifest.harness?.commit === 'string'
+      && typeof manifest.harness?.version === 'string'
+    ) {
+      return {
+        commit: manifest.harness.commit,
+        sourceVersion: manifest.harness.version,
+      }
+    }
+  } catch {
+    // Not a capsule; fall back to git.
+  }
+  return undefined
+}
+
 export function inspectHarnessCheckout(harnessCheckout: string): HarnessCheckoutIdentity {
   const checkout = resolve(harnessCheckout)
+  const fromManifest = identityFromManifest(checkout)
   const pkg = JSON.parse(
     readFileSync(join(checkout, 'apps', 'cli', 'package.json'), 'utf8'),
   ) as { version?: unknown }
 
-  return {
-    commit: git(checkout, ['rev-parse', 'HEAD']),
-    sourceVersion: typeof pkg.version === 'string' ? pkg.version : '',
-  }
+  return (
+    fromManifest ?? {
+      commit: git(checkout, ['rev-parse', 'HEAD']),
+      sourceVersion: typeof pkg.version === 'string' ? pkg.version : '',
+    }
+  )
 }
 
 export function assertReviewedHarnessCheckout(harnessCheckout: string): void {

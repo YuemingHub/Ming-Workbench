@@ -1,6 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join, resolve, basename } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -10,6 +11,9 @@ import {
   resolvePnpmInvocation,
   executableKind,
   sanitizeDiagnosticText,
+  verifyBundledCapsule,
+  BUNDLED_CAPSULE_DIR,
+  CAPSULE_MANIFEST_NAME,
 } from '../.tmp/index.js'
 
 const REPO_ROOT = resolve(process.cwd())
@@ -226,3 +230,159 @@ test('sanitizeDiagnosticText redacts credential-shaped strings', () => {
   assert.ok(out.includes('[REDACTED-API-KEY]'))
   assert.ok(out.includes('[REDACTED-TOKEN]'))
 })
+
+test('verifyBundledCapsule accepts a manifest that matches the lock', () => {
+  const workbenchRoot = setupTestDir()
+  try {
+    const capsuleDir = join(workbenchRoot, '.workbench', 'vendor', BUNDLED_CAPSULE_DIR)
+    mkdirSync(capsuleDir, { recursive: true })
+
+    const lock = {
+      reviewedCommit: 'a'.repeat(40),
+      sourcePackage: { version: '0.1.0-test', path: 'apps/cli/package.json' },
+      upstreamRepository: 'x',
+    }
+    mkdirSync(join(capsuleDir, 'apps', 'cli'), { recursive: true })
+    writeFileSync(
+      join(capsuleDir, 'apps', 'cli', 'package.json'),
+      JSON.stringify({ version: '0.1.0-test' }),
+    )
+    writeFileSync(join(capsuleDir, 'file.txt'), 'hello capsule\n')
+
+    const manifest = {
+      schemaVersion: 1,
+      harness: { commit: lock.reviewedCommit, version: '0.1.0-test' },
+      keyFiles: {
+        'apps/cli/package.json': hashOf(join(capsuleDir, 'apps', 'cli', 'package.json')),
+        'file.txt': hashOf(join(capsuleDir, 'file.txt')),
+      },
+    }
+    const manifestPath = join(capsuleDir, CAPSULE_MANIFEST_NAME)
+    writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8')
+
+    const identity = verifyBundledCapsule(capsuleDir, lock)
+    assert.equal(identity.commit, lock.reviewedCommit)
+    assert.equal(identity.version, '0.1.0-test')
+  } finally {
+    cleanup(workbenchRoot)
+  }
+})
+
+test('verifyBundledCapsule rejects a tampered pinned file', () => {
+  const workbenchRoot = setupTestDir()
+  try {
+    const capsuleDir = join(workbenchRoot, '.workbench', 'vendor', BUNDLED_CAPSULE_DIR)
+    mkdirSync(capsuleDir, { recursive: true })
+    const lock = {
+      reviewedCommit: 'a'.repeat(40),
+      sourcePackage: { version: '0.1.0-test', path: 'apps/cli/package.json' },
+      upstreamRepository: 'x',
+    }
+    mkdirSync(join(capsuleDir, 'apps', 'cli'), { recursive: true })
+    writeFileSync(
+      join(capsuleDir, 'apps', 'cli', 'package.json'),
+      JSON.stringify({ version: '0.1.0-test' }),
+    )
+    writeFileSync(join(capsuleDir, 'file.txt'), 'original\n')
+
+    const manifest = {
+      schemaVersion: 1,
+      harness: { commit: lock.reviewedCommit, version: '0.1.0-test' },
+      keyFiles: {
+        'apps/cli/package.json': hashOf(join(capsuleDir, 'apps', 'cli', 'package.json')),
+        'file.txt': hashOf(join(capsuleDir, 'file.txt')),
+      },
+    }
+    writeFileSync(
+      join(capsuleDir, CAPSULE_MANIFEST_NAME),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+      'utf8',
+    )
+
+    // Tamper after the manifest was written.
+    writeFileSync(join(capsuleDir, 'file.txt'), 'tampered\n')
+
+    assert.throws(
+      () => verifyBundledCapsule(capsuleDir, lock),
+      /failed SHA-256 verification/,
+    )
+  } finally {
+    cleanup(workbenchRoot)
+  }
+})
+
+test('verifyBundledCapsule rejects a commit that does not match the lock', () => {
+  const workbenchRoot = setupTestDir()
+  try {
+    const capsuleDir = join(workbenchRoot, '.workbench', 'vendor', BUNDLED_CAPSULE_DIR)
+    mkdirSync(capsuleDir, { recursive: true })
+    const lock = {
+      reviewedCommit: 'a'.repeat(40),
+      sourcePackage: { version: '0.1.0-test', path: 'apps/cli/package.json' },
+      upstreamRepository: 'x',
+    }
+    mkdirSync(join(capsuleDir, 'apps', 'cli'), { recursive: true })
+    writeFileSync(
+      join(capsuleDir, 'apps', 'cli', 'package.json'),
+      JSON.stringify({ version: '0.1.0-test' }),
+    )
+    const manifest = {
+      schemaVersion: 1,
+      harness: { commit: 'b'.repeat(40), version: '0.1.0-test' },
+      keyFiles: {
+        'apps/cli/package.json': hashOf(join(capsuleDir, 'apps', 'cli', 'package.json')),
+      },
+    }
+    writeFileSync(
+      join(capsuleDir, CAPSULE_MANIFEST_NAME),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+      'utf8',
+    )
+    assert.throws(
+      () => verifyBundledCapsule(capsuleDir, lock),
+      /commit mismatch/,
+    )
+  } finally {
+    cleanup(workbenchRoot)
+  }
+})
+
+test('prepareHarnessRuntime prefers the bundled capsule over the git bundle', async () => {
+  const workbenchRoot = setupTestDir()
+  const cache = withFreshHarnessCache()
+  try {
+    // A valid capsule at the expected vendor path.
+    const capsuleDir = join(workbenchRoot, '.workbench', 'vendor', BUNDLED_CAPSULE_DIR)
+    mkdirSync(capsuleDir, { recursive: true })
+    mkdirSync(join(capsuleDir, 'apps', 'cli'), { recursive: true })
+    writeFileSync(
+      join(capsuleDir, 'apps', 'cli', 'package.json'),
+      JSON.stringify({ version: '0.1.0-rc.5' }),
+    )
+    const manifest = {
+      schemaVersion: 1,
+      harness: { commit: '47f943859bef60e4160492346772ded9b24f765a', version: '0.1.0-rc.5' },
+      keyFiles: {
+        'apps/cli/package.json': hashOf(join(capsuleDir, 'apps', 'cli', 'package.json')),
+      },
+    }
+    writeFileSync(
+      join(capsuleDir, CAPSULE_MANIFEST_NAME),
+      `${JSON.stringify(manifest, null, 2)}\n`,
+      'utf8',
+    )
+    writeFileSync(join(workbenchRoot, 'harness.lock.json'), readFileSync(REAL_LOCK))
+
+    const result = await prepareHarnessRuntime({ workbenchRoot })
+    assert.equal(result.source, 'bundled-capsule')
+    assert.equal(result.checkout, capsuleDir)
+    assert.equal(result.identity.commit, '47f943859bef60e4160492346772ded9b24f765a')
+  } finally {
+    cleanup(workbenchRoot)
+    cache.restore()
+  }
+})
+
+function hashOf(file) {
+  return createHash('sha256').update(readFileSync(file)).digest('hex')
+}
