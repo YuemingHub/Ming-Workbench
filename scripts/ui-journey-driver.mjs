@@ -68,6 +68,38 @@ async function main() {
   const projectPath = await page.locator('#project-summary .path-text').textContent().catch(() => '')
   if (projectPath) console.log(`project path: ${projectPath}`)
 
+  step('1b. AAOP setup through the UI (if setup-required)')
+  const setupButton = page.locator('#setup-button')
+  if (await setupButton.count()) {
+    const setupVisible = await setupButton.isVisible().catch(() => false)
+    if (setupVisible) {
+      // A real user reads the product's plain-language explanation and clicks
+      // the product's authorization action; the product then runs the canonical
+      // AAOP bootstrap with the bundled Python.
+      // Register the confirm dialog handler BEFORE the click that opens it.
+      let dialogHandled = false
+      const dialogPromise = new Promise((resolvePromise) => {
+        page.once('dialog', async (dialog) => {
+          dialogHandled = true
+          await dialog.accept()
+          resolvePromise()
+        })
+      })
+      await setupButton.click({ force: true })
+      console.log('clicked AAOP setup authorization through the UI')
+      // If a confirm dialog opens, accept it.
+      await Promise.race([dialogPromise, new Promise((r) => setTimeout(r, 5000))])
+      // Wait for the project to become ready (setup completes).
+      await page.waitForFunction(
+        () => document.body.textContent.includes('项目已启用') || document.body.textContent.includes('准备好了') || !document.getElementById('setup-button'),
+        { timeout: 120_000 },
+      ).catch(() => console.log('setup completion text not asserted'))
+      await page.waitForTimeout(2000)
+    }
+  } else {
+    console.log('no AAOP setup button (project already ready or not setup-required)')
+  }
+
   step('2. readiness pill')
   const pill = await page.locator('#readiness-pill').textContent()
   console.log(`readiness: ${pill}`)
@@ -75,6 +107,19 @@ async function main() {
   step('3. provider panel (product path, not env)')
   await click(page, '#open-provider-button', 'open provider panel')
   await page.waitForSelector('#provider-panel:not(.hidden)', { timeout: 10_000 })
+  // A real user selects the custom OpenAI-compatible provider and fills the
+  // endpoint URL through the UI (the product's supported surface).
+  const kindSelect = page.locator('#provider-kind-select')
+  if (await kindSelect.count()) {
+    await kindSelect.selectOption('custom')
+    console.log('selected custom provider kind through the UI')
+  }
+  const baseUrlInput = page.locator('#base-url-input')
+  const baseUrl = process.env.MING_JOURNEY_BASE_URL ?? 'http://127.0.0.1:8000/v1'
+  if (await baseUrlInput.count()) {
+    await baseUrlInput.fill(baseUrl)
+    console.log(`filled base URL through the UI: ${baseUrl}`)
+  }
   // Fill model (a human would type or pick).
   const model = page.locator('#model-input')
   if (await model.count()) {

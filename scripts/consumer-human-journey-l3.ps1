@@ -149,7 +149,8 @@ function Invoke-L3UiJourney([string]$Label, [string]$UserData) {
   # Drive the UI through the journey driver.
   $env:MING_CDP_URL = "http://127.0.0.1:$cdpPort"
   $env:MING_JOURNEY_REQUEST = "把 README 里的 Version: OLD 改成 Version: NEW，然后确认真的改好了。"
-  $env:MING_JOURNEY_CREDENTIAL = "fixture-credential"
+  $env:MING_JOURNEY_CREDENTIAL = "fixture-key"
+  $env:MING_JOURNEY_BASE_URL = "http://127.0.0.1:8000/v1"
   Push-Location $WorkDir
   try {
     & node scripts/ui-journey-driver.mjs 2>&1 | Tee-Object -FilePath (Join-Path $ScratchRoot "$Label-ui.log")
@@ -158,6 +159,7 @@ function Invoke-L3UiJourney([string]$Label, [string]$UserData) {
   Remove-Item Env:MING_CDP_URL -ErrorAction SilentlyContinue
   Remove-Item Env:MING_JOURNEY_REQUEST -ErrorAction SilentlyContinue
   Remove-Item Env:MING_JOURNEY_CREDENTIAL -ErrorAction SilentlyContinue
+  Remove-Item Env:MING_JOURNEY_BASE_URL -ErrorAction SilentlyContinue
 
   return $proc
 }
@@ -173,6 +175,7 @@ $readmeAfter = Read-TextFileShared (Join-Path $scratchRepo "README.md")
 Write-Host "README after:"
 Write-Host $readmeAfter
 Assert-True ($readmeAfter -match "Version: NEW") "README reached Version: NEW (independent read)"
+Assert-True (Test-Path (Join-Path $scratchRepo ".aaop")) "AAOP was installed into the scratch project through the UI"
 $diff = & git -C $scratchRepo diff 2>&1 | Out-String
 Write-Host "git diff:"
 Write-Host $diff
