@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, writeFileSync, rmSync, readFileSync, copyFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -56,13 +55,10 @@ test('bundled Python runtime re-verifies interpreter SHA-256', () => {
     const interpreterName = process.platform === 'win32' ? 'python.exe' : 'python3'
     const pythonDir = join(workbenchRoot, '.workbench', 'runtime', 'python', 'bin')
     mkdirSync(pythonDir, { recursive: true })
-    const python = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], {
-      encoding: 'utf8',
-    }).trim()
+    // Copy the current Node binary as a stand-in interpreter: the test only
+    // verifies identity re-checking (SHA-256), never that this is really Python.
     const target = join(pythonDir, interpreterName)
-    execFileSync(process.platform === 'win32' ? 'copy' : 'cp', process.platform === 'win32'
-      ? [python, target]
-      : [python, target])
+    copyFileSync(process.execPath, target)
 
     const hash = createHash('sha256').update(readFileSync(target)).digest('hex')
     writeFileSync(
@@ -85,19 +81,18 @@ test('bundled Python runtime re-verifies interpreter SHA-256', () => {
 test('resolveProductPythonCommand prefers bundled Python over system Python', () => {
   const workbenchRoot = setupTestDir()
   try {
-    // No bundled runtime -> falls back to system python.
-    const system = resolveProductPythonCommand(workbenchRoot, 'linux')
-    assert.ok(system === 'python3' || system === 'python', `expected a system python command, got ${system}`)
+    // No bundled runtime -> falls back to a system python command. The exact
+    // command name is platform-dependent (python3/python on POSIX, py on
+    // Windows); just require that SOMETHING resolves.
+    const system = resolveProductPythonCommand(workbenchRoot, process.platform)
+    assert.ok(system && system.length > 0, `expected a system python command, got ${system}`)
 
     // With bundled runtime present -> bundled executable wins.
     const interpreterName = process.platform === 'win32' ? 'python.exe' : 'python3'
     const pythonDir = join(workbenchRoot, '.workbench', 'runtime', 'python', 'bin')
     mkdirSync(pythonDir, { recursive: true })
-    const python = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], {
-      encoding: 'utf8',
-    }).trim()
     const target = join(pythonDir, interpreterName)
-    execFileSync(process.platform === 'win32' ? 'copy' : 'cp', [python, target])
+    copyFileSync(process.execPath, target)
     const hash = createHash('sha256').update(readFileSync(target)).digest('hex')
     writeFileSync(
       join(workbenchRoot, '.workbench', 'runtime', 'python', 'python-runtime.json'),

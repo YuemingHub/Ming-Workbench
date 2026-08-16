@@ -62,36 +62,67 @@ const server = createServer((req, res) => {
 
     const content = readReadme()
     const thisPhase = phase
-    // Advance only after a phase has been served; a retried request (same agent
-    // turn) must not skip a phase.
     phase += 1
     console.log(`fixture request: phase=${thisPhase} readmeNew=${content.includes(NEW_MARK)}`)
+
+    // Distinguish request kinds by their prompt text so the same fixture serves
+    // the whole journey: provider probe, AAOP intake, and bounded execution.
+    let parsed = {}
+    try { parsed = JSON.parse(body) } catch { /* ignore */ }
+    const messages = Array.isArray(parsed.messages) ? parsed.messages : []
+    const promptText = messages.map((m) => String(m.content ?? '')).join(' ')
+    const isProbe = promptText.includes('只回复') && promptText.includes('不要调用任何工具')
+    const isExecution = promptText.includes('AAOP Provider Execution Grant')
+    console.log(`fixture request: isProbe=${isProbe} isExecution=${isExecution}`)
 
     const sseChunk = (payload) => {
       res.write(`data: ${JSON.stringify(payload)}\n\n`)
     }
     res.writeHead(200, {
-      'content-type': 'text/event-stream',
+      'content-type': 'text/event-stream; charset=utf-8',
       'cache-control': 'no-cache',
+      'connection': 'keep-alive',
     })
+    res.flushHeaders()
 
-    if (thisPhase === 0) {
-      // Read tool call so fs-observation-policy observes README.md.
-      const readArgs = JSON.stringify({ file_path: 'README.md' })
-      const rmid = Math.floor(readArgs.length / 2)
-      sseChunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'fixture-read', type: 'function', function: { name: 'read', arguments: readArgs.slice(0, rmid) } }] }, finish_reason: null }] })
-      sseChunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: readArgs.slice(rmid) } }] }, finish_reason: null }] })
-      sseChunk({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] })
-    } else if (thisPhase === 1) {
-      // Write tool call replacing README.md with the NEW content.
-      const writeArgs = JSON.stringify({ file_path: 'README.md', content: `# Workbench Reality Test\n\n${NEW_MARK}\n` })
-      const wmid = Math.floor(writeArgs.length / 2)
-      sseChunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'fixture-write', type: 'function', function: { name: 'write', arguments: writeArgs.slice(0, wmid) } }] }, finish_reason: null }] })
-      sseChunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: writeArgs.slice(wmid) } }] }, finish_reason: null }] })
-      sseChunk({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] })
+    if (isProbe) {
+      sseChunk({ choices: [{ index: 0, delta: { content: 'OK' }, finish_reason: null }] })
+      sseChunk({ choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 1 } })
+    } else if (isExecution) {
+      if (thisPhase === 0) {
+        // Read tool call so fs-observation-policy observes README.md.
+        const readArgs = JSON.stringify({ file_path: 'README.md' })
+        const rmid = Math.floor(readArgs.length / 2)
+        sseChunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'fixture-read', type: 'function', function: { name: 'read', arguments: readArgs.slice(0, rmid) } }] }, finish_reason: null }] })
+        sseChunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: readArgs.slice(rmid) } }] }, finish_reason: null }] })
+        sseChunk({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] })
+      } else if (thisPhase === 1) {
+        // Write tool call replacing README.md with the NEW content.
+        const writeArgs = JSON.stringify({ file_path: 'README.md', content: `# Workbench Reality Test\n\n${NEW_MARK}\n` })
+        const wmid = Math.floor(writeArgs.length / 2)
+        sseChunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'fixture-write', type: 'function', function: { name: 'write', arguments: writeArgs.slice(0, wmid) } }] }, finish_reason: null }] })
+        sseChunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: writeArgs.slice(wmid) } }] }, finish_reason: null }] })
+        sseChunk({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] })
+      } else {
+        sseChunk({ choices: [{ index: 0, delta: { content: 'WORKBENCH_REALITY_MUTATION_DONE' }, finish_reason: null }] })
+        sseChunk({ choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 5 } })
+      }
     } else {
-      sseChunk({ choices: [{ index: 0, delta: { role: 'assistant', content: 'WORKBENCH_REALITY_MUTATION_DONE' }, finish_reason: null }] })
-      sseChunk({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })
+      // AAOP intake coordinator: return the canonical envelope as plain text.
+      const envelope = JSON.stringify({
+        schema_version: '1.0',
+        generated_at: new Date().toISOString(),
+        raw_request: '',
+        situation: 'existing_repository',
+        route: 'understand-review',
+        route_confidence: 0.8,
+        ambiguities: [],
+        question_needed: null,
+        project_evidence_summary: [],
+        next_action: 'Inspect the repository before deciding the mutation surface.',
+      })
+      sseChunk({ choices: [{ index: 0, delta: { content: envelope }, finish_reason: null }] })
+      sseChunk({ choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 10 } })
     }
     res.write('data: [DONE]\n\n')
     res.end()
