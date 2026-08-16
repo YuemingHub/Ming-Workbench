@@ -1,18 +1,23 @@
-# Consumer Journey Gate — the highest packaged-product acceptance level (L3).
+# Packaged Application Pipeline Smoke — installed desktop shell + application/backend pipeline.
 #
-# This gate proves the product, as installed by a REAL NSIS installer on a
-# Windows machine, can complete the entire consumer journey. It is strictly
-# stronger than the distribution smoke (L2). L1/L2 PASS must never be written
-# as "the product works" — only this gate is consumer evidence.
+# Evidence level: strong L2 / integration (NOT L3).
 #
-# What it proves (each numbered requirement of the Consumer Journey Gate):
+# What this proves: the REAL NSIS-installed desktop shell launches, the backend
+# pipeline works (project discovery, AAOP setup through the product API path,
+# provider fixture round-trip, plain-language intake to a persisted Work Unit),
+# and a second launch restores project/state.
+#
+# What it does NOT prove (by design): a human driving the product UI. The true
+# L3 Consumer Journey Gate (`consumer-human-journey-l3`) drives the renderer
+# through CDP. Do NOT write this smoke's PASS as "L3 consumer journey PASS".
+#
 #   1. install from a real NSIS installer (silent per-user, /D=<isolated>)
 #   2. fresh userData
 #   3. the scratch project is NOT a Ming-Workbench source checkout
 #   4. an ordinary scratch Git project is created and selected
 #   5. the INSTALLED exe is launched (not win-unpacked)
 #   6. the product enters the project (backend ready + /api/project ok)
-#   7. AAOP absent -> AAOP setup runs through the PRODUCT path
+#   7. AAOP absent -> AAOP setup runs through the product API path
 #      (bundled Python runtime; verify via pythonCommand in the response)
 #   8. Harness runtime ready (bundled-capsule identity)
 #   9. provider configuration surface available
@@ -25,12 +30,12 @@
 #
 # Transport-vs-provider separation:
 #   - With a repository-owned deterministic local OpenAI-compatible provider
-#     fixture, this gate proves product TRANSPORT end to end.
+#     fixture, this smoke proves product TRANSPORT end to end.
 #   - A real provider dogfood is a SEPARATE L4 gate and is never claimed here.
 #
 # Usage (Windows):
-#   pwsh -NoProfile -File scripts/consumer-journey-gate.ps1
-#   pwsh -NoProfile -File scripts/consumer-journey-gate.ps1 -SkipBuild
+#   pwsh -NoProfile -File scripts/packaged-application-pipeline-smoke.ps1
+#   pwsh -NoProfile -File scripts/packaged-application-pipeline-smoke.ps1 -SkipBuild
 
 param(
   [switch]$SkipBuild,
@@ -188,6 +193,13 @@ function Invoke-ConsumerLaunch([string]$Label) {
   $env:TMP = $launchTemp
   $env:MING_WORKBENCH_ALLOW_WRITE = "0"
   $env:MING_TEST_SECRET_P0_DO_NOT_LEAK = $sentinel
+  # The backend child reads the provider secret from its own env (the packaged
+  # main process injects safeStorage value, falling back to DEEPSEEK_API_KEY).
+  # This smoke deliberately injects the deterministic fixture credentials so the
+  # REAL application pipeline runs end to end; the sentinel test below proves the
+  # credential never lands in argv/logs/store/project files.
+  $env:DEEPSEEK_API_KEY = "fixture-key"
+  $env:DEEPSEEK_BASE_URL = "http://127.0.0.1:8000/v1"
 
   $tracked = New-Object System.Collections.ArrayList
   try {

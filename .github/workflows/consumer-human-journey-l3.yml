@@ -1,4 +1,4 @@
-name: consumer-journey-gate
+name: consumer-human-journey-l3
 
 on:
   workflow_dispatch:
@@ -6,41 +6,47 @@ on:
     paths:
       - 'desktop/**'
       - 'scripts/start-local-web.mjs'
-      - 'scripts/consumer-journey-gate.ps1'
+      - 'scripts/ui-journey-driver.mjs'
+      - 'scripts/consumer-human-journey-l3.ps1'
+      - 'scripts/provider-fixture-server.mjs'
       - 'scripts/build-harness-capsule.mjs'
       - 'scripts/prepare-python-runtime.mjs'
       - 'src/web/**'
       - 'src/hosts/**'
       - 'src/projects/**'
       - 'src/transports/**'
+      - 'src/execution/**'
       - 'src/persistence/**'
       - 'package.json'
       - '.workbench/vendor/**'
-      - '.github/workflows/consumer-journey-gate.yml'
+      - '.github/workflows/consumer-human-journey-l3.yml'
   push:
     branches: [main]
     paths:
       - 'desktop/**'
       - 'scripts/start-local-web.mjs'
-      - 'scripts/consumer-journey-gate.ps1'
+      - 'scripts/ui-journey-driver.mjs'
+      - 'scripts/consumer-human-journey-l3.ps1'
+      - 'scripts/provider-fixture-server.mjs'
       - 'scripts/build-harness-capsule.mjs'
       - 'scripts/prepare-python-runtime.mjs'
       - 'src/web/**'
       - 'src/hosts/**'
       - 'src/projects/**'
       - 'src/transports/**'
+      - 'src/execution/**'
       - 'src/persistence/**'
       - 'package.json'
       - '.workbench/vendor/**'
-      - '.github/workflows/consumer-journey-gate.yml'
+      - '.github/workflows/consumer-human-journey-l3.yml'
 
 permissions:
   contents: read
 
 jobs:
-  consumer-journey:
+  human-journey-l3:
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
       - name: Checkout Ming Workbench
@@ -67,7 +73,7 @@ jobs:
           node scripts/build-harness-capsule.mjs
           if ($LASTEXITCODE -ne 0) { Write-Error "harness capsule build failed (exit $LASTEXITCODE)" }
 
-      - name: Verify capsule identity and compiled runtime
+      - name: Typecheck and unit tests
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -78,44 +84,47 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
-          $capsule = Join-Path $PWD '.workbench/vendor/deepseek-harness-capsule'
-          $tsx = Join-Path $capsule 'node_modules/tsx/dist/cli.mjs'
-          if (-not (Test-Path $tsx)) { Write-Error "tsx runner missing in capsule" }
-          Start-Process -FilePath 'node' -ArgumentList @($tsx, '--tsconfig', (Join-Path $capsule 'tsconfig.json'), (Join-Path $capsule 'packages/test-support/llm-mock-server/src/bin.ts'), '--port', '8000', '--api-key', 'mock-key', '--sequence', 'success', '--success-text', 'CONSUMER_JOURNEY_OK', '--repeat-last') -WindowStyle Hidden -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'mock.out.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'mock.err.log')
-          # Wait for the fixture to bind.
+          $fixtureTarget = Join-Path $env:RUNNER_TEMP 'l3-fixture-target'
+          New-Item -ItemType Directory -Force -Path $fixtureTarget | Out-Null
+          $env:FIXTURE_TARGET_DIR = $fixtureTarget
+          $env:FIXTURE_PORT = '8000'
+          $env:FIXTURE_API_KEY = 'fixture-key'
+          Start-Process -FilePath 'node' -ArgumentList 'scripts/provider-fixture-server.mjs' -WindowStyle Hidden -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'fixture.out.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'fixture.err.log')
           $deadline = (Get-Date).AddSeconds(60)
           $ready = $false
           while ((Get-Date) -lt $deadline) {
-            if (Test-Path (Join-Path $env:RUNNER_TEMP 'mock.out.log')) {
-              $content = Get-Content (Join-Path $env:RUNNER_TEMP 'mock.out.log') -Raw -ErrorAction SilentlyContinue
-              if ($content -match '"ready"') { $ready = $true; break }
+            if (Test-Path (Join-Path $env:RUNNER_TEMP 'fixture.out.log')) {
+              $content = Get-Content (Join-Path $env:RUNNER_TEMP 'fixture.out.log') -Raw -ErrorAction SilentlyContinue
+              if ($content -match 'provider-fixture ready') { $ready = $true; break }
             }
             Start-Sleep -Seconds 1
           }
-          if (-not $ready) { Write-Error 'provider fixture did not become ready' }
-          "MING_MOCK_FIXTURE_READY=1" | Out-File $env:GITHUB_ENV -Append
+          if (-not $ready) {
+            Write-Error 'provider fixture did not become ready'
+          }
+          "L3_FIXTURE_TARGET=$fixtureTarget" | Out-File $env:GITHUB_ENV -Append
 
-      - name: Run Consumer Journey Gate (L3)
+      - name: Run Consumer Human Journey (TRUE L3)
         shell: pwsh
         env:
-          DEEPSEEK_API_KEY: mock-key
+          DEEPSEEK_API_KEY: fixture-key
           DEEPSEEK_BASE_URL: http://127.0.0.1:8000/v1
         run: |
           $ErrorActionPreference = 'Stop'
-          $artifact = Join-Path $env:RUNNER_TEMP 'consumer-journey-artifacts'
-          & pwsh -NoProfile -File scripts/consumer-journey-gate.ps1 -ArtifactDir $artifact
+          $artifact = Join-Path $env:RUNNER_TEMP 'l3-artifacts'
+          & pwsh -NoProfile -File scripts/consumer-human-journey-l3.ps1 -ArtifactDir $artifact
           if ($LASTEXITCODE -ne 0) {
-            Write-Error "consumer journey gate failed (exit $LASTEXITCODE)"
+            Write-Error "consumer human journey L3 failed (exit $LASTEXITCODE)"
           }
 
-      - name: Upload consumer journey diagnostics on failure
+      - name: Upload L3 diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: consumer-journey-logs
+          name: consumer-human-journey-l3-logs
           path: |
-            ${{ runner.temp }}/consumer-journey-artifacts/**
-            ${{ runner.temp }}/mock.out.log
-            ${{ runner.temp }}/mock.err.log
+            ${{ runner.temp }}/l3-artifacts/**
+            ${{ runner.temp }}/fixture.out.log
+            ${{ runner.temp }}/fixture.err.log
             dist-desktop/builder-debug.yml
           if-no-files-found: ignore

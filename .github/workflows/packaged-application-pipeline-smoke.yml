@@ -1,0 +1,123 @@
+name: packaged-application-pipeline-smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'scripts/start-local-web.mjs'
+      - 'scripts/packaged-application-pipeline-smoke.ps1'
+      - 'scripts/build-harness-capsule.mjs'
+      - 'scripts/prepare-python-runtime.mjs'
+      - 'src/web/**'
+      - 'src/hosts/**'
+      - 'src/projects/**'
+      - 'src/transports/**'
+      - 'src/persistence/**'
+      - 'package.json'
+      - '.workbench/vendor/**'
+      - '.github/workflows/packaged-application-pipeline-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'scripts/start-local-web.mjs'
+      - 'scripts/packaged-application-pipeline-smoke.ps1'
+      - 'scripts/build-harness-capsule.mjs'
+      - 'scripts/prepare-python-runtime.mjs'
+      - 'src/web/**'
+      - 'src/hosts/**'
+      - 'src/projects/**'
+      - 'src/transports/**'
+      - 'src/persistence/**'
+      - 'package.json'
+      - '.workbench/vendor/**'
+      - '.github/workflows/packaged-application-pipeline-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  consumer-journey:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout Ming Workbench
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package.json
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Prepare bundled Python runtime (pinned python.org embeddable)
+        run: npm run python:prepare
+
+      - name: Prepare exact reviewed Harness source and build prebuilt capsule
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm run harness:prepare
+          node scripts/build-harness-capsule.mjs
+          if ($LASTEXITCODE -ne 0) { Write-Error "harness capsule build failed (exit $LASTEXITCODE)" }
+
+      - name: Verify capsule identity and compiled runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm run check
+          npm test
+
+      - name: Start repository-owned OpenAI-compatible provider fixture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $fixtureTarget = Join-Path $env:RUNNER_TEMP 'pipeline-fixture-target'
+          New-Item -ItemType Directory -Force -Path $fixtureTarget | Out-Null
+          $env:FIXTURE_TARGET_DIR = $fixtureTarget
+          $env:FIXTURE_PORT = '8000'
+          $env:FIXTURE_API_KEY = 'fixture-key'
+          Start-Process -FilePath 'node' -ArgumentList 'scripts/provider-fixture-server.mjs' -WindowStyle Hidden -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'fixture.out.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'fixture.err.log')
+          # Wait for the fixture to bind.
+          $deadline = (Get-Date).AddSeconds(60)
+          $ready = $false
+          while ((Get-Date) -lt $deadline) {
+            if (Test-Path (Join-Path $env:RUNNER_TEMP 'fixture.out.log')) {
+              $content = Get-Content (Join-Path $env:RUNNER_TEMP 'fixture.out.log') -Raw -ErrorAction SilentlyContinue
+              if ($content -match 'provider-fixture ready') { $ready = $true; break }
+            }
+            Start-Sleep -Seconds 1
+          }
+          if (-not $ready) { Write-Error 'provider fixture did not become ready' }
+          "MING_MOCK_FIXTURE_READY=1" | Out-File $env:GITHUB_ENV -Append
+
+      - name: Run Packaged Application Pipeline Smoke (L2+, not L3)
+        shell: pwsh
+        env:
+          DEEPSEEK_API_KEY: fixture-key
+          DEEPSEEK_BASE_URL: http://127.0.0.1:8000/v1
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $artifact = Join-Path $env:RUNNER_TEMP 'pipeline-smoke-artifacts'
+          & pwsh -NoProfile -File scripts/packaged-application-pipeline-smoke.ps1 -ArtifactDir $artifact
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "packaged application pipeline smoke failed (exit $LASTEXITCODE)"
+          }
+
+      - name: Upload pipeline smoke diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-smoke-logs
+          path: |
+            ${{ runner.temp }}/pipeline-smoke-artifacts/**
+            ${{ runner.temp }}/fixture.out.log
+            ${{ runner.temp }}/fixture.err.log
+            dist-desktop/builder-debug.yml
+          if-no-files-found: ignore

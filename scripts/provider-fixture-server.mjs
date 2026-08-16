@@ -109,10 +109,17 @@ const server = createServer((req, res) => {
       }
     } else {
       // AAOP intake coordinator: return the canonical envelope as plain text.
+      // The coordinator prompt embeds `"raw_request": "<text>"`; extract that
+      // exact value so the Workbench request-match assertion passes.
+      let rawRequest = ''
+      const match = promptText.match(/"raw_request":\s*"((?:[^"\\]|\\.)*)"/)
+      if (match) {
+        try { rawRequest = JSON.parse(`"${match[1]}"`) } catch { rawRequest = match[1] }
+      }
       const envelope = JSON.stringify({
         schema_version: '1.0',
         generated_at: new Date().toISOString(),
-        raw_request: '',
+        raw_request: rawRequest,
         situation: 'existing_repository',
         route: 'understand-review',
         route_confidence: 0.8,
