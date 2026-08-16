@@ -49,6 +49,13 @@ export interface RunOutcomeInputs {
   testsPassedAfter?: boolean
   /** Real test outcome BEFORE execution (needed to detect pre-green no-ops). */
   testsPassedBefore?: boolean
+  /**
+   * Whether a runnable test suite exists. `false` means the project has NO
+   * tests to run (docs-only, config, plain frontends): there is no test
+   * evidence, which is not a test failure. Undefined keeps the legacy
+   * meaning (a suite exists, or the evidence is simply absent).
+   */
+  testsAvailableAfter?: boolean
   /** Whether the grant authorizes non-local effects (deploy/publish/…). */
   hasExternalEffects: boolean
 }
@@ -70,6 +77,7 @@ export function deriveRunOutcome(inputs: RunOutcomeInputs): RunOutcome {
   const produced = inputs.producedChanges.length > 0
   const testsAfter = inputs.testsPassedAfter === true
   const testsBefore = inputs.testsPassedBefore === true
+  const noTests = inputs.testsAvailableAfter === false
 
   // Hard boundary failure: the run mutated outside the authorized slice.
   if (inputs.scopeViolations.length > 0) {
@@ -92,6 +100,22 @@ export function deriveRunOutcome(inputs: RunOutcomeInputs): RunOutcome {
       acceptance: 'pending',
       reason:
         'Harness completed but the external effect outcome is unknown and must be reconciled.',
+    }
+  }
+
+  // A project with NO runnable tests has no test evidence at all: a mutation
+  // is real (repository readback proves it) but cannot be test-verified, so
+  // the verdict is inconclusive and needs human confirmation — never a fake
+  // pass, never a hard fail. The same applies to a no-op run.
+  if (noTests) {
+    return {
+      runStatus: 'completed',
+      effect: produced ? 'mutation-observed' : 'no-mutation',
+      verification: 'inconclusive',
+      acceptance: 'pending',
+      reason: produced
+        ? 'Changes were produced by this execution but the project has no runnable test suite; verification needs human confirmation.'
+        : 'No change was produced by this execution and the project has no runnable test suite to verify against.',
     }
   }
 

@@ -202,7 +202,7 @@ export async function runDevelopmentIntakeApplication(
   const space = createDevelopmentSpaceView(onboarding.project)
 
   if (onboarding.status === 'setup-required') {
-    const summary = 'Enable AAOP for this project to continue grounded development intake.'
+    const summary = '这个项目还没有启用开发控制。请点击「启用这个项目」按钮，启用后即可继续理解。'
     const unit = createOnboardingWorkUnit(options, space, 'needs-human', summary)
     return {
       status: 'setup-required',

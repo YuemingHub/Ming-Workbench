@@ -145,8 +145,11 @@ test('chain reports failure when the harness produces no in-scope change', async
     })
 
     // A harness that changes nothing inside the granted scope is NOT success.
+    // This scratch repo has no runnable test suite, so the verdict is
+    // inconclusive (nothing was produced, nothing to test) — never a pass,
+    // never a hard fail.
     assert.equal(result.runOutcome.effect, 'no-mutation')
-    assert.equal(result.runOutcome.verification, 'failed')
+    assert.equal(result.runOutcome.verification, 'inconclusive')
     assert.equal(result.repositoryReadback.executionProducedChanges.length, 0)
   } finally {
     cleanup(dir)

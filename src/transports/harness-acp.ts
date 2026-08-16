@@ -442,8 +442,39 @@ export async function runHarnessAcpGrant(
   assertReviewedHarnessCheckout(options.harnessCheckout)
   assertGrantWorkspace(options.grant, options.cwd, options.isolation)
 
+  // The grant names the REAL repository path, but the session executes in a
+  // disposable mirror (isolation worktree). Two layers keep the model honest:
+  // 1) the grant the model SEES maps write_target.repository to the mirror
+  //    path — the model can only ever touch the sandboxed mirror anyway, and
+  //    the delta/apply-back pipeline still validates against the authorized
+  //    real repository; 2) a workspace notice explains the mirror semantics.
+  const mirrorNotice = [
+    '',
+    '[MING_WORKBENCH_EXECUTION_WORKSPACE]',
+    'The granted repository is executed inside a disposable mirror.',
+    'The CURRENT WORKING DIRECTORY is the mirror of the granted repository.',
+    'Apply the granted mutation to files under the current working directory.',
+    'After your edits, the mirror is diffed against the grant baseline and only authorized changes are applied back to the real repository.',
+    '[/MING_WORKBENCH_EXECUTION_WORKSPACE]',
+  ].join('\n')
+
+  const modelGrant = options.isolation?.realRepository
+    ? {
+        ...options.grant,
+        authorization: {
+          ...options.grant.authorization,
+          write_target: options.grant.authorization.write_target
+            ? {
+                ...options.grant.authorization.write_target,
+                repository: resolve(options.cwd),
+              }
+            : null,
+        },
+      }
+    : options.grant
+
   return runHarnessAcpPrompt({
-    prompt: renderHarnessGrantMessage(options.grant),
+    prompt: renderHarnessGrantMessage(modelGrant) + mirrorNotice,
     cwd: options.cwd,
     harnessCheckout: options.harnessCheckout,
     workbenchRoot: options.workbenchRoot,

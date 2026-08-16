@@ -227,7 +227,7 @@ export function resolveProjectOnboarding(
     return {
       status: 'setup-required',
       project: localIdentity,
-      reason: 'This project is not yet enabled for grounded Workbench development. Enable AAOP once, then Workbench can continue from ordinary language without manual project configuration.',
+      reason: '这个项目还没有启用开发控制。启用后即可继续。',
     }
   }
 

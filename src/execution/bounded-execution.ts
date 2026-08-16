@@ -105,9 +105,9 @@ export interface RepositoryReadback {
   executionProducedChanges: string[]
   preExistingDirty: string[]
   scopeViolations: string[]
-  testResult?: { passed: boolean; output: string }
+  testResult?: { passed: boolean; output: string; noTests?: boolean }
   /** Real test outcome before the run started (pre-green no-op detection). */
-  beforeTestResult?: { passed: boolean; output: string }
+  beforeTestResult?: { passed: boolean; output: string; noTests?: boolean }
   gitStatus: string
   /** True when this run executed inside an isolated worktree, not the real repo. */
   isolated: boolean
@@ -262,6 +262,9 @@ export async function runBoundedExecution(
       testsPassedAfter: testResult?.passed,
       testsPassedBefore: beforeTestResult?.passed,
       hasExternalEffects,
+      // A project with no runnable tests yields inconclusive verification,
+      // never a fake pass and never a hard fail.
+      testsAvailableAfter: testResult?.noTests === true ? false : undefined,
     })
 
     // Step 5: unknown external effects must be reconciled before any retry.
@@ -282,8 +285,16 @@ export async function runBoundedExecution(
 
     // Step 6: apply the authorized + verified delta back to the real repo.
     // A scope violation or a failed verification discards the isolation and the
-    // real working tree stays exactly as the Reality Owner left it.
-    if (outcome.verification === 'passed' && !hasScopeViolation && isolatedDelta.executionProducedChanges.length > 0) {
+    // real working tree stays exactly as the Reality Owner left it. A project
+    // with NO runnable tests cannot produce test evidence: the approved delta
+    // is still applied (approval/grant/slice/readback all remain), but the
+    // outcome stays inconclusive and needs human confirmation — never a fake
+    // pass.
+    if (
+      (outcome.verification === 'passed' || outcome.verification === 'inconclusive')
+      && !hasScopeViolation
+      && isolatedDelta.executionProducedChanges.length > 0
+    ) {
       appliedBack = applyAuthorizedDelta(isolation, options.slice, isolatedDelta.executionProducedChanges)
     } else {
       isolationDiscarded = true
@@ -427,9 +438,22 @@ function runProjectTests(
     return { passed: true, output }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    // A project without a runnable test suite is NOT a test failure: real
+    // projects (docs-only, config, plain frontends) would otherwise never be
+    // able to apply any approved mutation. npm reports ENOENT when there is
+    // no package.json and "Missing script: test" when the script is absent;
+    // both mean there is no test evidence to gather, not that tests failed.
+    const code = (error as { code?: string })?.code
+    const noTests =
+      code === 'ENOENT'
+      || /missing script: ['"]?test/i.test(message)
+      || /ENOENT[\s\S]*package\.json/i.test(message)
     return {
       passed: false,
-      output: `Test execution failed or timed out: ${message}`,
+      noTests: noTests || undefined,
+      output: noTests
+        ? 'No runnable project test suite found; verification has no test evidence.'
+        : `Test execution failed or timed out: ${message}`,
     }
   }
 }

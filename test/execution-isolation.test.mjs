@@ -287,7 +287,26 @@ test('A: git metadata mutation inside the isolation never touches the real repos
  * isolation that points at the real repo or an external sentinel must be
  * detected as a scope violation and must never be applied back.
  */
-test('B: symlink escape inside the isolation is detected and never applied back', () => {
+test('B: symlink escape inside the isolation is detected and never applied back', { skip: undefined }, (t) => {
+  // Windows without Developer Mode / admin privileges cannot create symlinks
+  // (EPERM). The escape-detection assertions are unprovable in such an
+  // environment, so the test must report SKIP with a clear reason instead of
+  // failing for environmental reasons. CI (where symlinks are permitted) still
+  // runs the real adversarial assertion.
+  const probeDir = mkdtempSync(join(tmpdir(), 'mw-symlink-probe-'))
+  try {
+    const probeTarget = join(probeDir, 'target')
+    const probeLink = join(probeDir, 'link')
+    writeFileSync(probeTarget, 'x')
+    symlinkSync(probeTarget, probeLink)
+  } catch (error) {
+    const reason = `symlink creation not permitted in this environment (${error.code ?? error.message}); skipping symlink-escape test`
+    t.skip(reason)
+    return
+  } finally {
+    try { rmSync(probeDir, { recursive: true, force: true }) } catch { /* best-effort */ }
+  }
+
   const dir = makeScratchRepo()
   const sentinel = mkdtempSync(join(tmpdir(), 'mw-iso-sentinel-'))
   try {

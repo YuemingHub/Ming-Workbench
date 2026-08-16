@@ -321,6 +321,11 @@ async function startBackend(projectRoot) {
     storeDir: app.getPath('userData'),
     extraEnv: {
       ...(providerSecret ? { DEEPSEEK_API_KEY: providerSecret } : {}),
+      // The desktop product's write path is guarded end-to-end by the human
+      // approval dialog, the authorized grant and the bounded MutationSlice.
+      // The ALLOW_WRITE env rail exists for operator-less surfaces (web/CI)
+      // and must not make an approved desktop mutation silently no-op.
+      MING_WORKBENCH_ALLOW_WRITE: '1',
       // User-configurable provider/model (non-secret preferences) reach the
       // backend child env and flow into the Harness ACP child. A custom
       // OpenAI-compatible endpoint rides DEEPSEEK_BASE_URL (the harness

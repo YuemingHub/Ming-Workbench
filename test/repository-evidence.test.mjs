@@ -245,3 +245,40 @@ test('classifyExternalEffect is a thin four-axis wrapper over deriveRunOutcome',
   assert.equal(outcome.effect, 'mutation-observed')
   assert.equal(outcome.verification, 'passed')
 })
+
+test('deriveRunOutcome: mutation in a project with no tests is inconclusive, not failed (P0-7)', () => {
+  const outcome = deriveRunOutcome({
+    producedChanges: ['README.md'],
+    scopeViolations: [],
+    testsPassedAfter: false,
+    testsAvailableAfter: false,
+    hasExternalEffects: false,
+  })
+  assert.equal(outcome.effect, 'mutation-observed')
+  assert.equal(outcome.verification, 'inconclusive')
+  assert.equal(outcome.acceptance, 'pending')
+})
+
+test('deriveRunOutcome: no-op in a project with no tests is inconclusive, never failed (P0-7)', () => {
+  const outcome = deriveRunOutcome({
+    producedChanges: [],
+    scopeViolations: [],
+    testsPassedAfter: false,
+    testsAvailableAfter: false,
+    hasExternalEffects: false,
+  })
+  assert.equal(outcome.effect, 'no-mutation')
+  assert.equal(outcome.verification, 'inconclusive')
+})
+
+test('deriveRunOutcome: real test failure still fails even with noTests flag absent', () => {
+  const outcome = deriveRunOutcome({
+    producedChanges: ['src/a.ts'],
+    scopeViolations: [],
+    testsPassedAfter: false,
+    testsAvailableAfter: undefined,
+    hasExternalEffects: false,
+  })
+  assert.equal(outcome.verification, 'failed')
+  assert.equal(outcome.acceptance, 'rejected')
+})
