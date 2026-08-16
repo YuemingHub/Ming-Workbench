@@ -31,10 +31,14 @@ const welcomePagePath = join(desktopDir, 'welcome.html')
 
 // Optional explicit user-data relocation (portable/testing isolation). Must run
 // before the single-instance lock so each isolated launch gets its own lock,
-// startup log, Work Unit store and safeStorage secrets.
+// startup log, Work Unit store and safeStorage secrets. The env override is
+// for automated verification (CDP sessions where --user-data-dir is consumed
+// by the Chromium command line); the CLI flag takes precedence.
 const cliUserDataDir = cliArgValue('--user-data-dir')
-if (cliUserDataDir) {
-  app.setPath('userData', resolve(cliUserDataDir))
+const envUserDataDir = process.env.MING_WORKBENCH_USER_DATA
+const resolvedUserDataDir = cliUserDataDir ?? (envUserDataDir ? resolve(envUserDataDir) : undefined)
+if (resolvedUserDataDir) {
+  app.setPath('userData', resolvedUserDataDir)
 }
 
 // The renderer may only ever talk to a loopback Workbench backend. Everything
@@ -661,7 +665,10 @@ async function restartBackendForProviderActivation() {
   try {
     const url = await startBackend(currentProjectRoot)
     if (win && !win.isDestroyed()) {
-      win.webContents.reload()
+      // The backend restart binds a NEW loopback port; reloading the stale
+      // URL would land on a connection-refused error page. Navigate to the
+      // fresh origin instead.
+      void win.loadURL(url)
     }
     appendStartupLog('provider activation complete; backend restarted with updated provider secret')
     return url

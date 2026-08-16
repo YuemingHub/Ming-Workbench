@@ -187,12 +187,16 @@ test('authorized API token returns only a human-facing project snapshot', async 
       })
       assert.equal(response.status, 200)
       const body = await response.json()
+      // projectPath is intentionally exposed: the desktop home card must show
+      // the owner the real full path of the fixed selected project.
+      const expectedPath = resolve('/workspace/fixture')
       assert.deepEqual(body, {
         status: 'ready',
         project: {
           id: 'local-fixture-123456789abc',
           title: 'Fixture Project',
         },
+        projectPath: expectedPath,
         aaopVersion: '1.2.0',
         message: '项目已准备，可以先做只读理解。',
       })
@@ -470,7 +474,23 @@ test('local UI HTML and JS are DOM-consistent: every JS id exists in HTML, no st
   assert.ok(htmlIds.has('project-summary-card'))
   assert.ok(htmlIds.has('select-project-button'))
   assert.ok(htmlIds.has('switch-project-button'))
-  assert.ok(htmlIds.has('readiness-checklist'))
+
+  // Hard product invariant: the [选择项目] button must be visible in the
+  // initial HTML (never starts hidden), and the JS must have real logic to
+  // flip the buttons — a static shell must never tell the user to pick a
+  // project without a visible button.
+  assert.ok(!htmlIds.has('readiness-checklist'), 'internal readiness checklist is not owner UI')
+  assert.ok(!htmlIds.has('next-step-card'), 'internal next-step card is not owner UI')
+  assert.ok(!/id="select-project-button"[^>]*class="[^"]*hidden/.test(html), 'select-project-button starts visible')
+  assert.ok(/id="switch-project-button"[^>]*class="[^"]*hidden/.test(html), 'switch-project-button starts hidden')
+  assert.ok(js.includes('function renderProjectButtons'), 'JS has project button visibility logic')
+  assert.ok(js.includes('select-project-button\').classList.toggle'), 'JS toggles select-project-button visibility')
+  assert.ok(js.includes('switch-project-button\').classList.toggle'), 'JS toggles switch-project-button visibility')
+
+  // Startup dead-end guard must exist (no infinite "正在准备…").
+  assert.ok(htmlIds.has('boot-failure'))
+  assert.ok(htmlIds.has('boot-reload-button'))
+  assert.ok(js.includes('BOOT_TIMEOUT_MS'), 'JS has a bootstrap timeout guard')
 
   // The legacy provider-check in JS must not reference those ids in the old
   // browser-side way (no direct IPC to /api/provider/secret).

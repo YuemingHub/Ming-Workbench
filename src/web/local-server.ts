@@ -323,7 +323,10 @@ export async function startLocalWorkbenchServer(
       }
 
       if (method === 'GET' && url.pathname === '/api/project') {
-        sendJson(response, 200, projectOnboardingSnapshot(resolveOnboarding(projectRoot)))
+        sendJson(response, 200, {
+          ...projectOnboardingSnapshot(resolveOnboarding(projectRoot)),
+          projectPath: projectRoot,
+        })
         return
       }
 
@@ -440,7 +443,6 @@ export async function startLocalWorkbenchServer(
         sendJson(response, 200, {
           status: result.status,
           project: projectOnboardingSnapshot(result.onboarding),
-          projectPath: projectRoot,
           aaopVersion: result.onboarding.aaopVersion,
         })
         return

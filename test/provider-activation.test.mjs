@@ -110,11 +110,12 @@ test('provider activation restart path is wired in the desktop main process', ()
   )
   // The restart must reuse the existing startBackend lifecycle (kill old
   // backend -> clear origin -> spawn with updated secret env -> ready ->
-  // atomic origin rotation) and then reload the window so the renderer picks
-  // up the fresh request token and resumes persisted state.
+  // atomic origin rotation) and then navigate the window to the fresh
+  // origin (a plain reload would hit the dead old port) so the renderer
+  // picks up the fresh request token and resumes persisted state.
   assert.match(source, /async function restartBackendForProviderActivation/)
   assert.match(source, /const url = await startBackend\(currentProjectRoot\)/)
-  assert.match(source, /win\.webContents\.reload\(\)/)
+  assert.match(source, /win\.loadURL\(url\)/)
   // No secret may ever enter argv: every line mentioning the key must be the
   // child-env injection or a comment, never an argument-list write.
   const keyLines = source.split('\n').filter((line) => line.includes('DEEPSEEK_API_KEY'))

@@ -32,38 +32,23 @@ export function renderLocalWorkbenchHtml(requestToken: string): string {
       <article class="card" id="project-summary-card">
         <p class="label">当前项目</p>
         <div id="project-summary">
-          <p class="muted">还没有选择项目。</p>
+          <p class="muted" id="project-empty-text">还没有选择项目。</p>
         </div>
         <div class="card-actions">
-          <button id="select-project-button" class="primary hidden" type="button">选择项目</button>
+          <button id="select-project-button" class="primary" type="button">选择项目</button>
           <button id="switch-project-button" class="secondary hidden" type="button">更换项目</button>
         </div>
       </article>
 
       <article class="card" id="ai-summary-card">
-        <p class="label">AI 模型</p>
+        <p class="label">AI 智能服务</p>
         <div id="ai-summary">
           <p class="muted">尚未配置。</p>
         </div>
         <div class="card-actions">
-          <button id="open-provider-button" class="secondary" type="button">配置 AI</button>
+          <button id="open-provider-button" class="primary" type="button">配置 AI</button>
           <button id="test-connection-button" class="secondary hidden" type="button">测试连接</button>
         </div>
-      </article>
-
-      <article class="card span-two" id="readiness-card">
-        <p class="label">运行准备</p>
-        <ul class="checklist" id="readiness-checklist">
-          <li data-item="project">项目可用</li>
-          <li data-item="git">Git 可用</li>
-          <li data-item="harness">Harness 已准备</li>
-          <li data-item="ai">AI 已连接</li>
-        </ul>
-      </article>
-
-      <article class="card span-two" id="next-step-card">
-        <p class="label">下一步</p>
-        <p class="next-step" id="next-step-text">选择一个项目开始。</p>
       </article>
     </section>
 
@@ -101,6 +86,15 @@ export function renderLocalWorkbenchHtml(requestToken: string): string {
       <p class="label">恢复工作</p>
       <p class="muted" id="resume-status">正在恢复上一次的工作单元…</p>
       <p class="resume-workunit-id" id="resume-workunit-id"></p>
+    </section>
+
+    <section id="boot-failure" class="notice error hidden" aria-live="polite">
+      <p><strong>Workbench 没有完成启动。</strong></p>
+      <p class="muted">页面没能和本地服务正常连接，请重新加载。如果仍然不行，重新选择项目。</p>
+      <div class="card-actions">
+        <button id="boot-reload-button" class="secondary" type="button">重新加载</button>
+        <button id="boot-reselect-button" class="secondary hidden" type="button">重新选择项目</button>
+      </div>
     </section>
 
     <section id="notice" class="notice hidden" aria-live="polite"></section>
@@ -153,6 +147,7 @@ export function renderLocalWorkbenchHtml(requestToken: string): string {
     <details class="advanced card">
       <summary>更多信息</summary>
       <div id="advanced-content" class="advanced-content">当前没有需要你处理的技术信息。</div>
+      <div id="diagnostics-content" class="advanced-content hidden"></div>
     </details>
   </main>
 
@@ -179,12 +174,6 @@ export function renderLocalWorkbenchHtml(requestToken: string): string {
       <label class="field-label" for="provider-key-input">API Key</label>
       <input id="provider-key-input" type="password" autocomplete="off" placeholder="已保存的密钥会保留，留空表示不修改" />
       <p class="field-hint" id="provider-key-state">密钥只保存在本机系统安全存储中，Workbench 不会显示或记录它。</p>
-
-      <details class="advanced-inline">
-        <summary>高级设置</summary>
-        <label class="field-label" for="base-url-input">Base URL（可选）</label>
-        <input id="base-url-input" type="text" autocomplete="off" spellcheck="false" placeholder="https://api.deepseek.com" />
-      </details>
 
       <div class="panel-actions">
         <button id="provider-save-button" class="primary" type="button">保存</button>
@@ -223,14 +212,13 @@ p { line-height: 1.65; }
 .home-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 18px; }
 .span-two { grid-column: span 2; }
 .card-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
-.checklist { margin: 6px 0 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 24px; }
-.checklist li { color: #43506a; }
-.checklist li::before { content: "○"; margin-right: 8px; color: #a0aabd; }
-.checklist li.ok { color: #19633f; }
-.checklist li.ok::before { content: "✓"; color: #19633f; }
-.checklist li.missing { color: #805b0a; }
-.checklist li.missing::before { content: "•"; color: #805b0a; }
-.next-step { margin: 0; font-size: 17px; font-weight: 700; color: #172033; }
+.path-text { word-break: break-all; }
+.model-line { font-weight: 800; font-size: 17px; margin: 0; }
+.hint-line { margin-top: 8px; font-size: 12px; }
+.ai-status-line { margin-top: 8px; font-weight: 700; }
+.ai-status-line.ok { color: #19633f; }
+.ai-status-line.warn { color: #805b0a; }
+.ai-status-line.err { color: #963d35; }
 .intro { margin-bottom: 18px; color: #596579; }
 .intro summary { cursor: pointer; font-weight: 700; color: #364258; }
 .intro-content { margin-top: 10px; }
@@ -325,10 +313,16 @@ let currentWorkUnitId = null
 let isDesktop = typeof window !== 'undefined' && window.mingWorkbench?.isDesktop === true
 let currentProjectStatus = null
 let currentProjectMessage = ''
+let currentProjectPath = ''
+let booted = false
 
 const desktopState = {
   hasSecret: false,
   preferences: null,
+  // AI truth model: hasSecret only means "已配置，待测试". Only a real
+  // provider round trip may set 'connected'.
+  aiStatus: 'unconfigured', // unconfigured | configured-untested | testing | connected | failed
+  aiFailure: '',
 }
 
 async function api(path, options = {}) {
@@ -371,7 +365,7 @@ function renderProposedScope(proposed) {
     scopeArea.appendChild(note)
     const hint = document.createElement('p')
     hint.className = 'muted'
-    hint.setAttribute('style', 'margin-top:8px;font-size:12px;')
+    hint.className = 'muted hint-line'
     hint.textContent = '在确定修改范围之前，Workbench 只会保持只读，不会修改任何文件。'
     scopeArea.appendChild(hint)
     approveButton.disabled = true
@@ -390,7 +384,7 @@ function renderProposedScope(proposed) {
   scopeArea.appendChild(list)
   const note = document.createElement('p')
   note.className = 'muted'
-  note.setAttribute('style', 'margin-top:8px;font-size:12px;')
+  note.className = 'muted hint-line'
   note.textContent = '这是 Workbench 根据项目理解提出的建议范围，不是最终授权。确认后才会生成受边界约束的执行授权。'
   scopeArea.appendChild(note)
   approveButton.disabled = false
@@ -398,16 +392,15 @@ function renderProposedScope(proposed) {
 
 function renderProject(data) {
   const title = data.project?.title || '本地项目'
-  $('project-title')?.setAttribute?.('data-title', title)
   const summary = $('project-summary')
   while (summary.firstChild) summary.removeChild(summary.firstChild)
   const name = document.createElement('h2')
   name.textContent = title
   summary.appendChild(name)
   if (data.projectPath) {
+    currentProjectPath = data.projectPath
     const path = document.createElement('p')
-    path.className = 'muted'
-    path.setAttribute('style', 'word-break:break-all;')
+    path.className = 'muted path-text'
     path.textContent = data.projectPath
     summary.appendChild(path)
   }
@@ -416,58 +409,70 @@ function renderProject(data) {
     : '当前没有需要你处理的技术信息。'
 }
 
-function renderReadiness(projectStatus, projectMessage) {
-  const ready = projectStatus === 'ready' && desktopState.hasSecret
-  const items = [
-    ['project', projectStatus === 'ready' ? 'ok' : projectStatus === 'setup-required' ? 'missing' : 'missing', '项目可用'],
-    ['git', projectStatus === 'ready' ? 'ok' : 'missing', 'Git 可用'],
-    ['harness', projectStatus === 'ready' ? 'ok' : 'missing', 'Harness 已准备'],
-    ['ai', desktopState.hasSecret ? 'ok' : 'missing', 'AI 已连接'],
-  ]
-  const list = $('readiness-checklist')
-  list.innerHTML = ''
-  for (const [key, state, label] of items) {
-    const li = document.createElement('li')
-    li.dataset.item = key
-    li.className = state
-    li.textContent = label
-    list.appendChild(li)
-  }
+// Hard product invariant: whenever there is no usable selected project the
+// [选择项目] button must be visible; with a project, [更换项目] is visible.
+// No static shell may tell the user to pick a project without a button.
+function renderProjectButtons(hasProject) {
+  $('select-project-button').classList.toggle('hidden', Boolean(hasProject))
+  $('switch-project-button').classList.toggle('hidden', !hasProject)
+  // renderProject() clears #project-summary including the empty-text node;
+  // once a project is rendered there is nothing left to toggle.
+  $('project-empty-text')?.classList.toggle('hidden', Boolean(hasProject))
+}
+
+function renderGate() {
+  const hasProject = currentProjectStatus === 'ready' || currentProjectStatus === 'setup-required'
+  renderProjectButtons(hasProject)
 
   const pill = $('readiness-pill')
-  if (ready) {
+  const ai = desktopState.aiStatus
+
+  // Single dominant next action (one CTA at a time).
+  if (!hasProject) {
+    pill.textContent = '先选择项目'
+    pill.className = 'status-pill setup'
+  } else if (ai === 'unconfigured') {
+    pill.textContent = '需要配置 AI'
+    pill.className = 'status-pill setup'
+  } else if (ai === 'configured-untested') {
+    pill.textContent = '待测试连接'
+    pill.className = 'status-pill setup'
+  } else if (ai === 'testing') {
+    pill.textContent = '正在测试连接…'
+    pill.className = 'status-pill setup'
+  } else if (ai === 'failed') {
+    pill.textContent = '连接失败'
+    pill.className = 'status-pill blocked'
+  } else {
     pill.textContent = '准备好了'
     pill.className = 'status-pill ready'
-  } else {
-    const missing = items.filter(([, state]) => state !== 'ok').length
-    pill.textContent = '还差 ' + missing + ' 步'
-    pill.className = 'status-pill setup'
   }
 
-  const next = $('next-step-text')
+  const ready = hasProject && ai === 'connected'
   const request = $('request')
   const intake = $('intake-button')
-  if (projectStatus === null) {
-    next.textContent = '先选择一个你想交给 Ming Workbench 的项目。'
-  } else if (projectStatus === 'setup-required') {
-    next.textContent = '这个项目需要先启用，点击下方「启用这个项目」。'
-  } else if (projectStatus === 'blocked') {
-    next.textContent = projectMessage || 'Workbench 暂时不能安全接管这个项目。'
-  } else if (!desktopState.hasSecret) {
-    next.textContent = '还差 1 步：配置 AI。'
-  } else {
-    next.textContent = '准备好了。告诉我你现在想做什么。'
-  }
-
-  const canUse = ready
-  request.disabled = !canUse
-  intake.disabled = !canUse
-  if (canUse) {
+  request.disabled = !ready
+  intake.disabled = !ready
+  if (ready) {
     request.placeholder = '例如：看看这个项目现在做到哪里了，接下来最应该先做什么？'
     $('request-hint').textContent = '这一步只会读取项目，不会修改任何文件。'
   } else {
     request.placeholder = '先完成上面的准备步骤，就可以开始…'
   }
+  renderDiagnostics()
+}
+
+function renderDiagnostics() {
+  const box = $('diagnostics-content')
+  box.classList.remove('hidden')
+  const lines = []
+  lines.push('项目状态：' + (currentProjectStatus ?? '未知'))
+  if (currentProjectPath) lines.push('项目路径：' + currentProjectPath)
+  if (currentProjectMessage) lines.push('项目信息：' + currentProjectMessage)
+  lines.push('AI 状态：' + desktopState.aiStatus)
+  if (desktopState.preferences?.provider) lines.push('Provider：' + desktopState.preferences.provider)
+  if (desktopState.preferences?.model) lines.push('模型：' + desktopState.preferences.model)
+  box.textContent = lines.join('\\n')
 }
 
 function renderAiSummary() {
@@ -475,7 +480,7 @@ function renderAiSummary() {
   while (summary.firstChild) summary.removeChild(summary.firstChild)
   const prefs = desktopState.preferences
   const modelLine = document.createElement('p')
-  modelLine.setAttribute('style', 'font-weight:800;font-size:17px;margin:0;')
+  modelLine.className = 'model-line'
   modelLine.textContent = prefs && prefs.model ? prefs.model : '尚未配置'
   summary.appendChild(modelLine)
   const providerLine = document.createElement('p')
@@ -483,13 +488,34 @@ function renderAiSummary() {
   providerLine.textContent = prefs && prefs.provider ? prefs.provider : ''
   summary.appendChild(providerLine)
   const status = document.createElement('p')
-  status.className = 'muted'
-  status.setAttribute('style', 'margin-top:8px;font-weight:700;')
-  status.textContent = desktopState.hasSecret ? '🟢 已连接' : '未配置'
-  status.style.color = desktopState.hasSecret ? '#19633f' : '#805b0a'
+  status.className = 'muted ai-status-line'
+  const ai = desktopState.aiStatus
+  if (ai === 'unconfigured') {
+    status.textContent = '未配置'
+    status.classList.add('warn')
+  } else if (ai === 'configured-untested') {
+    status.textContent = '已配置，待测试'
+    status.classList.add('warn')
+  } else if (ai === 'testing') {
+    status.textContent = '正在测试连接…'
+  } else if (ai === 'failed') {
+    status.textContent = '连接失败'
+    status.classList.add('err')
+  } else {
+    status.textContent = '🟢 连接成功'
+    status.classList.add('ok')
+  }
   summary.appendChild(status)
 
-  $('test-connection-button').classList.toggle('hidden', !desktopState.hasSecret)
+  $('test-connection-button').classList.toggle(
+    'hidden',
+    !(desktopState.hasSecret && ai !== 'testing'),
+  )
+  // Dominant CTA: with a project and no connection proof, [配置 AI] leads;
+  // once a secret exists the panel's [测试连接] is one click away either way.
+  $('open-provider-button').classList.toggle('primary', ai !== 'connected')
+  $('open-provider-button').classList.toggle('secondary', ai === 'connected')
+  renderGate()
 }
 
 function renderSetupButton(projectStatus) {
@@ -626,19 +652,20 @@ function renderResume(data) {
 }
 
 async function refreshProject() {
+  booted = true
   const { response, body } = await api('/api/project')
   if (!response.ok) {
     currentProjectStatus = null
     currentProjectMessage = body.message || '暂时无法读取项目状态。'
-    renderReadiness(null, currentProjectMessage)
     setNotice(body.message || '暂时无法读取项目状态。', true)
+    renderGate()
     return
   }
   currentProjectStatus = body.status
   currentProjectMessage = body.message || ''
   renderProject(body)
   renderSetupButton(body.status)
-  renderReadiness(body.status, currentProjectMessage)
+  renderGate()
 }
 
 async function loadResume() {
@@ -658,6 +685,7 @@ async function loadResume() {
 
 async function refreshDesktopState() {
   if (!isDesktop) return
+  booted = true
   try {
     const { hasSecret } = await window.mingWorkbench.hasProviderSecret()
     desktopState.hasSecret = Boolean(hasSecret)
@@ -670,15 +698,17 @@ async function refreshDesktopState() {
   } catch {
     desktopState.preferences = null
   }
+  // hasSecret only proves "已配置，待测试". A previous session's connection
+  // proof cannot be reused across processes, so restart never claims 已连接.
+  desktopState.aiStatus = desktopState.hasSecret ? 'configured-untested' : 'unconfigured'
   renderAiSummary()
-  renderReadiness(currentProjectStatus, currentProjectMessage)
+  renderGate()
 }
 
 function openProviderPanel() {
   const prefs = desktopState.preferences || {}
   $('provider-input').value = prefs.provider || 'deepseek-official'
   $('model-input').value = prefs.model || ''
-  $('base-url-input').value = prefs.baseUrl || ''
   $('provider-key-input').value = ''
   $('provider-panel-status').textContent = desktopState.hasSecret ? '✓ 已保存密钥（留空保留）' : '尚未保存密钥'
   $('provider-panel-status').className = 'provider-status' + (desktopState.hasSecret ? ' ok' : '')
@@ -697,7 +727,6 @@ async function saveProviderConfig() {
   const status = $('provider-panel-status')
   const provider = $('provider-input').value.trim()
   const model = $('model-input').value.trim()
-  const baseUrl = $('base-url-input').value.trim()
   const key = $('provider-key-input').value.trim()
 
   if (!provider) {
@@ -723,23 +752,35 @@ async function saveProviderConfig() {
         return
       }
     }
-    const prefsRes = await window.mingWorkbench.setProviderPreferences({ provider, model, baseUrl })
+    const prefsRes = await window.mingWorkbench.setProviderPreferences({ provider, model })
     if (!prefsRes || !prefsRes.ok) {
       status.textContent = prefsRes?.message || '配置保存失败，请稍后重试。'
       status.className = 'provider-status error'
       return
     }
-    status.textContent = '已保存。页面马上刷新，新的模型配置即将生效。'
+    // Saving a configuration only proves it is stored; it never claims the
+    // AI is connected. The user must run a real connection test.
+    desktopState.hasSecret = desktopState.hasSecret || Boolean(key)
+    desktopState.preferences = { provider, model }
+    desktopState.aiStatus = desktopState.hasSecret ? 'configured-untested' : 'unconfigured'
+    status.textContent = '已保存。现在点击「测试连接」确认 AI 真的能用。'
     status.className = 'provider-status ok'
-    // The main process restarts the backend with the new configuration; the
-    // window reloads and the UI re-reads the persisted state.
-    setTimeout(() => { window.location.reload() }, 600)
+    renderAiSummary()
+    renderGate()
   } catch {
     status.textContent = '保存失败，请稍后重试。'
     status.className = 'provider-status error'
   } finally {
     button.disabled = false
   }
+}
+
+function reportAiTest(message, ok) {
+  const panelOpen = !$('provider-panel').classList.contains('hidden')
+  const status = $('provider-panel-status')
+  status.textContent = message
+  status.className = 'provider-status' + (ok ? ' ok' : ' error')
+  if (!panelOpen) setNotice(message, !ok)
 }
 
 async function testProviderConnection() {
@@ -751,28 +792,37 @@ async function testProviderConnection() {
     return
   }
   button.disabled = true
+  desktopState.aiStatus = 'testing'
   status.textContent = '正在连接模型服务…'
   status.className = 'provider-status'
+  renderAiSummary()
   try {
     const { response, body } = await api('/api/test-provider-connection', {
       method: 'POST',
       body: JSON.stringify({}),
     })
     if (!response.ok) {
-      status.textContent = body.message || '连接测试没有完成。'
-      status.className = 'provider-status error'
+      desktopState.aiStatus = 'failed'
+      desktopState.aiFailure = body.message || '连接测试没有完成。'
+      reportAiTest(desktopState.aiFailure, false)
+      renderAiSummary()
       return
     }
     if (body.ok) {
-      status.textContent = '🟢 连接成功：' + (body.model || '') + '（' + (body.provider || '') + '）'
-      status.className = 'provider-status ok'
+      desktopState.aiStatus = 'connected'
+      reportAiTest('🟢 连接成功：' + (body.model || '') + '（' + (body.provider || '') + '）', true)
+      renderAiSummary()
     } else {
-      status.textContent = '连接失败：' + (body.message || '未知原因。')
-      status.className = 'provider-status error'
+      desktopState.aiStatus = 'failed'
+      desktopState.aiFailure = body.message || '未知原因。'
+      reportAiTest('连接失败：' + desktopState.aiFailure, false)
+      renderAiSummary()
     }
   } catch {
-    status.textContent = '连接测试失败：无法访问本地服务。'
-    status.className = 'provider-status error'
+    desktopState.aiStatus = 'failed'
+    desktopState.aiFailure = '无法访问本地服务。'
+    reportAiTest('连接测试失败：无法访问本地服务。', false)
+    renderAiSummary()
   } finally {
     button.disabled = false
   }
@@ -787,9 +837,11 @@ async function clearProviderKey() {
   try {
     await window.mingWorkbench.clearProviderSecret()
     desktopState.hasSecret = false
-    status.textContent = '已移除。页面马上刷新。'
+    desktopState.aiStatus = 'unconfigured'
+    status.textContent = '已移除密钥。'
     status.className = 'provider-status ok'
-    setTimeout(() => { window.location.reload() }, 600)
+    renderAiSummary()
+    renderGate()
   } catch {
     status.textContent = '移除失败，请稍后重试。'
     status.className = 'provider-status error'
@@ -817,13 +869,26 @@ $('provider-panel-close').addEventListener('click', closeProviderPanel)
 $('provider-save-button').addEventListener('click', saveProviderConfig)
 $('provider-test-button').addEventListener('click', testProviderConnection)
 $('provider-clear-button').addEventListener('click', clearProviderKey)
-$('test-connection-button').addEventListener('click', () => {
-  openProviderPanel()
-  setTimeout(testProviderConnection, 50)
-})
+$('test-connection-button').addEventListener('click', testProviderConnection)
+$('boot-reload-button').addEventListener('click', () => { window.location.reload() })
+$('boot-reselect-button').addEventListener('click', switchProject)
 $('provider-panel').addEventListener('click', (event) => {
   if (event.target === $('provider-panel')) closeProviderPanel()
 })
+
+// Startup dead-end guard: if the renderer bootstrap has not completed within
+// a reasonable time, the product must say so explicitly instead of leaving a
+// static shell that looks fine but can do nothing.
+const BOOT_TIMEOUT_MS = 15000
+setTimeout(() => {
+  if (booted) return
+  const failure = $('boot-failure')
+  failure.classList.remove('hidden')
+  const reselect = $('boot-reselect-button')
+  reselect.classList.toggle('hidden', !window.mingWorkbench?.selectProject)
+  $('readiness-pill').textContent = '启动未完成'
+  $('readiness-pill').className = 'status-pill blocked'
+}, BOOT_TIMEOUT_MS)
 
 // First-run single-screen explanation: auto-open only once per browser profile.
 try {
@@ -888,7 +953,7 @@ $('execute-approve-button').addEventListener('click', async () => {
     status.className = 'execute-status error'
     return
   }
-  const ok = window.confirm('Workbench 准备修改以下文件：\n\n  ' + filePaths.join('\n  ') + '\n\n确认允许这次修改吗？')
+  const ok = window.confirm('Workbench 准备修改以下文件：\\n\\n  ' + filePaths.join('\\n  ') + '\\n\\n确认允许这次修改吗？')
   if (!ok) return
   button.disabled = true
   $('execute-cancel-button').disabled = true
