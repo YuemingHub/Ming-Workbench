@@ -14,7 +14,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -35,7 +35,17 @@ if (!process.env.DEEPSEEK_API_KEY || !process.env.DEEPSEEK_BASE_URL) {
   process.exit(1)
 }
 
-const projectRoot = mkdtempSync(join(tmpdir(), 'mw-reality-loop-'))
+// The provider fixture observes a FIXED scratch path so it can decide read vs
+// write based on real README state across retries. Create the scratch repo
+// there so the fixture and the execution share the same reality.
+const FIXTURE_TARGET = process.env.FIXTURE_TARGET_DIR
+if (!FIXTURE_TARGET) {
+  console.error('FIXTURE_TARGET_DIR is required (absolute scratch project path the fixture observes)')
+  process.exit(1)
+}
+const projectRoot = FIXTURE_TARGET
+rmSync(projectRoot, { recursive: true, force: true })
+mkdirSync(projectRoot, { recursive: true })
 let harnessCheckoutResolved = resolve(harnessCheckout)
 
 try {
@@ -121,5 +131,6 @@ try {
     evidenceCount: result.workUnit.evidence.length,
   }))
 } finally {
-  rmSync(projectRoot, { recursive: true, force: true })
+  // The fixture target is deliberately left in place (the provider observes it
+  // across retries); the smoke does not clean it up.
 }
