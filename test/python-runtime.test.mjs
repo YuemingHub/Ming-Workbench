@@ -52,8 +52,11 @@ test('bundled Python runtime is resolved only when identity manifest exists', ()
 test('bundled Python runtime re-verifies interpreter SHA-256', () => {
   const workbenchRoot = setupTestDir()
   try {
+    // The product resolves the interpreter at runtime/python/<platform layout>.
     const interpreterName = process.platform === 'win32' ? 'python.exe' : 'python3'
-    const pythonDir = join(workbenchRoot, '.workbench', 'runtime', 'python', 'bin')
+    const pythonDir = process.platform === 'win32'
+      ? join(workbenchRoot, '.workbench', 'runtime', 'python', 'python')
+      : join(workbenchRoot, '.workbench', 'runtime', 'python', 'bin')
     mkdirSync(pythonDir, { recursive: true })
     // Copy the current Node binary as a stand-in interpreter: the test only
     // verifies identity re-checking (SHA-256), never that this is really Python.
@@ -89,16 +92,18 @@ test('resolveProductPythonCommand prefers bundled Python over system Python', ()
 
     // With bundled runtime present -> bundled executable wins.
     const interpreterName = process.platform === 'win32' ? 'python.exe' : 'python3'
-    const pythonDir = join(workbenchRoot, '.workbench', 'runtime', 'python', 'bin')
+    const pythonDir = process.platform === 'win32'
+      ? join(workbenchRoot, '.workbench', 'runtime', 'python', 'python')
+      : join(workbenchRoot, '.workbench', 'runtime', 'python', 'bin')
     mkdirSync(pythonDir, { recursive: true })
     const target = join(pythonDir, interpreterName)
     copyFileSync(process.execPath, target)
     const hash = createHash('sha256').update(readFileSync(target)).digest('hex')
     writeFileSync(
       join(workbenchRoot, '.workbench', 'runtime', 'python', 'python-runtime.json'),
-      JSON.stringify({ version: '3.11', platform: 'linux', source: 'test', sha256: hash }),
+      JSON.stringify({ version: '3.11', platform: process.platform, source: 'test', sha256: hash }),
     )
-    const bundled = resolveProductPythonCommand(workbenchRoot, 'linux')
+    const bundled = resolveProductPythonCommand(workbenchRoot, process.platform)
     assert.equal(bundled, target)
   } finally {
     cleanup(workbenchRoot)
