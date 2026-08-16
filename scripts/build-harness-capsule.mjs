@@ -29,7 +29,7 @@
 
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -151,6 +151,69 @@ for (const file of [
   const src = join(checkout, file)
   if (existsSync(src)) cpSync(src, join(staging, file))
 }
+
+// 3b. Prune dependencies that Workbench's ACP composition never loads at
+// runtime. These come from the dsh-examples full closure but are NOT plugins
+// in harness/acp/workbench.cordis.yml; shipping them bloats the installer and,
+// on the current platform, carries foreign-native binaries. Each prune is
+// verified below by an ACP execution smoke, so removing a truly-required
+// dependency is caught at build time, never silently.
+//   - @anthropic-ai: dsh-subagent-claude-code (subagents are not used)
+//   - @earendil-works: dsh-llm-pi-ai (provider not used)
+//   - @opentelemetry: dsh-session-telemetry-otel (telemetry not used)
+//   - the unused dsh plugins themselves
+const PRUNE_NODE_MODULES = [
+  '@anthropic-ai',
+  '@earendil-works',
+  '@opentelemetry',
+  '@aws-sdk',
+  '@aws-crypto',
+  '@smithy',
+]
+const PRUNE_DSH_PLUGINS = [
+  'dsh-subagent-claude-code',
+  'dsh-llm-pi-ai',
+  'dsh-session-telemetry-otel',
+  'dsh-hooks-claude-code',
+  'dsh-hooks-codex',
+  'dsh-subagent',
+  'dsh-tool-subagent',
+  'dsh-e2b',
+  'dsh-subprocess-e2b',
+  'dsh-fs-e2b',
+  'dsh-lsp',
+  'dsh-lsp-stdio',
+  'dsh-tool-skill',
+  'dsh-skill',
+  'dsh-skill-filesystem',
+  'dsh-web',
+  'dsh-tool-web',
+  'dsh-web-search',
+]
+for (const name of PRUNE_NODE_MODULES) {
+  rmSync(join(staging, 'node_modules', name), { recursive: true, force: true })
+}
+for (const name of PRUNE_DSH_PLUGINS) {
+  rmSync(join(staging, 'node_modules', '@deepseek-ai', name), { recursive: true, force: true })
+}
+// Drop foreign-platform native binaries (e.g. sharp's linux libvips) that the
+// current platform's real dependency would provide anyway.
+{
+  const nm = join(staging, 'node_modules')
+  const dropNative = (base) => {
+    const dir = join(nm, base)
+    if (!existsSync(dir)) return
+    for (const entry of readdirSync(dir)) {
+      if (/linux-|darwin-|macos-/.test(entry)) {
+        rmSync(join(dir, entry), { recursive: true, force: true })
+      }
+    }
+  }
+  for (const base of ['@img', 'esbuild', '@esbuild', '@deepseek-ai']) {
+    dropNative(base)
+  }
+}
+console.log('pruned unused runtime dependencies from capsule')
 
 // 4. Runtime identity manifest. Verification uses ONLY these files + SHA-256;
 //    no git executable is needed on the consumer machine.
