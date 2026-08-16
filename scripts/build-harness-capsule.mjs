@@ -30,7 +30,7 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
@@ -41,10 +41,51 @@ const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
 // stale or corrupted capsule is never silently accepted.
 const destination = resolve(root, '.workbench', 'vendor', 'deepseek-harness-capsule')
 const existingManifest = join(destination, 'harness-runtime-manifest.json')
+
+async function writeCapsuleArchive() {
+  const archivePath = join(root, '.workbench', 'vendor', 'deepseek-harness-capsule.tar.gz')
+  rmSync(archivePath, { force: true })
+  const { createWriteStream } = await import('node:fs')
+  const { createGzip } = await import('node:zlib')
+  const { create } = await import('tar')
+  const out = createWriteStream(archivePath)
+  const gzip = createGzip()
+  // tar v7 exports `create` (a.k.a `c`) for packing.
+  create({ cwd: dirname(destination), portable: true }, [basename(destination)])
+    .pipe(gzip)
+    .pipe(out)
+  await new Promise((resolvePromise, reject) => {
+    out.on('finish', resolvePromise)
+    out.on('error', reject)
+    gzip.on('error', reject)
+  })
+  console.log(`capsule archive: ${archivePath}`)
+}
+
+// --archive-only: reuse an existing verified capsule directory and just
+// (re)write the single-file archive (the installer carrier). Used by CI so
+// the expensive deploy runs once and the archive can be regenerated cheaply.
+if (process.argv.includes('--archive-only')) {
+  if (!existsSync(existingManifest)) {
+    console.error('MING WORKBENCH HARNESS CAPSULE FAILED: --archive-only requires an existing capsule')
+    process.exit(1)
+  }
+  const existing = JSON.parse(readFileSync(existingManifest, 'utf8'))
+  const lockIdentity = JSON.parse(readFileSync(join(root, 'harness.lock.json'), 'utf8'))
+  if (existing.harness?.commit !== lockIdentity.reviewedCommit || existing.harness?.version !== lockIdentity.sourcePackage?.version) {
+    console.error('MING WORKBENCH HARNESS CAPSULE FAILED: existing capsule does not match lock')
+    process.exit(1)
+  }
+  await writeCapsuleArchive()
+  console.log(`MING WORKBENCH HARNESS CAPSULE ARCHIVE READY: ${existing.harness.version} @ ${existing.harness.commit}`)
+  process.exit(0)
+}
+
 if (process.env.MING_HARNESS_CAPSULE_REUSE !== '0' && existsSync(existingManifest)) {
   const existing = JSON.parse(readFileSync(existingManifest, 'utf8'))
   const lockIdentity = JSON.parse(readFileSync(join(root, 'harness.lock.json'), 'utf8'))
   if (existing.harness?.commit === lockIdentity.reviewedCommit && existing.harness?.version === lockIdentity.sourcePackage?.version) {
+    await writeCapsuleArchive()
     console.log(
       `MING WORKBENCH HARNESS CAPSULE REUSED: ${existing.harness.version} @ ${existing.harness.commit}`,
     )
@@ -196,15 +237,28 @@ for (const name of PRUNE_NODE_MODULES) {
 for (const name of PRUNE_DSH_PLUGINS) {
   rmSync(join(staging, 'node_modules', '@deepseek-ai', name), { recursive: true, force: true })
 }
-// Drop foreign-platform native binaries (e.g. sharp's linux libvips) that the
-// current platform's real dependency would provide anyway.
+// Drop native binaries for platforms we are NOT building for (e.g. sharp's
+// linux libvips when packaging on Windows, darwin/macos binaries when on
+// Linux/Windows). The current platform's real optional native (esbuild) must
+// survive because tsx needs it to transpile.
 {
   const nm = join(staging, 'node_modules')
+  const current = process.platform // 'win32' | 'linux' | 'darwin'
+  const foreign = (entry) => {
+    const lower = entry.toLowerCase()
+    const isLinux = lower.includes('linux')
+    const isDarwin = lower.includes('darwin') || lower.includes('macos')
+    const isWin = lower.includes('win32') || lower.includes('windows')
+    if (current === 'win32') return isLinux || isDarwin
+    if (current === 'linux') return isWin || isDarwin
+    if (current === 'darwin') return isLinux || isWin
+    return false
+  }
   const dropNative = (base) => {
     const dir = join(nm, base)
     if (!existsSync(dir)) return
     for (const entry of readdirSync(dir)) {
-      if (/linux-|darwin-|macos-/.test(entry)) {
+      if (foreign(entry)) {
         rmSync(join(dir, entry), { recursive: true, force: true })
       }
     }
@@ -271,6 +325,13 @@ const finalManifest = JSON.parse(readFileSync(join(destination, 'harness-runtime
 finalManifest.keyFiles['harness-runtime-manifest.json'] = sha256File(join(destination, 'harness-runtime-manifest.json'))
 writeFileSync(join(destination, 'harness-runtime-manifest.json'), `${JSON.stringify(finalManifest, null, 2)}\n`, 'utf8')
 
+// 6b. Also produce a single-file archive of the capsule. The NSIS installer
+// ships this archive (one file) instead of tens of thousands of small files,
+// which is what electron-builder/makensis chokes on (RangeError: Invalid
+// string length). The runtime extracts it to a per-user cache on first launch
+// and verifies the pinned key files by SHA-256. This is the same content as
+// the directory capsule; it only changes the distribution carrier.
+await writeCapsuleArchive()
 console.log(
   `MING WORKBENCH HARNESS CAPSULE BUILT: ${finalManifest.harness.version} @ ${finalManifest.harness.commit}`,
 )

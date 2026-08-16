@@ -69,6 +69,17 @@ function defaultBundledCapsuleDir(workbenchRoot: string): string {
   return resolve(workbenchRoot, '.workbench', 'vendor', BUNDLED_CAPSULE_DIR)
 }
 
+function defaultBundledArchivePath(workbenchRoot: string): string {
+  return resolve(workbenchRoot, '.workbench', 'vendor', 'deepseek-harness-capsule.tar.gz')
+}
+
+function defaultCapsuleCacheRoot(workbenchRoot: string): string {
+  const cacheRoot = process.env.MING_HARNESS_CACHE
+    ? resolve(process.env.MING_HARNESS_CACHE)
+    : join(tmpdir(), 'ming-workbench-harness')
+  return cacheRoot
+}
+
 function sha256File(file: string): string {
   return createHash('sha256').update(readFileSync(file)).digest('hex')
 }
@@ -141,6 +152,58 @@ export function verifyBundledCapsule(
   }
 
   return { commit: manifest.harness.commit, version: manifest.harness.version }
+}
+
+/**
+ * Extract the single-file capsule archive into the per-user cache and verify
+ * it in place. The archive is a `tar.gz` of the full capsule directory
+ * (including `deepseek-harness-capsule/`), produced by build-harness-capsule.
+ * Extraction uses the pure-JS `tar` package so no system tar is required on
+ * Windows. After extraction, verifyBundledCapsule re-checks every pinned key
+ * file by SHA-256, so a corrupted archive is never executed.
+ */
+export async function extractBundledCapsuleArchive(
+  workbenchRoot: string,
+  lock: { reviewedCommit: string; sourcePackage: { version: string; path: string } },
+): Promise<HarnessRuntimeResult> {
+  const archivePath = defaultBundledArchivePath(workbenchRoot)
+  if (!existsSync(archivePath)) {
+    throw new Error(`Bundled Harness capsule archive not found at ${archivePath}.`)
+  }
+  const extractDir = defaultCapsuleCacheRoot(workbenchRoot)
+  const capsuleDir = join(extractDir, BUNDLED_CAPSULE_DIR)
+
+  // Reuse an already-verified extraction when present.
+  if (existsSync(join(capsuleDir, CAPSULE_MANIFEST_NAME))) {
+    try {
+      const identity = verifyBundledCapsule(capsuleDir, lock)
+      return { checkout: capsuleDir, source: 'bundled-capsule', identity }
+    } catch {
+      // Stale or corrupted extraction — remove and re-extract.
+      removeDir(capsuleDir)
+    }
+  }
+
+  mkdirSync(extractDir, { recursive: true })
+  const { extract } = await import('tar')
+  try {
+    await extract({
+      file: archivePath,
+      cwd: extractDir,
+      // Do not reject on stray link metadata; the identity verification below
+      // re-checks every pinned key file by SHA-256, so a truncated or corrupt
+      // extraction is caught there, not here.
+      strict: false,
+      preservePaths: true,
+    })
+  } catch (error) {
+    throw new Error(
+      `Failed to extract the bundled Harness capsule archive to ${extractDir}: ${error instanceof Error ? error.message : String(error)}`,
+    )
+  }
+
+  const identity = verifyBundledCapsule(capsuleDir, lock)
+  return { checkout: capsuleDir, source: 'bundled-capsule', identity }
 }
 
 function git(cwd: string, args: string[]): string {
@@ -443,6 +506,15 @@ export async function prepareHarnessRuntime(
   if (existsSync(join(capsuleDir, CAPSULE_MANIFEST_NAME))) {
     const identity = verifyBundledCapsule(capsuleDir, lock)
     return { checkout: capsuleDir, source: 'bundled-capsule', identity }
+  }
+
+  // 3b. Single-file capsule archive (the installer carrier). Extracted into
+  // the per-user cache and verified in place. This is the same content as the
+  // directory capsule; it exists so electron-builder ships ONE file instead of
+  // tens of thousands of small files.
+  if (existsSync(defaultBundledArchivePath(workbenchRoot))) {
+    const extracted = await extractBundledCapsuleArchive(workbenchRoot, lock)
+    return extracted
   }
 
   // 4. Bundled runtime (developer fallback: requires git + pnpm install).

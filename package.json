@@ -25,6 +25,7 @@
     "@agentclientprotocol/sdk": "0.25.1",
     "electron-updater": "^6.6.2",
     "pnpm": "11.7.0",
+    "tar": "^7.4.3",
     "zod": "^4.0.0"
   },
   "devDependencies": {
@@ -45,7 +46,7 @@
       "harness/**/*",
       ".workbench/vendor/**/*",
       "!.workbench/vendor/deepseek-harness/**",
-      "!.workbench/vendor/deepseek-harness-capsule/node_modules/.bin/**",
+      "!.workbench/vendor/deepseek-harness-capsule/**",
       ".workbench/runtime/**/*",
       ".tmp/**/*",
       "!.tmp/harness-runtime-test/**",
@@ -58,6 +59,7 @@
     "directories": {
       "output": "dist-desktop"
     },
+    "compression": "store",
     "npmRebuild": false,
     "electronDist": "node_modules/electron/dist",
     "publish": {
