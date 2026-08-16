@@ -35,6 +35,24 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
 
+// Idempotent: when the reviewed capsule already exists with a verified
+// manifest, skip the expensive pnpm deploy + copy and reuse it. The runtime
+// (prepareHarnessRuntime) independently re-verifies the manifest SHA-256, so a
+// stale or corrupted capsule is never silently accepted.
+const destination = resolve(root, '.workbench', 'vendor', 'deepseek-harness-capsule')
+const existingManifest = join(destination, 'harness-runtime-manifest.json')
+if (process.env.MING_HARNESS_CAPSULE_REUSE !== '0' && existsSync(existingManifest)) {
+  const existing = JSON.parse(readFileSync(existingManifest, 'utf8'))
+  const lockIdentity = JSON.parse(readFileSync(join(root, 'harness.lock.json'), 'utf8'))
+  if (existing.harness?.commit === lockIdentity.reviewedCommit && existing.harness?.version === lockIdentity.sourcePackage?.version) {
+    console.log(
+      `MING WORKBENCH HARNESS CAPSULE REUSED: ${existing.harness.version} @ ${existing.harness.commit}`,
+    )
+    console.log(`capsule: ${destination}`)
+    process.exit(0)
+  }
+}
+
 function fail(message) {
   console.error(`MING WORKBENCH HARNESS CAPSULE FAILED: ${message}`)
   process.exit(1)
@@ -182,7 +200,7 @@ if (!existsSync(bootProbe)) {
 console.log('app-boot present, tsx present, identity manifest written.')
 
 // 6. Publish into the Workbench vendor dir that electron-builder packages.
-const destination = resolve(root, '.workbench', 'vendor', 'deepseek-harness-capsule')
+// destination is defined at the top for the idempotent-reuse check.
 rmSync(destination, { recursive: true, force: true })
 cpSync(staging, destination, { recursive: true })
 

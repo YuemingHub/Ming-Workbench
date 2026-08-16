@@ -74,6 +74,13 @@ jobs:
           npm run check
           npm test
 
+      - name: Build NSIS installer (single build for the smoke)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm run desktop:package
+          if ($LASTEXITCODE -ne 0) { Write-Error "desktop:package failed (exit $LASTEXITCODE)" }
+
       - name: Start repository-owned OpenAI-compatible provider fixture
         shell: pwsh
         run: |
@@ -105,7 +112,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $artifact = Join-Path $env:RUNNER_TEMP 'pipeline-smoke-artifacts'
-          & pwsh -NoProfile -File scripts/packaged-application-pipeline-smoke.ps1 -ArtifactDir $artifact
+          & pwsh -NoProfile -File scripts/packaged-application-pipeline-smoke.ps1 -SkipBuild -ArtifactDir $artifact
           if ($LASTEXITCODE -ne 0) {
             Write-Error "packaged application pipeline smoke failed (exit $LASTEXITCODE)"
           }
