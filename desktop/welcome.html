@@ -64,9 +64,10 @@
 <body>
   <main class="welcome">
     <p class="eyebrow">MING WORKBENCH</p>
-    <h1>先选择一个你想交给 Ming Workbench 的项目</h1>
-    <p class="lede">Ming Workbench 会先只读理解这个项目，再和你确认每一步。它不会在你确认之前修改任何文件。</p>
+    <h1 id="welcome-title">先选择一个你想交给 Ming Workbench 的项目</h1>
+    <p class="lede" id="welcome-lede">Ming Workbench 会先只读理解这个项目，再和你确认每一步。它不会在你确认之前修改任何文件。</p>
     <button id="pick-project" class="primary" type="button">选择项目</button>
+    <p class="muted hidden" id="welcome-progress"></p>
     <div class="steps" id="steps">
       <div class="step"><b>1</b><span>选择你要工作的项目</span></div>
       <div class="step"><b>2</b><span>配置 AI（模型和密钥只保存在本机）</span></div>
@@ -78,11 +79,18 @@
   </main>
   <script>
     const button = document.getElementById('pick-project')
+    const progress = document.getElementById('welcome-progress')
+    function showProgress(text) {
+      progress.textContent = text
+      progress.classList.remove('hidden')
+    }
     button.addEventListener('click', async () => {
       button.disabled = true
+      showProgress('请在弹出的窗口里选择项目文件夹。选好后 Workbench 会自动准备运行环境（第一次约需 1 分钟），期间请勿关闭窗口。')
       try {
         const result = await window.mingWorkbench.selectProject()
         if (result && !result.canceled && result.url) {
+          showProgress('准备完成，正在进入项目…')
           window.location.href = result.url
         }
       } catch {

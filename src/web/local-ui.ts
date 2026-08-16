@@ -168,12 +168,16 @@ export function renderLocalWorkbenchHtml(requestToken: string): string {
       </datalist>
 
       <label class="field-label" for="model-input">模型</label>
-      <input id="model-input" type="text" autocomplete="off" spellcheck="false" placeholder="deepseek-v4-pro" />
+      <input id="model-input" type="text" list="model-options" autocomplete="off" spellcheck="false" placeholder="deepseek-v4-pro" />
+      <datalist id="model-options">
+        <option value="deepseek-v4-pro"></option>
+        <option value="deepseek-chat"></option>
+      </datalist>
       <p class="field-hint">模型名称可以自己填写，Workbench 会原样交给模型服务。</p>
 
       <label class="field-label" for="provider-key-input">API Key</label>
       <input id="provider-key-input" type="password" autocomplete="off" placeholder="已保存的密钥会保留，留空表示不修改" />
-      <p class="field-hint" id="provider-key-state">密钥只保存在本机系统安全存储中，Workbench 不会显示或记录它。</p>
+      <p class="field-hint" id="provider-key-state">API Key 在 DeepSeek 开放平台（platform.deepseek.com）的「API Keys」页面创建。密钥只保存在本机系统安全存储中，Workbench 不会显示或记录它。</p>
 
       <div class="panel-actions">
         <button id="provider-save-button" class="primary" type="button">保存</button>
@@ -456,8 +460,14 @@ function renderGate() {
   if (ready) {
     request.placeholder = '例如：看看这个项目现在做到哪里了，接下来最应该先做什么？'
     $('request-hint').textContent = '这一步只会读取项目，不会修改任何文件。'
+  } else if (!hasProject) {
+    request.placeholder = '先点击「选择项目」，选好后就这里告诉我你想做什么…'
+  } else if (ai === 'unconfigured') {
+    request.placeholder = '先点击「配置 AI」填好模型和 API Key，就可以开始了…'
+  } else if (ai === 'failed') {
+    request.placeholder = 'AI 连接失败，请打开「配置 AI」检查 API Key 后重新测试…'
   } else {
-    request.placeholder = '先完成上面的准备步骤，就可以开始…'
+    request.placeholder = 'AI 已配置好，点击「测试连接」确认能用后即可开始…'
   }
   renderDiagnostics()
 }
@@ -527,7 +537,7 @@ function renderSetupButton(projectStatus) {
   button.type = 'button'
   button.textContent = '启用这个项目'
   button.addEventListener('click', async () => {
-    const ok = window.confirm('启用后，Workbench 会使用 AAOP 官方稳定版本为这个项目加入开发控制文件。不会因此修改业务功能，也不会自动安装第三方执行器。继续吗？')
+    const ok = window.confirm('启用后，Workbench 会为这个项目加入开发控制文件（用于理解项目结构、划定安全边界）。不会修改业务功能，也不会自动安装第三方执行器。继续吗？')
     if (!ok) return
     button.disabled = true
     setNotice('正在启用项目，请稍候…')

@@ -492,6 +492,15 @@ test('local UI HTML and JS are DOM-consistent: every JS id exists in HTML, no st
   assert.ok(htmlIds.has('boot-reload-button'))
   assert.ok(js.includes('BOOT_TIMEOUT_MS'), 'JS has a bootstrap timeout guard')
 
+  // Owner guidance: the model field offers real suggestions, and the input
+  // placeholder tells the user exactly what to do next in every state.
+  assert.ok(htmlIds.has('model-options'))
+  assert.ok(html.includes('value="deepseek-v4-pro"'))
+  assert.ok(html.includes('value="deepseek-chat"'))
+  assert.ok(html.includes('platform.deepseek.com'), 'API key hint points to the real provider portal')
+  assert.ok(js.includes('先点击「配置 AI」'), 'placeholder guides unconfigured users')
+  assert.ok(js.includes('点击「测试连接」确认'), 'placeholder guides configured-untested users')
+
   // The legacy provider-check in JS must not reference those ids in the old
   // browser-side way (no direct IPC to /api/provider/secret).
   assert.ok(js.includes('provider-save-button'))
