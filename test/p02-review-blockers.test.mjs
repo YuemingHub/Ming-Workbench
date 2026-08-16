@@ -185,6 +185,15 @@ test('B4: packaged error messages do not contain npm commands', () => {
 
 test('B4: packaged error copy is human-facing, not technical', () => {
   const source = read('desktop/main.mjs')
-  assert.match(source, /检查网络连接后重新启动/)
-  assert.match(source, /如果问题持续.*Git/)
+  // The packaged runtime no longer requires the consumer to run npm/node or
+  // install Git to prepare the Harness; error copy must stay human-facing and
+  // never instruct terminal commands.
+  const firstPackagedError = source.match(/'Ming Workbench 需要准备运行环境[^']*'/)[0]
+  assert.ok(firstPackagedError.includes('需要准备运行环境，但未能完成'))
+  assert.doesNotMatch(firstPackagedError, /npm\s+run|node\s+--?/)
+  assert.doesNotMatch(firstPackagedError, /需要安装 Git/)
+  const secondPackagedError = source.match(/'Ming Workbench 后端没有准备好[^']*'/)[0]
+  assert.ok(secondPackagedError.includes('后端没有准备好'))
+  assert.doesNotMatch(secondPackagedError, /npm\s+run|node\s+--?/)
+  assert.doesNotMatch(secondPackagedError, /需要安装 Git/)
 })

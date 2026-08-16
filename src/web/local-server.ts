@@ -15,6 +15,7 @@ import {
   resolveProjectOnboarding,
   type ProjectOnboardingResult,
 } from '../projects/onboarding.js'
+import { resolveGitPrerequisiteStatus } from '../projects/git-prerequisite.js'
 import {
   LOCAL_WORKBENCH_APP_JS,
   LOCAL_WORKBENCH_CSS,
@@ -324,9 +325,11 @@ export async function startLocalWorkbenchServer(
       }
 
       if (method === 'GET' && url.pathname === '/api/project') {
+        const gitStatus = resolveGitPrerequisiteStatus(projectRoot)
         sendJson(response, 200, {
           ...projectOnboardingSnapshot(resolveOnboarding(projectRoot)),
           projectPath: projectRoot,
+          git: gitStatus,
         })
         return
       }

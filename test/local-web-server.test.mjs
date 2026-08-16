@@ -190,16 +190,18 @@ test('authorized API token returns only a human-facing project snapshot', async 
       // projectPath is intentionally exposed: the desktop home card must show
       // the owner the real full path of the fixed selected project.
       const expectedPath = resolve('/workspace/fixture')
-      assert.deepEqual(body, {
-        status: 'ready',
-        project: {
-          id: 'local-fixture-123456789abc',
-          title: 'Fixture Project',
-        },
-        projectPath: expectedPath,
-        aaopVersion: '1.2.0',
-        message: '项目已准备，可以先做只读理解。',
+      assert.equal(body.status, 'ready')
+      assert.deepEqual(body.project, {
+        id: 'local-fixture-123456789abc',
+        title: 'Fixture Project',
       })
+      assert.equal(body.projectPath, expectedPath)
+      assert.equal(body.aaopVersion, '1.2.0')
+      assert.equal(body.message, '项目已准备，可以先做只读理解。')
+      // Git prerequisite is surfaced honestly (v0.1 single external prerequisite).
+      assert.equal(typeof body.git.gitAvailable, 'boolean')
+      assert.equal(typeof body.git.projectIsRepository, 'boolean')
+      assert.equal(typeof body.git.message, 'string')
       assert.equal('root' in body.project, false)
       assert.equal('manifest' in body, false)
     },

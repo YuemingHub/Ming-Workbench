@@ -222,6 +222,7 @@ p { line-height: 1.65; }
 .span-two { grid-column: span 2; }
 .card-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
 .path-text { word-break: break-all; }
+.prereq-hint { margin-top: 8px; font-size: 12px; color: #963d35; }
 .model-line { font-weight: 800; font-size: 17px; margin: 0; }
 .hint-line { margin-top: 8px; font-size: 12px; }
 .ai-status-line { margin-top: 8px; font-weight: 700; }
@@ -412,6 +413,14 @@ function renderProject(data) {
     path.className = 'muted path-text'
     path.textContent = data.projectPath
     summary.appendChild(path)
+  }
+  // Git is the single external prerequisite at v0.1. Surface its honest state
+  // instead of failing later with an unexplained git error.
+  if (data.git && (!data.git.gitAvailable || !data.git.projectIsRepository)) {
+    const git = document.createElement('p')
+    git.className = 'prereq-hint'
+    git.textContent = data.git.message
+    summary.appendChild(git)
   }
   $('advanced-content').textContent = data.aaopVersion
     ? '项目开发控制版本：' + data.aaopVersion

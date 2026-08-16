@@ -298,7 +298,7 @@ async function startBackend(projectRoot) {
     )
     // B4: packaged error messages must never show npm/node/terminal commands.
     const userMessage = app.isPackaged
-      ? 'Ming Workbench 需要准备运行环境，但未能完成。\n\n请检查网络连接后重新启动。如果问题持续，可能需要安装 Git。'
+      ? 'Ming Workbench 需要准备运行环境，但未能完成。\n\n请检查安装是否完整后重新启动。'
       : `Harness runtime 未准备好。\n\n${error instanceof Error ? error.message : String(error)}\n\n请检查网络连接或运行 \`npm run harness:prepare\`。`
     dialog.showErrorBox(
       'Ming Workbench 无法启动',
@@ -777,7 +777,7 @@ if (!gotLock) {
       appendStartupLog(`backend startup failed: ${error instanceof Error ? error.message : String(error)}`)
       // B4: packaged error messages must never show npm/node/terminal commands.
       const userMessage = app.isPackaged
-        ? 'Ming Workbench 后端没有准备好。\n\n请重新启动。如果问题持续，请检查网络连接或确认 Git 已安装。'
+        ? 'Ming Workbench 后端没有准备好。\n\n请重新启动。如果问题持续，请检查安装是否完整。'
         : `Workbench 后端没有准备好。\n\n${error instanceof Error ? error.message : String(error)}\n\n先运行 \`npm run build:test\` 和 \`npm run harness:prepare\`。`
       dialog.showErrorBox(
         'Ming Workbench 无法启动',
