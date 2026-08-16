@@ -161,11 +161,16 @@ export function renderLocalWorkbenchHtml(requestToken: string): string {
         <button id="provider-panel-close" class="icon-button secondary" type="button" aria-label="关闭">✕</button>
       </div>
 
-      <label class="field-label" for="provider-input">Provider</label>
-      <input id="provider-input" type="text" list="provider-options" autocomplete="off" spellcheck="false" placeholder="deepseek-official" />
-      <datalist id="provider-options">
-        <option value="deepseek-official"></option>
-      </datalist>
+      <label class="field-label" for="provider-kind-select">模型服务</label>
+      <select id="provider-kind-select">
+        <option value="deepseek">DeepSeek 官方</option>
+        <option value="custom">自定义（OpenAI 接口兼容）</option>
+      </select>
+      <p class="field-hint">选「自定义」可以使用任何 OpenAI 接口兼容的模型服务（SenseNova、StepFun、GLM 等）。</p>
+
+      <label class="field-label hidden" for="base-url-input">接口地址（Base URL）</label>
+      <input id="base-url-input" type="text" class="hidden" autocomplete="off" spellcheck="false" placeholder="https://token.sensenova.cn/v1" />
+      <p class="field-hint hidden" id="base-url-hint">填到 /v1 这一级，例如 https://token.sensenova.cn/v1</p>
 
       <label class="field-label" for="model-input">模型</label>
       <input id="model-input" type="text" list="model-options" autocomplete="off" spellcheck="false" placeholder="deepseek-v4-pro" />
@@ -480,9 +485,21 @@ function renderDiagnostics() {
   if (currentProjectPath) lines.push('项目路径：' + currentProjectPath)
   if (currentProjectMessage) lines.push('项目信息：' + currentProjectMessage)
   lines.push('AI 状态：' + desktopState.aiStatus)
-  if (desktopState.preferences?.provider) lines.push('Provider：' + desktopState.preferences.provider)
+  if (desktopState.preferences) lines.push('模型服务：' + providerLabel(desktopState.preferences))
   if (desktopState.preferences?.model) lines.push('模型：' + desktopState.preferences.model)
   box.textContent = lines.join('\\n')
+}
+
+function providerLabel(prefs) {
+  if (!prefs) return ''
+  if (prefs.baseUrl) {
+    try {
+      return '自定义 · ' + new URL(prefs.baseUrl).host
+    } catch {
+      return '自定义'
+    }
+  }
+  return 'DeepSeek 官方'
 }
 
 function renderAiSummary() {
@@ -495,7 +512,7 @@ function renderAiSummary() {
   summary.appendChild(modelLine)
   const providerLine = document.createElement('p')
   providerLine.className = 'muted'
-  providerLine.textContent = prefs && prefs.provider ? prefs.provider : ''
+  providerLine.textContent = providerLabel(prefs)
   summary.appendChild(providerLine)
   const status = document.createElement('p')
   status.className = 'muted ai-status-line'
@@ -715,9 +732,25 @@ async function refreshDesktopState() {
   renderGate()
 }
 
+function providerKindFromPrefs(prefs) {
+  return prefs && prefs.baseUrl ? 'custom' : 'deepseek'
+}
+
+function applyProviderKind(kind) {
+  const custom = kind === 'custom'
+  for (const id of ['base-url-input']) {
+    $(id).classList.toggle('hidden', !custom)
+  }
+  document.querySelector('label[for="base-url-input"]')?.classList.toggle('hidden', !custom)
+  $('base-url-hint').classList.toggle('hidden', !custom)
+  $('model-input').placeholder = custom ? '例如 glm-5.2 / step-3.7-flash / sensenova-6.8-flash-lite' : 'deepseek-v4-pro'
+}
+
 function openProviderPanel() {
   const prefs = desktopState.preferences || {}
-  $('provider-input').value = prefs.provider || 'deepseek-official'
+  $('provider-kind-select').value = providerKindFromPrefs(prefs)
+  applyProviderKind($('provider-kind-select').value)
+  $('base-url-input').value = prefs.baseUrl || ''
   $('model-input').value = prefs.model || ''
   $('provider-key-input').value = ''
   $('provider-panel-status').textContent = desktopState.hasSecret ? '✓ 已保存密钥（留空保留）' : '尚未保存密钥'
@@ -735,12 +768,13 @@ function closeProviderPanel() {
 async function saveProviderConfig() {
   const button = $('provider-save-button')
   const status = $('provider-panel-status')
-  const provider = $('provider-input').value.trim()
+  const kind = $('provider-kind-select').value
+  const baseUrl = kind === 'custom' ? $('base-url-input').value.trim() : ''
   const model = $('model-input').value.trim()
   const key = $('provider-key-input').value.trim()
 
-  if (!provider) {
-    status.textContent = '请填写 Provider。'
+  if (kind === 'custom' && !/^https?:\\/\\//i.test(baseUrl)) {
+    status.textContent = '自定义服务需要填写接口地址（以 http:// 或 https:// 开头）。'
     status.className = 'provider-status error'
     return
   }
@@ -762,7 +796,11 @@ async function saveProviderConfig() {
         return
       }
     }
-    const prefsRes = await window.mingWorkbench.setProviderPreferences({ provider, model })
+    const prefsRes = await window.mingWorkbench.setProviderPreferences({
+      provider: 'deepseek-official',
+      model,
+      baseUrl,
+    })
     if (!prefsRes || !prefsRes.ok) {
       status.textContent = prefsRes?.message || '配置保存失败，请稍后重试。'
       status.className = 'provider-status error'
@@ -771,7 +809,7 @@ async function saveProviderConfig() {
     // Saving a configuration only proves it is stored; it never claims the
     // AI is connected. The user must run a real connection test.
     desktopState.hasSecret = desktopState.hasSecret || Boolean(key)
-    desktopState.preferences = { provider, model }
+    desktopState.preferences = { provider: 'deepseek-official', model, baseUrl }
     desktopState.aiStatus = desktopState.hasSecret ? 'configured-untested' : 'unconfigured'
     status.textContent = '已保存。现在点击「测试连接」确认 AI 真的能用。'
     status.className = 'provider-status ok'
@@ -876,6 +914,9 @@ $('select-project-button').addEventListener('click', switchProject)
 $('switch-project-button').addEventListener('click', switchProject)
 $('open-provider-button').addEventListener('click', openProviderPanel)
 $('provider-panel-close').addEventListener('click', closeProviderPanel)
+$('provider-kind-select').addEventListener('change', () => {
+  applyProviderKind($('provider-kind-select').value)
+})
 $('provider-save-button').addEventListener('click', saveProviderConfig)
 $('provider-test-button').addEventListener('click', testProviderConnection)
 $('provider-clear-button').addEventListener('click', clearProviderKey)

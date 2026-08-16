@@ -322,9 +322,26 @@ async function startBackend(projectRoot) {
     extraEnv: {
       ...(providerSecret ? { DEEPSEEK_API_KEY: providerSecret } : {}),
       // User-configurable provider/model (non-secret preferences) reach the
-      // backend child env and flow into the Harness ACP child.
+      // backend child env and flow into the Harness ACP child. A custom
+      // OpenAI-compatible endpoint rides DEEPSEEK_BASE_URL (the harness
+      // plugin reads it natively); official DeepSeek leaves it unset.
       MING_HARNESS_PROVIDER: providerPreferences.provider,
       MING_HARNESS_MODEL: providerPreferences.model,
+      ...(providerPreferences.baseUrl
+        ? {
+            DEEPSEEK_BASE_URL: providerPreferences.baseUrl,
+            // Third-party OpenAI-compatible endpoints accept the common
+            // reasoning vocabulary but not DeepSeek's max/off; the harness
+            // plugin requires effort "off" together with thinking disabled,
+            // which omits the field entirely (endpoint defaults apply).
+            MING_HARNESS_THINKING: 'disabled',
+            MING_HARNESS_REASONING_EFFORT: 'off',
+            // Third-party endpoints cap max_tokens well below DeepSeek's
+            // 256000 default (e.g. SenseNova: 65536); 16384 is safe across
+            // OpenAI-compatible providers.
+            MING_HARNESS_MAX_TOKENS: '16384',
+          }
+        : {}),
     },
   })
 

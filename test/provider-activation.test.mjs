@@ -128,3 +128,32 @@ test('provider activation restart path is wired in the desktop main process', ()
     )
   }
 })
+
+test('custom OpenAI-compatible provider env wiring is present', () => {
+  const source = readFileSync(
+    new URL('../desktop/main.mjs', import.meta.url),
+    'utf8',
+  )
+  // Custom endpoints flow through DEEPSEEK_BASE_URL + conservative harness
+  // tuning (thinking disabled, effort off, bounded maxTokens); official
+  // DeepSeek keeps its defaults by leaving them unset.
+  assert.match(source, /DEEPSEEK_BASE_URL: providerPreferences\.baseUrl/)
+  assert.match(source, /MING_HARNESS_THINKING: 'disabled'/)
+  assert.match(source, /MING_HARNESS_REASONING_EFFORT: 'off'/)
+  assert.match(source, /MING_HARNESS_MAX_TOKENS: '16384'/)
+  // The ACP child runner must inherit the custom-provider env.
+  const acp = readFileSync(
+    new URL('../src/transports/harness-acp.ts', import.meta.url),
+    'utf8',
+  )
+  assert.ok(acp.includes("'MING_HARNESS_THINKING'"))
+  assert.ok(acp.includes("'MING_HARNESS_REASONING_EFFORT'"))
+  assert.ok(acp.includes("'MING_HARNESS_MAX_TOKENS'"))
+  // The ACP configs parameterize thinking/effort/maxTokens via env.
+  for (const name of ['workbench.cordis.yml', 'intake.cordis.yml']) {
+    const yml = readFileSync(new URL(`../harness/acp/${name}`, import.meta.url), 'utf8')
+    assert.ok(yml.includes('MING_HARNESS_THINKING'), `${name} reads MING_HARNESS_THINKING`)
+    assert.ok(yml.includes('MING_HARNESS_REASONING_EFFORT'), `${name} reads MING_HARNESS_REASONING_EFFORT`)
+    assert.ok(yml.includes('MING_HARNESS_MAX_TOKENS'), `${name} reads MING_HARNESS_MAX_TOKENS`)
+  }
+})

@@ -113,6 +113,11 @@ const SAFE_INHERITED_ENV = [
   // (GitHub, cloud deploy keys, databases, etc.) are deliberately not inherited.
   'DEEPSEEK_API_KEY',
   'DEEPSEEK_BASE_URL',
+  // Custom OpenAI-compatible provider tuning (third-party endpoints accept
+  // the common reasoning vocabulary but not DeepSeek's max/off).
+  'MING_HARNESS_THINKING',
+  'MING_HARNESS_REASONING_EFFORT',
+  'MING_HARNESS_MAX_TOKENS',
 ] as const
 
 function git(cwd: string, args: string[]): string {

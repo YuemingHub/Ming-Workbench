@@ -493,13 +493,23 @@ test('local UI HTML and JS are DOM-consistent: every JS id exists in HTML, no st
   assert.ok(js.includes('BOOT_TIMEOUT_MS'), 'JS has a bootstrap timeout guard')
 
   // Owner guidance: the model field offers real suggestions, and the input
-  // placeholder tells the user exactly what to do next in every state.
+  // placeholder tells the user what to do next in every state.
   assert.ok(htmlIds.has('model-options'))
   assert.ok(html.includes('value="deepseek-v4-pro"'))
   assert.ok(html.includes('value="deepseek-chat"'))
   assert.ok(html.includes('platform.deepseek.com'), 'API key hint points to the real provider portal')
   assert.ok(js.includes('先点击「配置 AI」'), 'placeholder guides unconfigured users')
   assert.ok(js.includes('点击「测试连接」确认'), 'placeholder guides configured-untested users')
+
+  // Custom OpenAI-compatible provider support: a real runtime path exists
+  // (DEEPSEEK_BASE_URL flows through SAFE_INHERITED_ENV into the harness
+  // plugin), so the UI may honestly expose it.
+  assert.ok(htmlIds.has('provider-kind-select'))
+  assert.ok(html.includes('DeepSeek 官方'))
+  assert.ok(html.includes('自定义（OpenAI 接口兼容）'))
+  assert.ok(htmlIds.has('base-url-input'))
+  assert.ok(js.includes('DEEPSEEK_BASE_URL') === false, 'renderer never touches env names directly')
+  assert.ok(js.includes('setProviderPreferences({') , 'preferences save carries provider config')
 
   // The legacy provider-check in JS must not reference those ids in the old
   // browser-side way (no direct IPC to /api/provider/secret).
