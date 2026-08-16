@@ -1,5 +1,9 @@
 # Ming Workbench
 
+> **Agents: start with [`AGENTS.md`](./AGENTS.md), then read [`docs/WORKBENCH_CONSTITUTION.md`](./docs/WORKBENCH_CONSTITUTION.md) before changing the repository.**
+>
+> The durable rule is **Reuse Before Build**: Ming Workbench owns the Reality → Intent → Evidence → Outcome loop and should reuse or thinly adapt existing execution infrastructure rather than rebuild it.
+
 Ming Workbench is an intent-to-evidence AI workbench. It uses existing agent runtimes instead of rebuilding them.
 
 The first development profile is:
