@@ -438,7 +438,7 @@ export async function startLocalWorkbenchServer(
         const result = await enableAaop({
           projectRoot,
           authorized: true,
-          workbenchRoot: options.workbenchRoot,
+          workbenchRoot,
         })
         if (result.status === 'failed') {
           sendJson(response, 409, {

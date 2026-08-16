@@ -53,13 +53,16 @@ test('bundled Python runtime is resolved only when identity manifest exists', ()
 test('bundled Python runtime re-verifies interpreter SHA-256', () => {
   const workbenchRoot = setupTestDir()
   try {
+    const interpreterName = process.platform === 'win32' ? 'python.exe' : 'python3'
     const pythonDir = join(workbenchRoot, '.workbench', 'runtime', 'python', 'bin')
     mkdirSync(pythonDir, { recursive: true })
     const python = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], {
       encoding: 'utf8',
     }).trim()
-    const target = join(pythonDir, 'python3')
-    execFileSync('cp', [python, target])
+    const target = join(pythonDir, interpreterName)
+    execFileSync(process.platform === 'win32' ? 'copy' : 'cp', process.platform === 'win32'
+      ? [python, target]
+      : [python, target])
 
     const hash = createHash('sha256').update(readFileSync(target)).digest('hex')
     writeFileSync(
@@ -71,7 +74,7 @@ test('bundled Python runtime re-verifies interpreter SHA-256', () => {
     assert.equal(valid.executable, target)
 
     // Corrupted interpreter -> refused (sha mismatch).
-    writeFileSync(target, '#!/bin/sh\necho corrupted\n')
+    writeFileSync(target, 'corrupted')
     const corrupted = resolveBundledPythonRuntime(workbenchRoot)
     assert.equal(corrupted.executable, undefined)
   } finally {
@@ -87,13 +90,14 @@ test('resolveProductPythonCommand prefers bundled Python over system Python', ()
     assert.ok(system === 'python3' || system === 'python', `expected a system python command, got ${system}`)
 
     // With bundled runtime present -> bundled executable wins.
+    const interpreterName = process.platform === 'win32' ? 'python.exe' : 'python3'
     const pythonDir = join(workbenchRoot, '.workbench', 'runtime', 'python', 'bin')
     mkdirSync(pythonDir, { recursive: true })
     const python = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], {
       encoding: 'utf8',
     }).trim()
-    const target = join(pythonDir, 'python3')
-    execFileSync('cp', [python, target])
+    const target = join(pythonDir, interpreterName)
+    execFileSync(process.platform === 'win32' ? 'copy' : 'cp', [python, target])
     const hash = createHash('sha256').update(readFileSync(target)).digest('hex')
     writeFileSync(
       join(workbenchRoot, '.workbench', 'runtime', 'python', 'python-runtime.json'),

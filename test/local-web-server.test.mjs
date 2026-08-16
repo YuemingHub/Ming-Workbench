@@ -240,8 +240,7 @@ test('setup cannot run without token and browser-supplied projectRoot cannot cha
         projectRoot: resolve('/workspace/fixture'),
         authorized: true,
         workbenchRoot: resolve('/workbench'),
-      })
-    },
+      })    },
   )
 })
 
