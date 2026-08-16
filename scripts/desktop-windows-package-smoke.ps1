@@ -189,10 +189,13 @@ function Invoke-PackagedLaunch([string]$AppPath, [string]$Label, [string]$Scratc
     Write-Host "backend url=$url"
 
     $log = Read-TextFileShared $startupLog
-    Assert-True ($log -match "harness runtime ready source=bundled commit=([0-9a-f]{40})") "harness runtime from bundled artifact" "(label=$Label)"
+    # The product runtime is now the prebuilt capsule (source=bundled-capsule).
+    # Developer builds fall back to the git bundle (source=bundled). Both must
+    # pin the same reviewed commit.
+    Assert-True ($log -match "harness runtime ready source=(bundled-capsule|bundled) commit=([0-9a-f]{40})") "harness runtime ready with pinned identity" "(label=$Label)"
     $lockRaw = Read-TextFileShared (Join-Path $WorkbenchRoot "harness.lock.json")
     $lock = $lockRaw | ConvertFrom-Json
-    Assert-True ($Matches[1] -eq $lock.reviewedCommit) "harness identity pinned to reviewed commit" "(expected=$($lock.reviewedCommit) got=$($Matches[1]))"
+    Assert-True ($Matches[2] -eq $lock.reviewedCommit) "harness identity pinned to reviewed commit" "(expected=$($lock.reviewedCommit) got=$($Matches[2]))"
     Assert-True ($log -match "backend spawn .*harnessCheckout=auto-bundled") "no developer checkout dependency (MING_HARNESS_CHECKOUT absent)"
     Assert-True ($log -match "auto-updater loaded: NsisUpdater") "electron-updater module actually loaded" "(label=$Label)"
 
@@ -312,9 +315,11 @@ $appRoot = Join-Path $unpackedApp "resources\app"
 $exePath = Join-Path $unpackedApp "Ming Workbench.exe"
 Assert-True (Test-Path $exePath) "win-unpacked exe exists"
 Assert-True (Test-Path (Join-Path $appRoot ".tmp\index.js")) "packaged app contains compiled .tmp runtime"
-Assert-True (Test-Path (Join-Path $appRoot ".workbench\vendor\deepseek-harness-0.1.0-rc.5.bundle")) "packaged app contains reviewed Harness bundle"
 Assert-True (Test-Path (Join-Path $appRoot "harness.lock.json")) "packaged app contains harness.lock.json"
 Assert-True (Test-Path (Join-Path $appRoot "scripts\start-local-web.mjs")) "packaged app contains backend entry script"
+Assert-True (Test-Path (Join-Path $appRoot ".workbench\vendor\deepseek-harness-capsule\harness-runtime-manifest.json")) "packaged app contains prebuilt Harness capsule manifest"
+Assert-True (Test-Path (Join-Path $appRoot ".workbench\vendor\deepseek-harness-capsule\node_modules\tsx\dist\cli.mjs")) "packaged capsule contains tsx runner"
+Assert-True (Test-Path (Join-Path $appRoot ".workbench\vendor\deepseek-harness-capsule\apps\cli\package.json")) "packaged capsule contains reviewed Harness source"
 
 # Ephemeral scratch Git repository (launch target; never a real project).
 $scratchRepo = Join-Path $ScratchRoot "repo"

@@ -61,6 +61,18 @@ jobs:
         shell: pwsh
         run: npm run desktop:package:smoke
 
+      - name: Consumer Journey Gate (L3 packaged E2E)
+        shell: pwsh
+        env:
+          DEEPSEEK_API_KEY: mock-key
+          DEEPSEEK_BASE_URL: http://127.0.0.1:8000/v1
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & pwsh -NoProfile -File scripts/consumer-journey-gate.ps1 -SkipBuild
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "consumer journey gate failed (exit $LASTEXITCODE)"
+          }
+
       - name: Verify release artifacts
         shell: pwsh
         run: |

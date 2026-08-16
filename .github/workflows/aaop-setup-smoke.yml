@@ -1,4 +1,4 @@
-name: aaop-setup-smoke
+name: aaop-setup-smoke-l1
 
 on:
   workflow_dispatch:

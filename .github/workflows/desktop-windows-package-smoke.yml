@@ -1,4 +1,4 @@
-name: desktop-windows-package-smoke
+name: desktop-distribution-smoke-l2
 
 on:
   workflow_dispatch:
