@@ -62,3 +62,17 @@ owner 安装 Preview2 后看到：顶部长期"正在准备…"、"还没有选�
 - 后续 UX 打磨提交（见 git log）
 
 已推送 `desktop-productization` 分支（PR #23）。未 merge、未打 tag、未发 Release，等待 Total Review。
+
+## 七、自定义模型服务（追加轮）
+
+owner 要求：除了 DeepSeek，还能用任何 OpenAI 接口兼容的模型服务。
+
+**实现**：AI 配置面板新增「模型服务」选择——`DeepSeek 官方` / `自定义（OpenAI 接口兼容）`。选自定义时出现 Base URL 输入框；模型名保持自由填写（带常用建议）。自定义模式会把 `DEEPSEEK_BASE_URL` + 保守的兼容参数（thinking 关闭、reasoning effort 省略、max_tokens 16384）注入 Harness ACP 环境；官方模式完全保持 DeepSeek 原参数。底层零新增架构——复用 bundled Harness 的 OpenAI chat/completions 插件。
+
+**真实验证**（用你提供的两个服务 + 真实 key，全程走产品 UI，CDP 驱动）：
+- SenseNova（`token.sensenova.cn` + `sensenova-6.8-flash-lite`）→ 🟢 连接成功
+- StepFun（`api.stepfun.com/step_plan/v1` + `step-3.7-flash`）→ 🟢 连接成功
+- 连接成功后就绪门打开，真实只读 intake 调用返回模型决策并渲染到页面
+- 中途真实修了三个兼容性问题（凭真实服务端错误信息逐步收敛）：`reasoningEffort: max` 非第三方合法值 → 自定义模式置 off；插件要求 thinking 关闭时 effort 必须 off；`max_tokens` 默认 256000 超 SenseNova 65536 上限 → 自定义模式 16384。
+
+**使用**：配置 AI → 选「自定义」→ 填接口地址（如 `https://token.sensenova.cn/v1`）→ 填模型名 → 填该服务商给你的 API Key → 保存 → 测试连接。
