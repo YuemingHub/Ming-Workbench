@@ -759,9 +759,11 @@ export async function startLocalWorkbenchServer(
             model: options.model,
             sessionRoot: options.sessionRoot,
             testCommand: options.testCommand,
-            // P0-C write boundary: default-off safety rail. Normal UI keeps execution
-            // disabled unless an operator explicitly enables write mutation.
-            allowWrite: process.env.MING_WORKBENCH_ALLOW_WRITE === '1',
+            // P0-C write boundary: default-off safety rail. The renderer may
+            // explicitly grant write for THIS run (after the human confirmed the
+            // exact file surface), or an operator may enable it environment-wide.
+            // Never derived from an unconfirmed default.
+            allowWrite: body?.allowWrite === true || process.env.MING_WORKBENCH_ALLOW_WRITE === '1',
           }
           // B2: persist the 'running' state BEFORE execution starts so the
           // authoritative Work Unit store reflects active execution.  The

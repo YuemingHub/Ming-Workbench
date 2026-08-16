@@ -1036,7 +1036,13 @@ $('execute-approve-button').addEventListener('click', async () => {
     status.textContent = '授权已获取，正在执行…'
     const execRes = await api('/api/execute', {
       method: 'POST',
-      body: JSON.stringify({ workUnitId: currentWorkUnitId }),
+      body: JSON.stringify({
+        workUnitId: currentWorkUnitId,
+        // The human already confirmed the exact file surface above; this run may
+        // therefore mutate exactly that surface. The backend still verifies the
+        // write-authorized grant + frozen slice before executing.
+        allowWrite: true,
+      }),
     })
     if (!execRes.response.ok) {
       status.textContent = execRes.body?.message || '执行失败。'
