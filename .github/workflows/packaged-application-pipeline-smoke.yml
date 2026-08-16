@@ -56,25 +56,14 @@ jobs:
       - name: Install dependencies
         run: npm install --no-audit --no-fund
 
-      - name: Prepare bundled Python runtime (pinned python.org embeddable)
-        run: npm run python:prepare
-
-      - name: Prepare exact reviewed Harness source and build prebuilt capsule
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          npm run harness:prepare
-          node scripts/build-harness-capsule.mjs
-          if ($LASTEXITCODE -ne 0) { Write-Error "harness capsule build failed (exit $LASTEXITCODE)" }
-
-      - name: Verify capsule identity and compiled runtime
+      - name: Typecheck and unit tests
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           npm run check
           npm test
 
-      - name: Build NSIS installer (single build for the smoke)
+      - name: Build NSIS installer (prepares bundled Python + Harness capsule + packages once)
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
