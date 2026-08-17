@@ -51,4 +51,6 @@ jobs:
         run: npm run build:test
 
       - name: Install current promoted AAOP stable into an ephemeral project and verify canonical bridge
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: node scripts/smoke-aaop-setup.mjs
