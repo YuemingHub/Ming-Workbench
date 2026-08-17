@@ -187,7 +187,7 @@ async function secondPhase(page) {
   const confirmedRecommendation = await page.locator('#confirmed-recommendation').textContent()
   console.log(`restored recommendation: ${confirmedRecommendation}`)
   assert(confirmedRecommendation.trim().length > 0, 'confirmed outcome restored through the UI')
-  const willGet = await page.locator('#agreement-willget').textContent()
+  const willGet = await page.locator('#confirmed-willget').textContent()
   assert(willGet.trim().length > 0, 'round agreement restored through the UI')
   assert(!(await page.locator('#letter-view').isVisible()), 'does not restart at the letter after confirmation')
   await assertNoEngineeringTerms(page)

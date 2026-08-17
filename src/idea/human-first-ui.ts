@@ -178,6 +178,12 @@ export const HUMAN_FIRST_APP_JS = `
     }
     if (idea.stage === 'confirmed') {
       el('confirmed-recommendation').textContent = idea.synthesis ? idea.synthesis.recommendation : '';
+      if (idea.agreement) {
+        el('confirmed-willget').textContent = idea.agreement.willGet;
+        el('confirmed-solves').textContent = idea.agreement.solves;
+        el('confirmed-wheresee').textContent = idea.agreement.whereSee;
+        el('confirmed-notdoing').textContent = idea.agreement.notDoing;
+      }
     }
   }
 
@@ -355,19 +361,19 @@ export function renderHumanFirstHtml(requestToken: string): string {
         </div>
         <div class="review-block">
           <h3>这一轮会得到什么</h3>
-          <p id="agreement-willget"></p>
+          <p id="confirmed-willget"></p>
         </div>
         <div class="review-block">
           <h3>它解决什么问题</h3>
-          <p id="agreement-solves"></p>
+          <p id="confirmed-solves"></p>
         </div>
         <div class="review-block">
           <h3>你会在哪里看到 / 怎么使用它</h3>
-          <p id="agreement-wheresee"></p>
+          <p id="confirmed-wheresee"></p>
         </div>
         <div class="review-block">
           <h3>这一轮明确不做什么</h3>
-          <p id="agreement-notdoing"></p>
+          <p id="confirmed-notdoing"></p>
         </div>
       </div>
       <p class="status">这件事已经说好并记下了。真正开始的时候，我们会先告诉你每一步。</p>
