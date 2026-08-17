@@ -227,11 +227,17 @@ New-Item -ItemType Directory -Force -Path $firstUserData | Out-Null
 $firstProc = Invoke-L3UiJourney "first" $firstUserData
 
 # Independent outcome observation (not driver assertion only).
+$aaopExists = Test-Path (Join-Path $scratchRepo ".aaop")
+Write-Host "AAOP installed after journey: $aaopExists"
+if ($aaopExists) {
+  $aaopVersion = Read-TextFileShared (Join-Path $scratchRepo ".aaop\VERSION")
+  Write-Host "AAOP VERSION: $aaopVersion"
+}
+Assert-True $aaopExists "AAOP was installed into the scratch project through the UI"
 $readmeAfter = Read-TextFileShared (Join-Path $scratchRepo "README.md")
 Write-Host "README after:"
 Write-Host $readmeAfter
 Assert-True ($readmeAfter -match "Version: NEW") "README reached Version: NEW (independent read)"
-Assert-True (Test-Path (Join-Path $scratchRepo ".aaop")) "AAOP was installed into the scratch project through the UI"
 $diff = & git -C $scratchRepo diff 2>&1 | Out-String
 Write-Host "git diff:"
 Write-Host $diff

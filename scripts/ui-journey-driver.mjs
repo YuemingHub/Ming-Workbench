@@ -112,12 +112,28 @@ async function main() {
       console.log('clicked AAOP setup authorization through the UI')
       // If a confirm dialog opens, accept it.
       await Promise.race([dialogPromise, new Promise((r) => setTimeout(r, 5000))])
-      // Wait for the project to become ready (setup completes).
-      await page.waitForFunction(
-        () => document.body.textContent.includes('项目已启用') || document.body.textContent.includes('准备好了') || !document.getElementById('setup-button'),
-        { timeout: 120_000 },
-      ).catch(() => console.log('setup completion text not asserted'))
+      // Wait for the project to become ready (setup completes) OR an error
+      // notice, whichever comes first.
+      const setupOutcome = await Promise.race([
+        page.waitForFunction(
+          () => document.body.textContent.includes('项目已启用') || document.body.textContent.includes('准备好了'),
+          { timeout: 120_000 },
+        ).then(() => 'ready'),
+        page.waitForFunction(
+          () => {
+            const n = document.getElementById('notice')
+            return n && !n.classList.contains('hidden') && (n.textContent.includes('启用') || n.textContent.includes('失败') || n.textContent.includes('没有成功'))
+          },
+          { timeout: 120_000 },
+        ).then(() => 'error'),
+      ]).catch(() => 'unknown')
       await page.waitForTimeout(2000)
+      if (setupOutcome !== 'ready') {
+        const notice = await page.locator('#notice').textContent().catch(() => '')
+        console.log(`AAOP setup outcome: ${setupOutcome}; notice: ${notice}`)
+      } else {
+        console.log('AAOP setup completed through the UI')
+      }
     }
   } else {
     console.log('no AAOP setup button (project already ready or not setup-required)')
