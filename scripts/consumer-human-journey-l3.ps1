@@ -259,6 +259,12 @@ Assert-True ($status -match "README\.md") "git status shows only README.md modif
 # to exit gracefully. A fresh packaged first launch has more children settling
 # than a plain window, so a few seconds is not enough; wait for the tracked
 # tree to drain before asserting zero residual.
+#
+# Returns $true when the tree drained in bounded time (a real clean close).
+# When it times out, this is a product-close FAILURE: it is recorded, the
+# residual processes are dumped for diagnosis, and force-kill is applied ONLY
+# as CI self-cleanup so the remaining steps can run. A forced cleanup never
+# converts the gate to PASS — the caller asserts on the returned value.
 function Close-InstalledTree([int]$RootPid, [string]$ScratchPath) {
   $p = Get-Process -Id $RootPid -ErrorAction SilentlyContinue
   if ($p -and $p.MainWindowHandle -ne 0) {
@@ -270,10 +276,19 @@ function Close-InstalledTree([int]$RootPid, [string]$ScratchPath) {
     $alive = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
       ($_.ProcessId -eq $RootPid) -or ($_.CommandLine -and $_.CommandLine.IndexOf($ScratchPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0)
     }
-    if (-not $alive -or @($alive).Count -eq 0) { return }
+    if (-not $alive -or @($alive).Count -eq 0) {
+      Write-Host "graceful close drained within 90s bound"
+      return $true
+    }
     Start-Sleep -Milliseconds 500
   }
-  Write-Host "WARN: graceful close timed out; force-killing installed tree"
+  Write-Host "L3_GRACEFUL_CLOSE: FAIL (installed tree did not drain within 90s)"
+  Write-Host "residual processes still matching the installed tree:"
+  Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.CommandLine -and $_.CommandLine.IndexOf($ScratchPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+  } | ForEach-Object {
+    Write-Host "  pid=$($_.ProcessId) name=$($_.Name) cmd=$($_.CommandLine)"
+  }
   Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
     $_.CommandLine -and $_.CommandLine.IndexOf($ScratchPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
   } | ForEach-Object {
@@ -281,13 +296,21 @@ function Close-InstalledTree([int]$RootPid, [string]$ScratchPath) {
   }
   try { taskkill /PID $RootPid /T /F 2>&1 | Out-Null } catch { }
   Start-Sleep -Seconds 3
+  return $false
 }
 
-Close-InstalledTree $firstProc.Id $scratchRepo
+$firstCloseGraceful = Close-InstalledTree $firstProc.Id $scratchRepo
 $residual = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match [regex]::Escape($scratchRepo) }
 Assert-True ($null -eq $residual -or @($residual).Count -eq 0) "zero residual processes after close"
+Assert-True $firstCloseGraceful "first close completed gracefully within the 90s bound"
 
 # Second launch: same userData, no --project, restore project/state.
+# The driver runs in SECOND phase: it asserts the prior Work Unit/outcome/
+# evidence is restored through the UI and must NOT rewrite the credential that
+# was already saved into safeStorage on the first launch (rewriting it with a
+# wrong value would break the provider, not prove anything about the product).
+# The credential/base URL env match the first launch so the driver reports the
+# same facts it observed then.
 Write-Step "SECOND LAUNCH (restore)"
 $secondUserData = $firstUserData
 $secondLaunchStart = Get-Date
@@ -306,12 +329,24 @@ $script:launchDurations['second'] = ((Get-Date) - $secondLaunchStart).TotalSecon
 Write-Host "L3_LAUNCH_DURATION second=$([math]::Round($script:launchDurations['second'],1))s"
 Assert-True $cdpReady "second launch CDP endpoint reachable"
 $env:MING_CDP_URL = "http://127.0.0.1:$cdpPort"
+$env:MING_JOURNEY_PHASE = "second"
+$env:MING_JOURNEY_CREDENTIAL = "fixture-key"
+$env:MING_JOURNEY_BASE_URL = "http://127.0.0.1:8000/v1"
 Push-Location $WorkDir
 try {
   & node scripts/ui-journey-driver.mjs 2>&1 | Tee-Object -FilePath (Join-Path $ScratchRoot "second-ui.log")
+  if ($LASTEXITCODE -ne 0) {
+    Write-Host "--- second ui journey driver log ---"
+    Get-Content (Join-Path $ScratchRoot "second-ui.log") -Tail 60
+    throw "second ui journey driver exited $LASTEXITCODE"
+  }
 } finally { Pop-Location }
 Remove-Item Env:MING_CDP_URL -ErrorAction SilentlyContinue
-Close-InstalledTree $secondProc.Id $scratchRepo
+Remove-Item Env:MING_JOURNEY_PHASE -ErrorAction SilentlyContinue
+Remove-Item Env:MING_JOURNEY_CREDENTIAL -ErrorAction SilentlyContinue
+Remove-Item Env:MING_JOURNEY_BASE_URL -ErrorAction SilentlyContinue
+$secondCloseGraceful = Close-InstalledTree $secondProc.Id $scratchRepo
+Assert-True $secondCloseGraceful "second close completed gracefully within the 90s bound"
 
 # Independent evidence summary (facts already verified above; printed as a
 # single reviewable block). Read BEFORE uninstall removes the installed exe and

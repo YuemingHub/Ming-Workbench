@@ -112,15 +112,21 @@ function Close-LaunchTree([System.Collections.ArrayList]$TrackedIds) {
     foreach ($id in $TrackedIds) {
       if (Get-Process -Id $id -ErrorAction SilentlyContinue) { $alive += $id }
     }
-    if ($alive.Count -eq 0) { return }
+    if ($alive.Count -eq 0) {
+      Write-Host "graceful close drained within 60s bound"
+      return $true
+    }
     Start-Sleep -Milliseconds 500
   }
+  Write-Host "L2_GRACEFUL_CLOSE: FAIL (tracked launch tree did not drain within 60s)"
+  Write-Host "residual tracked pids: $($TrackedIds -join ', ')"
   foreach ($id in $TrackedIds) {
     if (Get-Process -Id $id -ErrorAction SilentlyContinue) {
       try { taskkill /PID $id /T /F 2>&1 | Out-Null } catch { }
     }
   }
   Start-Sleep -Seconds 3
+  return $false
 }
 
 # --- main ---
@@ -308,10 +314,15 @@ function Invoke-ConsumerLaunch([string]$Label) {
       Assert-True ($content.IndexOf($sentinel, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) "no sentinel in project file $(Split-Path $file.FullName -Leaf)"
     }
 
-    Close-LaunchTree $tracked
+    $graceful = Close-LaunchTree $tracked
     Start-Sleep -Seconds 3
-    $residual = Get-ScratchMatchingProcesses $scratchRepo
+    $residual = @($tracked | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })
+    foreach ($r in $residual) {
+      $p = Get-Process -Id $r -ErrorAction SilentlyContinue
+      if ($p) { Write-Host "RESIDUAL: pid=$r name=$($p.ProcessName)" }
+    }
     Assert-True ($residual.Count -eq 0) "zero residual processes after close" "(label=$Label)"
+    Assert-True $graceful "app closed gracefully within the 60s bound" "(label=$Label)"
 
     return @{ userData = $isolatedUserData; startupLog = $startupLog }
   } finally {
@@ -357,10 +368,11 @@ try {
   $wuBody = $wu.Content | ConvertFrom-Json
   Assert-True ($wu.StatusCode -eq 200) "second-launch /api/workunits 200"
   Assert-True ($wuBody.workUnits.Count -ge 1) "second launch restored persisted Work Unit"
-  Close-LaunchTree $tracked
+  $secondGraceful = Close-LaunchTree $tracked
   Start-Sleep -Seconds 3
   $residual = Get-ScratchMatchingProcesses $scratchRepo
   Assert-True ($residual.Count -eq 0) "second-launch zero residual processes"
+  Assert-True $secondGraceful "second-launch close completed gracefully within the 60s bound"
 } finally {
   foreach ($entry in $savedEnv.GetEnumerator()) { Set-Item "Env:$($entry.Key)" $entry.Value }
 }

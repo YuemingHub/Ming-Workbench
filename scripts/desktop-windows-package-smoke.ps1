@@ -123,12 +123,24 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
     foreach ($id in $TrackedIds) {
       if (Get-Process -Id $id -ErrorAction SilentlyContinue) { $alive += $id }
     }
-    if ($alive.Count -eq 0) { return }
+    if ($alive.Count -eq 0) {
+      Write-Host "graceful close drained within 60s bound"
+      return $true
+    }
     Start-Sleep -Milliseconds 500
   }
 
-  Write-Host "WARN: graceful close timed out; force-killing tracked launch tree"
+  Write-Host "L2_GRACEFUL_CLOSE: FAIL (tracked launch tree did not drain within 60s)"
+  Write-Host "residual processes still matching the tracked launch tree:"
   $nowScratch = Get-ScratchMatchingProcesses $ScratchPath
+  foreach ($p in $nowScratch) {
+    Write-Host "  pid=$($p.ProcessId) name=$($p.Name) cmd=$($p.CommandLine)"
+  }
+  foreach ($id in $TrackedIds) {
+    if (Get-Process -Id $id -ErrorAction SilentlyContinue) {
+      Write-Host "  tracked pid=$id (still alive)"
+    }
+  }
   foreach ($p in $nowScratch) {
     try { taskkill /PID $p.ProcessId /T /F 2>&1 | Out-Null } catch { }
   }
@@ -148,6 +160,7 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
     }
   }
   Start-Sleep -Seconds 3
+  return $false
 }
 
 function Invoke-PackagedLaunch([string]$AppPath, [string]$Label, [string]$ScratchPath, [string]$AppDataDir, [string]$WorkbenchRoot) {
@@ -215,7 +228,7 @@ function Invoke-PackagedLaunch([string]$AppPath, [string]$Label, [string]$Scratc
       Assert-True ($content.IndexOf($sentinel, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) "no plaintext sentinel in project file $(Split-Path $file.FullName -Leaf)"
     }
 
-    Close-LaunchTree $proc.Id $ScratchPath $tracked
+    $graceful = Close-LaunchTree $proc.Id $ScratchPath $tracked
 
     Start-Sleep -Seconds 3
     $residual = Get-ScratchMatchingProcesses $ScratchPath
@@ -233,6 +246,7 @@ function Invoke-PackagedLaunch([string]$AppPath, [string]$Label, [string]$Scratc
       }
     }
     Assert-True ($residual.Count -eq 0) "zero residual processes after close" "(label=$Label)"
+    Assert-True $graceful "app closed gracefully within the 60s bound" "(label=$Label)"
     return $startupLog
   } finally {
     foreach ($entry in $savedEnv.GetEnumerator()) {
