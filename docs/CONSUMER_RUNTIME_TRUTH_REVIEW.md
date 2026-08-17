@@ -111,3 +111,28 @@ INTAKE → APPROVAL → EXECUTION → VERIFICATION
 | L5 | real project achieved outcome + independent evidence | 真实项目达成目标 + 独立证据 |
 
 **L1/L2 PASS 不得写成"产品已经可用"。只有 L3 通过才是 consumer journey 可用的最低证据。**
+
+## 审查修复记录：installed 版窗口关闭不退出
+
+### 现象（Total Review 期间在 CI 复现）
+
+- `desktop-distribution-smoke-l2` 与 `consumer-human-journey-l3` 的 installed 版本在窗口关闭后 60s/90s 内未退出，Electron 主进程与 backend 子进程都存活。
+- 旧脚本把 force-kill 后的清理计为 PASS，掩盖了产品缺陷；修复后 close gate 在超时时 FAIL，暴露真实问题。
+- L3 关键诊断（`39eb766` 之后保留）：`close requested via window pid=... title='Ming Workbench' wmClose=False`，超时时 `MainWindowHandle=131376` 仍在。即 `WM_CLOSE` 消息没有送达窗口，窗口未关闭，`before-quit` 从未触发。
+
+### 根因
+
+`CloseMainWindow()`（`PostMessage(WM_CLOSE)`）对 installed 首启的窗口返回 False，`WM_CLOSE` 不可达；而 win-unpacked 启动方式下返回 True 且正常关闭。关闭路径依赖 Windows 消息送达，不是可靠通道。
+
+### 修复
+
+1. **产品层（`desktop/main.mjs`）**
+   - `before-quit` 给 backend 树 kill 加 5s bounded guard：kill 卡住时仍退出（Work Units 每次状态变更即持久化，强制退出不丢数据）。
+   - `second-instance` 识别 `--mw-close-instance` 标记：通过单实例锁由主进程直接 `win.close()`，确定性到达 `before-quit`，不依赖 WM_CLOSE。
+2. **脚本层（`consumer-human-journey-l3.ps1`）**：close 记录 `wmClose` 返回值与窗口/根进程状态；8s 未排空则启动带标记的第二个实例触发主进程关闭，90s bound 内仍不排空才 force-kill 并 FAIL。
+
+### 验证（`39eb766` 之后 CI）
+
+- L3 first launch：`wmClose=False` → 8s 后 fallback 触发 → 0.56s 内排空（graceful）。
+- L3 second launch：`wmClose=True` → 0.6s 内排空。
+- `consumer-human-journey-l3`：success；`desktop-distribution-smoke-l2`：success；`ci`（check + 203 tests）：success。
