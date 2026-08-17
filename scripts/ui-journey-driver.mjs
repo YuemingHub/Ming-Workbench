@@ -112,19 +112,20 @@ async function main() {
       console.log('clicked AAOP setup authorization through the UI')
       // If a confirm dialog opens, accept it.
       await Promise.race([dialogPromise, new Promise((r) => setTimeout(r, 5000))])
-      // Wait for the project to become ready (setup completes) OR an error
-      // notice, whichever comes first.
+      // Wait for the project to become ready (setup completes) OR an explicit
+      // failure notice. The in-progress hint "正在启用项目" must NOT count as
+      // an error — only explicit failure copy does.
       const setupOutcome = await Promise.race([
         page.waitForFunction(
-          () => document.body.textContent.includes('项目已启用') || document.body.textContent.includes('准备好了'),
-          { timeout: 120_000 },
+          () => document.body.textContent.includes('项目已启用') || (document.body.textContent.includes('准备好了') && !document.getElementById('setup-button')),
+          { timeout: 180_000 },
         ).then(() => 'ready'),
         page.waitForFunction(
           () => {
             const n = document.getElementById('notice')
-            return n && !n.classList.contains('hidden') && (n.textContent.includes('启用') || n.textContent.includes('失败') || n.textContent.includes('没有成功'))
+            return n && !n.classList.contains('hidden') && (n.textContent.includes('没有成功') || n.textContent.includes('失败') || n.textContent.includes('无法'))
           },
-          { timeout: 120_000 },
+          { timeout: 180_000 },
         ).then(() => 'error'),
       ]).catch(() => 'unknown')
       await page.waitForTimeout(2000)
@@ -236,10 +237,17 @@ async function main() {
     await request.fill(REQUEST_TEXT)
     console.log(`typed request: ${REQUEST_TEXT}`)
     await click(page, '#intake-button', 'submit intake')
-    await waitForText(page, 'Work Unit', 30_000).catch(async () => {
+    await page.waitForTimeout(15_000)
+    const noticeAfterIntake = await page.locator('#notice').textContent().catch(() => '')
+    const resultVisible = await page.locator('#result:not(.hidden)').count().catch(() => 0)
+    const workTitle = await page.locator('#work-title').textContent().catch(() => '')
+    const approveCount = await page.locator('#execute-approve-button').count().catch(() => 0)
+    console.log(`intake result: notice="${noticeAfterIntake}" resultVisible=${resultVisible} workTitle="${workTitle}" approveBtn=${approveCount}`)
+    if (!resultVisible) {
+      // The intake may be blocked (project AAOP bridge) or setup-required.
       const body = await page.evaluate(() => document.body.textContent)
-      console.log('body preview:', body.slice(0, 200))
-    })
+      console.log('body preview:', body.slice(0, 300))
+    }
 
     step('5. execution approval via UI (if offered)')
     const approve = page.locator('#execute-approve-button')
