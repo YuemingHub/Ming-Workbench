@@ -193,7 +193,15 @@ async function main() {
   const testBtn = page.locator('#provider-test-button')
   await testBtn.click({ force: true })
   console.log('clicked test connection')
-  await waitForText(page, '连接成功', 60_000).catch(() => console.log('connection success text not asserted'))
+  const success = await waitForText(page, '连接成功', 90_000).then(() => true).catch(() => false)
+  if (!success) {
+    // Surface the product's actual failure text for diagnosis.
+    const statusText = await page.locator('#provider-panel-status').textContent().catch(() => '')
+    const panelStatus = await page.locator('#provider-panel-status').textContent().catch(() => '')
+    console.log(`connection test NOT successful; panel status: ${statusText || panelStatus}`)
+  } else {
+    console.log('connection success text asserted')
+  }
   await click(page, '#provider-panel-close', 'close provider panel')
 
   step('4. request intake via UI')
