@@ -50,8 +50,15 @@ async function writeCapsuleArchive() {
   const { create } = await import('tar')
   const out = createWriteStream(archivePath)
   const gzip = createGzip()
-  // tar v7 exports `create` (a.k.a `c`) for packing.
-  create({ cwd: dirname(destination), portable: true }, [basename(destination)])
+  // tar v7 exports `create` (a.k.a `c`) for packing. Symlinks are excluded:
+  // they are .bin shims only (the launcher invokes tsx by absolute path), and
+  // creating symlinks during extraction on Windows requires privileges the
+  // consumer may not have — which would break first-launch extraction.
+  create({
+    cwd: dirname(destination),
+    portable: true,
+    filter: (_path, entry) => entry.type !== 'SymbolicLink' && entry.type !== 'Link',
+  }, [basename(destination)])
     .pipe(gzip)
     .pipe(out)
   await new Promise((resolvePromise, reject) => {
