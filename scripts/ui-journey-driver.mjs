@@ -176,6 +176,16 @@ async function main() {
     if (ready > 0 && await page.locator('#project-summary h2').isVisible().catch(() => false)) { urlSettled = true; break }
   }
   if (!urlSettled) console.log('note: backend reload window not detected; continuing anyway')
+  // The provider panel may still be open after save; close it so the
+  // re-open click below is not blocked by the panel overlay.
+  const panelOpen = await page.locator('#provider-panel:not(.hidden)').count().catch(() => 0)
+  if (panelOpen > 0) {
+    const closeBtn = page.locator('#provider-panel-close')
+    if (await closeBtn.count()) {
+      await closeBtn.click({ force: true }).catch(() => {})
+      await page.waitForTimeout(500)
+    }
+  }
   await page.waitForSelector('#open-provider-button', { state: 'visible', timeout: 30_000 }).catch(() => {})
   await click(page, '#open-provider-button', 're-open provider panel after reload')
   await page.waitForSelector('#provider-panel:not(.hidden)', { timeout: 10_000 })

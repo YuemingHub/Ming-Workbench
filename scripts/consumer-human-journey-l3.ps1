@@ -155,6 +155,12 @@ function Invoke-L3UiJourney([string]$Label, [string]$UserData) {
   try {
     & node scripts/ui-journey-driver.mjs 2>&1 | Tee-Object -FilePath (Join-Path $ScratchRoot "$Label-ui.log")
     $driverExit = $LASTEXITCODE
+    # Always stage diagnostics so a failure is inspectable via artifacts.
+    if ($ArtifactDir) {
+      New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
+      if (Test-Path $startupLog) { Copy-Item $startupLog (Join-Path $ArtifactDir "$Label-startup.log") -Force }
+      if (Test-Path (Join-Path $ScratchRoot "$Label-ui.log")) { Copy-Item (Join-Path $ScratchRoot "$Label-ui.log") (Join-Path $ArtifactDir "$Label-ui.log") -Force }
+    }
     if ($driverExit -ne 0) {
       Write-Host "--- ui journey driver log ---"
       Get-Content (Join-Path $ScratchRoot "$Label-ui.log") -Tail 60
