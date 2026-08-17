@@ -1,4 +1,4 @@
-name: harness-acp-smoke
+name: harness-acp-smoke-l1
 
 on:
   workflow_dispatch:

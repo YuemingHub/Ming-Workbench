@@ -45,6 +45,21 @@ function runTreeKill(pid) {
  */
 export async function killProcessTree(pid, { graceMs = 1200 } = {}) {
   if (!pid) return
+
+  if (process.platform === 'win32') {
+    // Windows never delivers JS signals: process.kill(pid, 'SIGTERM') is
+    // implemented via TerminateProcess, which kills the ROOT first. A dead
+    // root makes `taskkill /T` unable to enumerate the tree, so backend
+    // children (e.g. an in-flight Harness ACP node/python child) survive as
+    // orphans whose command lines still reference the project. Tree-kill from
+    // the still-alive root so the whole product tree is terminated in one
+    // pass and the window close drains in bounded time. Work Units are
+    // persisted on every state change, so forced termination never loses
+    // in-flight progress.
+    await runTreeKill(pid)
+    return
+  }
+
   try {
     process.kill(pid, 'SIGTERM')
   } catch {
@@ -52,11 +67,6 @@ export async function killProcessTree(pid, { graceMs = 1200 } = {}) {
   }
 
   await new Promise((resolvePromise) => setTimeout(resolvePromise, graceMs))
-
-  if (process.platform === 'win32') {
-    await runTreeKill(pid)
-    return
-  }
 
   try {
     process.kill(pid, 'SIGKILL')

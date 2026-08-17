@@ -50,6 +50,7 @@ let backend = null
 let backendUrl = ''
 let activeBackendOrigin = ''
 let switching = false
+let pendingRestart = false
 let cleanShutdownDone = false
 let providerSecret = null
 let providerPreferences = defaultProviderPreferences()
@@ -298,7 +299,7 @@ async function startBackend(projectRoot) {
     )
     // B4: packaged error messages must never show npm/node/terminal commands.
     const userMessage = app.isPackaged
-      ? 'Ming Workbench 需要准备运行环境，但未能完成。\n\n请检查网络连接后重新启动。如果问题持续，可能需要安装 Git。'
+      ? 'Ming Workbench 需要准备运行环境，但未能完成。\n\n请检查安装是否完整后重新启动。'
       : `Harness runtime 未准备好。\n\n${error instanceof Error ? error.message : String(error)}\n\n请检查网络连接或运行 \`npm run harness:prepare\`。`
     dialog.showErrorBox(
       'Ming Workbench 无法启动',
@@ -677,7 +678,14 @@ function registerIpc() {
  */
 async function restartBackendForProviderActivation() {
   if (!currentProjectRoot) return
-  if (switching) return
+  // A restart may already be in flight (e.g. saving the secret and the
+  // preferences each trigger one). Do not drop the second request: mark it
+  // pending and run it once the current restart finishes, so the LAST saved
+  // configuration (including a custom base URL) actually reaches the backend.
+  if (switching) {
+    pendingRestart = true
+    return
+  }
   switching = true
   try {
     const url = await startBackend(currentProjectRoot)
@@ -691,6 +699,10 @@ async function restartBackendForProviderActivation() {
     return url
   } finally {
     switching = false
+    if (pendingRestart) {
+      pendingRestart = false
+      void restartBackendForProviderActivation()
+    }
   }
 }
 
@@ -698,7 +710,16 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
+    // A second launch with the shutdown marker is the deterministic close
+    // channel: WM_CLOSE can fail to reach the window (observed on an
+    // installed build), so the smoke scripts can always request a clean
+    // close through the single-instance lock instead.
+    if (argv && argv.some((a) => a === '--mw-close-instance')) {
+      if (win && !win.isDestroyed()) win.close()
+      else app.quit()
+      return
+    }
     if (win && !win.isDestroyed()) {
       if (win.isMinimized()) win.restore()
       win.focus()
@@ -718,10 +739,19 @@ if (!gotLock) {
     event.preventDefault()
     const current = backend
     backend = null
+    // Bounded clean close: a backend tree kill must never block the window
+    // close. Work Units are persisted on every state change, so a forced exit
+    // loses nothing; if the kill stalls, exit anyway within the bound.
+    const killGuard = setTimeout(() => {
+      appendStartupLog('backend kill stalled; forcing app exit')
+      cleanShutdownDone = true
+      app.exit(0)
+    }, 5000)
     current
       .kill()
       .catch(() => {})
       .finally(() => {
+        clearTimeout(killGuard)
         cleanShutdownDone = true
         app.quit()
       })
@@ -777,7 +807,7 @@ if (!gotLock) {
       appendStartupLog(`backend startup failed: ${error instanceof Error ? error.message : String(error)}`)
       // B4: packaged error messages must never show npm/node/terminal commands.
       const userMessage = app.isPackaged
-        ? 'Ming Workbench 后端没有准备好。\n\n请重新启动。如果问题持续，请检查网络连接或确认 Git 已安装。'
+        ? 'Ming Workbench 后端没有准备好。\n\n请重新启动。如果问题持续，请检查安装是否完整。'
         : `Workbench 后端没有准备好。\n\n${error instanceof Error ? error.message : String(error)}\n\n先运行 \`npm run build:test\` 和 \`npm run harness:prepare\`。`
       dialog.showErrorBox(
         'Ming Workbench 无法启动',

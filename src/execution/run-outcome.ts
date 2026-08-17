@@ -45,10 +45,14 @@ export interface RunOutcomeInputs {
   producedChanges: string[]
   /** Files changed by this execution outside the authorized scope. */
   scopeViolations: string[]
-  /** Real test outcome AFTER execution. */
-  testsPassedAfter?: boolean
+  /**
+   * Real test outcome AFTER execution. `null` means the project has no test
+   * command (N/A): verification is then based on the mutation itself, not a
+   * test gate. `undefined` means tests were not run at all.
+   */
+  testsPassedAfter?: boolean | null
   /** Real test outcome BEFORE execution (needed to detect pre-green no-ops). */
-  testsPassedBefore?: boolean
+  testsPassedBefore?: boolean | null
   /** Whether the grant authorizes non-local effects (deploy/publish/…). */
   hasExternalEffects: boolean
 }
@@ -70,6 +74,7 @@ export function deriveRunOutcome(inputs: RunOutcomeInputs): RunOutcome {
   const produced = inputs.producedChanges.length > 0
   const testsAfter = inputs.testsPassedAfter === true
   const testsBefore = inputs.testsPassedBefore === true
+  const noTestCommand = inputs.testsPassedAfter === null
 
   // Hard boundary failure: the run mutated outside the authorized slice.
   if (inputs.scopeViolations.length > 0) {
@@ -107,7 +112,7 @@ export function deriveRunOutcome(inputs: RunOutcomeInputs): RunOutcome {
     }
   }
 
-  if (!produced && !testsAfter) {
+  if (!produced && !testsAfter && !noTestCommand) {
     return {
       runStatus: 'completed',
       effect: 'no-mutation',
@@ -117,8 +122,18 @@ export function deriveRunOutcome(inputs: RunOutcomeInputs): RunOutcome {
     }
   }
 
+  if (!produced && noTestCommand) {
+    return {
+      runStatus: 'completed',
+      effect: 'no-mutation',
+      verification: 'failed',
+      acceptance: 'pending',
+      reason: 'No repository changes were produced by this execution; there is nothing new to verify.',
+    }
+  }
+
   // Regression B: mutation with failing tests is verification failure.
-  if (produced && !testsAfter) {
+  if (produced && !testsAfter && !noTestCommand) {
     return {
       runStatus: 'completed',
       effect: 'mutation-observed',
@@ -128,13 +143,16 @@ export function deriveRunOutcome(inputs: RunOutcomeInputs): RunOutcome {
     }
   }
 
-  // Mutation observed and real tests pass after execution. Verification is
-  // passed for the current evidence; acceptance stays pending (human-owned).
+  // Mutation observed. When the project has no test command (N/A), the
+  // repository readback itself is the verification; otherwise real tests must
+  // pass after execution. Acceptance stays pending (human-owned).
   return {
     runStatus: 'completed',
     effect: 'mutation-observed',
-    verification: 'passed',
+    verification: noTestCommand ? 'passed' : 'passed',
     acceptance: 'pending',
-    reason: `Local repository changes produced by this execution: ${inputs.producedChanges.join(', ')}; project tests passed after execution.`,
+    reason: noTestCommand
+      ? `Local repository changes produced by this execution: ${inputs.producedChanges.join(', ')} (no project test command; repository readback is the verification).`
+      : `Local repository changes produced by this execution: ${inputs.producedChanges.join(', ')}; project tests passed after execution.`,
   }
 }

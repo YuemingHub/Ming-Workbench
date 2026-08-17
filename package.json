@@ -12,22 +12,28 @@
     "doctor": "node ./scripts/doctor.mjs",
     "doctor:harness": "node ./scripts/doctor.mjs --require-harness",
     "harness:prepare": "node ./scripts/prepare-harness.mjs",
+    "harness:prepare:build": "npm run harness:prepare && node ./scripts/build-harness-capsule.mjs",
+    "python:prepare": "node ./scripts/prepare-python-runtime.mjs",
+    "runtime:prepare": "npm run python:prepare && npm run harness:prepare:build",
+    "packaged:runtime:prepare": "node ./scripts/prepare-packaged-runtime.mjs",
     "web:local": "npm run build:test && node scripts/start-local-web.mjs",
     "desktop:dev": "npm run build:test && electron .",
-    "desktop:package": "npm run build:test && electron-builder --win --publish never",
-    "desktop:package:dir": "npm run build:test && electron-builder --win dir",
+    "desktop:package": "npm run build:test && npm run packaged:runtime:prepare && electron-builder --win --publish never",
+    "desktop:package:dir": "npm run build:test && npm run harness:prepare:build && electron-builder --win dir",
     "desktop:package:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-windows-package-smoke.ps1"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.25.1",
     "electron-updater": "^6.6.2",
     "pnpm": "11.7.0",
+    "tar": "^7.4.3",
     "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.20.0",
     "electron": "^43.4.0",
     "electron-builder": "^26.15.3",
+    "playwright-core": "^1.62.1",
     "typescript": "^5.9.2"
   },
   "build": {
@@ -41,8 +47,11 @@
       "harness/**/*",
       ".workbench/vendor/**/*",
       "!.workbench/vendor/deepseek-harness/**",
+      "!.workbench/vendor/deepseek-harness-capsule/**",
+      ".workbench/runtime/**/*",
       ".tmp/**/*",
       "!.tmp/harness-runtime-test/**",
+      "!.tmp/harness-capsule-build/**",
       "package.json",
       "harness.lock.json",
       "tsconfig.json",
@@ -52,6 +61,7 @@
     "directories": {
       "output": "dist-desktop"
     },
+    "compression": "store",
     "npmRebuild": false,
     "electronDist": "node_modules/electron/dist",
     "publish": {

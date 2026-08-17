@@ -39,6 +39,8 @@ export interface EnableProjectAaopOptions {
   projectRoot: string
   /** Must be true only after a human explicitly authorizes project setup. */
   authorized: boolean
+  /** Packaged workbench root carrying a bundled Python runtime, if any. */
+  workbenchRoot?: string
 }
 
 export type EnableProjectAaopResult =
@@ -78,7 +80,6 @@ export interface AaopSetupDependencies {
   runBootstrap?: (input: BootstrapRunInput) => BootstrapRunResult
   targetIsDirectory?: (projectRoot: string) => boolean
 }
-
 interface GitHubRefResponse {
   object?: {
     sha?: unknown
@@ -148,13 +149,18 @@ async function fetchJson(
   fetcher: AaopSetupFetch,
   url: string,
 ): Promise<unknown> {
-  const response = await fetcher(url, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      'User-Agent': 'Ming-Workbench-AAOP-Setup',
-      'X-GitHub-Api-Version': '2022-11-28',
-    },
-  })
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'Ming-Workbench-AAOP-Setup',
+    'X-GitHub-Api-Version': '2022-11-28',
+  }
+  // When running in an authenticated environment (CI), pass a token so the
+  // GitHub API rate limit does not fail an otherwise-valid AAOP setup. This is
+  // optional; it never weakens AAOP authority (the blob SHA-256 verification
+  // still binds every downloaded file to the reviewed stable revision).
+  const token = process.env.GITHUB_TOKEN
+  if (token) headers.Authorization = `Bearer ${token}`
+  const response = await fetcher(url, { headers })
   if (!response.ok) {
     throw new Error(`GitHub source request failed (${response.status}) for ${url}`)
   }
@@ -306,7 +312,10 @@ export async function enableProjectAaop(
     return { status: 'failed', reason: before.reason }
   }
 
-  const pythonCommand = (dependencies.resolvePythonCommand ?? resolveProjectPythonCommand)()
+  const pythonCommand = (
+    dependencies.resolvePythonCommand
+    ?? (() => resolveProjectPythonCommand({ workbenchRoot: options.workbenchRoot }))
+  )()
   if (!pythonCommand) {
     return {
       status: 'failed',

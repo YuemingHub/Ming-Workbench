@@ -10,6 +10,9 @@ dist-desktop/
 .tmp/
 .workbench/runtime/
 .workbench/vendor/deepseek-harness/
+.workbench/vendor/deepseek-harness-capsule/
+.workbench/vendor/deepseek-harness-capsule.tar.gz
+.workbench/runtime/
 .workbench/projects/
 !.workbench/vendor/deepseek-harness-*.bundle
 # Throwaway local build verification artifacts (P0-D headless build check)

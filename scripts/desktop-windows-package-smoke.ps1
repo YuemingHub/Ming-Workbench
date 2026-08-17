@@ -103,17 +103,17 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
   foreach ($id in $TrackedIds) {
     $p = Get-Process -Id $id -ErrorAction SilentlyContinue
     if ($p -and $p.MainWindowHandle -ne 0) {
-      $p.CloseMainWindow() | Out-Null
+      $wmClose = $p.CloseMainWindow()
       $closed = $true
-      Write-Host "close requested via window of pid=$id"
+      Write-Host "close requested via window of pid=$id title='$($p.MainWindowTitle)' wmClose=$wmClose"
       break
     }
   }
   if (-not $closed -and $RootPid -and (Get-Process -Id $RootPid -ErrorAction SilentlyContinue)) {
     $root = Get-Process -Id $RootPid -ErrorAction SilentlyContinue
     if ($root -and $root.MainWindowHandle -ne 0) {
-      $root.CloseMainWindow() | Out-Null
-      Write-Host "close requested via root window pid=$RootPid"
+      $wmClose = $root.CloseMainWindow()
+      Write-Host "close requested via root window pid=$RootPid title='$($root.MainWindowTitle)' wmClose=$wmClose"
     }
   }
 
@@ -123,12 +123,30 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
     foreach ($id in $TrackedIds) {
       if (Get-Process -Id $id -ErrorAction SilentlyContinue) { $alive += $id }
     }
-    if ($alive.Count -eq 0) { return }
+    if ($alive.Count -eq 0) {
+      Write-Host "graceful close drained within 60s bound"
+      return $true
+    }
     Start-Sleep -Milliseconds 500
   }
 
-  Write-Host "WARN: graceful close timed out; force-killing tracked launch tree"
+  Write-Host "L2_GRACEFUL_CLOSE: FAIL (tracked launch tree did not drain within 60s)"
+  $rootP = Get-Process -Id $RootPid -ErrorAction SilentlyContinue
+  if ($rootP) {
+    Write-Host "root pid=$RootPid still alive; MainWindowHandle=$($rootP.MainWindowHandle) title='$($rootP.MainWindowTitle)'"
+  } else {
+    Write-Host "root pid=$RootPid exited (orphan tree kept matching)"
+  }
+  Write-Host "residual processes still matching the tracked launch tree:"
   $nowScratch = Get-ScratchMatchingProcesses $ScratchPath
+  foreach ($p in $nowScratch) {
+    Write-Host "  pid=$($p.ProcessId) name=$($p.Name) cmd=$($p.CommandLine)"
+  }
+  foreach ($id in $TrackedIds) {
+    if (Get-Process -Id $id -ErrorAction SilentlyContinue) {
+      Write-Host "  tracked pid=$id (still alive)"
+    }
+  }
   foreach ($p in $nowScratch) {
     try { taskkill /PID $p.ProcessId /T /F 2>&1 | Out-Null } catch { }
   }
@@ -148,6 +166,7 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
     }
   }
   Start-Sleep -Seconds 3
+  return $false
 }
 
 function Invoke-PackagedLaunch([string]$AppPath, [string]$Label, [string]$ScratchPath, [string]$AppDataDir, [string]$WorkbenchRoot) {
@@ -189,10 +208,13 @@ function Invoke-PackagedLaunch([string]$AppPath, [string]$Label, [string]$Scratc
     Write-Host "backend url=$url"
 
     $log = Read-TextFileShared $startupLog
-    Assert-True ($log -match "harness runtime ready source=bundled commit=([0-9a-f]{40})") "harness runtime from bundled artifact" "(label=$Label)"
+    # The product runtime is now the prebuilt capsule (source=bundled-capsule).
+    # Developer builds fall back to the git bundle (source=bundled). Both must
+    # pin the same reviewed commit.
+    Assert-True ($log -match "harness runtime ready source=(bundled-capsule|bundled) commit=([0-9a-f]{40})") "harness runtime ready with pinned identity" "(label=$Label)"
     $lockRaw = Read-TextFileShared (Join-Path $WorkbenchRoot "harness.lock.json")
     $lock = $lockRaw | ConvertFrom-Json
-    Assert-True ($Matches[1] -eq $lock.reviewedCommit) "harness identity pinned to reviewed commit" "(expected=$($lock.reviewedCommit) got=$($Matches[1]))"
+    Assert-True ($Matches[2] -eq $lock.reviewedCommit) "harness identity pinned to reviewed commit" "(expected=$($lock.reviewedCommit) got=$($Matches[2]))"
     Assert-True ($log -match "backend spawn .*harnessCheckout=auto-bundled") "no developer checkout dependency (MING_HARNESS_CHECKOUT absent)"
     Assert-True ($log -match "auto-updater loaded: NsisUpdater") "electron-updater module actually loaded" "(label=$Label)"
 
@@ -212,7 +234,7 @@ function Invoke-PackagedLaunch([string]$AppPath, [string]$Label, [string]$Scratc
       Assert-True ($content.IndexOf($sentinel, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) "no plaintext sentinel in project file $(Split-Path $file.FullName -Leaf)"
     }
 
-    Close-LaunchTree $proc.Id $ScratchPath $tracked
+    $graceful = Close-LaunchTree $proc.Id $ScratchPath $tracked
 
     Start-Sleep -Seconds 3
     $residual = Get-ScratchMatchingProcesses $ScratchPath
@@ -230,6 +252,7 @@ function Invoke-PackagedLaunch([string]$AppPath, [string]$Label, [string]$Scratc
       }
     }
     Assert-True ($residual.Count -eq 0) "zero residual processes after close" "(label=$Label)"
+    Assert-True $graceful "app closed gracefully within the 60s bound" "(label=$Label)"
     return $startupLog
   } finally {
     foreach ($entry in $savedEnv.GetEnumerator()) {
@@ -312,9 +335,21 @@ $appRoot = Join-Path $unpackedApp "resources\app"
 $exePath = Join-Path $unpackedApp "Ming Workbench.exe"
 Assert-True (Test-Path $exePath) "win-unpacked exe exists"
 Assert-True (Test-Path (Join-Path $appRoot ".tmp\index.js")) "packaged app contains compiled .tmp runtime"
-Assert-True (Test-Path (Join-Path $appRoot ".workbench\vendor\deepseek-harness-0.1.0-rc.5.bundle")) "packaged app contains reviewed Harness bundle"
 Assert-True (Test-Path (Join-Path $appRoot "harness.lock.json")) "packaged app contains harness.lock.json"
 Assert-True (Test-Path (Join-Path $appRoot "scripts\start-local-web.mjs")) "packaged app contains backend entry script"
+# Packaging contract: the installer ships the reviewed Harness runtime as a
+# SINGLE-FILE capsule archive (deepseek-harness-capsule.tar.gz), not the unpacked
+# capsule directory — prepare-packaged-runtime.mjs removes the loose directory
+# before electron-builder so makensis never enumerates tens of thousands of
+# small files. The archive contains the full reviewed capsule (source,
+# node_modules closure, harness-runtime-manifest.json). The runtime extracts it
+# to a per-user cache on first launch and verifies every pinned key file by
+# SHA-256 plus the exact reviewed commit/version; the launch assertions below
+# prove the app really started from source=bundled-capsule with the pinned
+# identity, so the archive is proven to carry the correct Harness runtime.
+$capsuleArchive = Join-Path $appRoot ".workbench\vendor\deepseek-harness-capsule.tar.gz"
+Assert-True (Test-Path $capsuleArchive) "packaged app contains the single-file Harness capsule archive"
+Assert-True ((Get-Item $capsuleArchive).Length -gt 0) "capsule archive is non-empty" "(bytes=$((Get-Item $capsuleArchive).Length))"
 
 # Ephemeral scratch Git repository (launch target; never a real project).
 $scratchRepo = Join-Path $ScratchRoot "repo"

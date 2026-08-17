@@ -35,7 +35,8 @@ import {
   type ExecutionIsolation,
 } from './execution-isolation.js'
 import { execFileSync } from 'node:child_process'
-import { resolve } from 'node:path'
+import { existsSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 
 export interface BoundedExecutionOptions {
   /** Authoritative Work Unit resolved from the backend store, never browser-supplied. */
@@ -105,9 +106,9 @@ export interface RepositoryReadback {
   executionProducedChanges: string[]
   preExistingDirty: string[]
   scopeViolations: string[]
-  testResult?: { passed: boolean; output: string }
+  testResult?: { passed: boolean | null; output: string }
   /** Real test outcome before the run started (pre-green no-op detection). */
-  beforeTestResult?: { passed: boolean; output: string }
+  beforeTestResult?: { passed: boolean | null; output: string }
   gitStatus: string
   /** True when this run executed inside an isolated worktree, not the real repo. */
   isolated: boolean
@@ -331,9 +332,12 @@ export async function runBoundedExecution(
           id: `EV-GIT-${acpResult.sessionId}`,
           kind: 'test',
           // P0-3: real test-run evidence carries the verification verdict.
-          summary: testResult?.passed
-            ? 'Project tests passed after execution (authoritative evidence).'
-            : 'Project tests did not pass after execution.',
+          // A project with no test command (null) records an honest N/A.
+          summary: testResult?.passed === null
+            ? 'Project has no test command; verification is based on repository readback.'
+            : testResult?.passed
+              ? 'Project tests passed after execution (authoritative evidence).'
+              : 'Project tests did not pass after execution.',
           observedAt: now,
           authoritative: true,
           verifier: 'test-run',
@@ -399,6 +403,14 @@ function runProjectTests(
   projectRoot: string,
   testCommand?: string[],
 ): RepositoryReadback['testResult'] {
+  // Without an explicit test command, a project lacking a package.json has no
+  // runnable project test; verification then comes from repository readback,
+  // not a test gate. This is an honest N/A, not a pass or fail. An EXPLICIT
+  // testCommand is always honored (it does not depend on package.json).
+  const explicitNone = testCommand !== undefined && testCommand.length === 0
+  if (explicitNone || (testCommand === undefined && !existsSync(join(projectRoot, 'package.json')))) {
+    return { passed: null, output: 'no project test command available' }
+  }
   // npm resolves through a .cmd shim on Windows; route the default command
   // through cmd.exe (the shim cannot be spawned directly by execFileSync).
   // Explicit custom test commands stay shell-free.

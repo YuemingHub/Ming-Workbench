@@ -15,6 +15,7 @@ import {
   resolveProjectOnboarding,
   type ProjectOnboardingResult,
 } from '../projects/onboarding.js'
+import { resolveGitPrerequisiteStatus } from '../projects/git-prerequisite.js'
 import {
   LOCAL_WORKBENCH_APP_JS,
   LOCAL_WORKBENCH_CSS,
@@ -76,7 +77,7 @@ export interface LocalWorkbenchServerOptions {
 export interface LocalWorkbenchServerDependencies {
   resolveOnboarding?: (projectRoot: string) => ProjectOnboardingResult
   enableAaop?: (
-    options: { projectRoot: string; authorized: boolean },
+    options: { projectRoot: string; authorized: boolean; workbenchRoot?: string },
   ) => Promise<EnableProjectAaopResult>
   runIntake?: typeof runDevelopmentIntakeApplication
   runProviderProbe?: (options: HarnessProviderProbeOptions) => Promise<unknown>
@@ -261,7 +262,8 @@ export async function startLocalWorkbenchServer(
   const projectRoot = resolve(options.projectRoot)
   const workbenchRoot = resolve(options.workbenchRoot)
   const harnessCheckout = resolve(options.harnessCheckout)
-  const resolveOnboarding = dependencies.resolveOnboarding ?? resolveProjectOnboarding
+  const resolveOnboarding = dependencies.resolveOnboarding
+    ?? ((project: string) => resolveProjectOnboarding(project, { workbenchRoot: options.workbenchRoot }))
   const enableAaop = dependencies.enableAaop ?? enableProjectAaop
   const runIntake = dependencies.runIntake ?? runDevelopmentIntakeApplication
   const logError = dependencies.logError ?? ((error: unknown) => console.error(error))
@@ -323,9 +325,11 @@ export async function startLocalWorkbenchServer(
       }
 
       if (method === 'GET' && url.pathname === '/api/project') {
+        const gitStatus = resolveGitPrerequisiteStatus(projectRoot)
         sendJson(response, 200, {
           ...projectOnboardingSnapshot(resolveOnboarding(projectRoot)),
           projectPath: projectRoot,
+          git: gitStatus,
         })
         return
       }
@@ -431,7 +435,11 @@ export async function startLocalWorkbenchServer(
         }
         // Browser-provided filesystem paths are intentionally ignored. The
         // server can mutate only the project selected before startup.
-        const result = await enableAaop({ projectRoot, authorized: true })
+        const result = await enableAaop({
+          projectRoot,
+          authorized: true,
+          workbenchRoot,
+        })
         if (result.status === 'failed') {
           sendJson(response, 409, {
             status: 'setup-failed',
@@ -751,9 +759,11 @@ export async function startLocalWorkbenchServer(
             model: options.model,
             sessionRoot: options.sessionRoot,
             testCommand: options.testCommand,
-            // P0-C write boundary: default-off safety rail. Normal UI keeps execution
-            // disabled unless an operator explicitly enables write mutation.
-            allowWrite: process.env.MING_WORKBENCH_ALLOW_WRITE === '1',
+            // P0-C write boundary: default-off safety rail. The renderer may
+            // explicitly grant write for THIS run (after the human confirmed the
+            // exact file surface), or an operator may enable it environment-wide.
+            // Never derived from an unconfirmed default.
+            allowWrite: body?.allowWrite === true || process.env.MING_WORKBENCH_ALLOW_WRITE === '1',
           }
           // B2: persist the 'running' state BEFORE execution starts so the
           // authoritative Work Unit store reflects active execution.  The
