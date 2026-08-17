@@ -162,8 +162,21 @@ async function main() {
   // reaches the Harness child env; the renderer reloads onto the new backend
   // origin. Wait for the reload to settle (exactly as a human waits), then
   // re-open the provider panel to run the connection test.
+  const beforeUrl = page.url()
   await page.waitForTimeout(4000)
-  await page.waitForSelector('#open-provider-button', { state: 'visible', timeout: 20_000 }).catch(() => {})
+  // The backend restart may navigate to a NEW loopback port; wait for a URL
+  // change (reload) up to 40s before touching the DOM again.
+  let urlSettled = false
+  for (let i = 0; i < 20; i++) {
+    await page.waitForTimeout(1000)
+    const current = page.url()
+    if (current !== beforeUrl && /^http:\/\/127\.0\.0\.1:\d+/.test(current)) { urlSettled = true; break }
+    // The page may also reload onto the SAME origin; wait for the summary card.
+    const ready = await page.locator('#project-summary').count().catch(() => 0)
+    if (ready > 0 && await page.locator('#project-summary h2').isVisible().catch(() => false)) { urlSettled = true; break }
+  }
+  if (!urlSettled) console.log('note: backend reload window not detected; continuing anyway')
+  await page.waitForSelector('#open-provider-button', { state: 'visible', timeout: 30_000 }).catch(() => {})
   await click(page, '#open-provider-button', 're-open provider panel after reload')
   await page.waitForSelector('#provider-panel:not(.hidden)', { timeout: 10_000 })
   // The secret is already saved; re-open and test.
