@@ -134,8 +134,22 @@ function Invoke-L3UiJourney([string]$Label, [string]$UserData) {
     -PassThru
   Write-Host "launched installed exe pid=$($proc.Id)"
 
-  # Wait for backend ready + CDP port.
+  # Wait for the backend to actually become ready (the first launch extracts
+  # the 58MB capsule archive to the per-user cache, which can take tens of
+  # seconds on Windows). The CDP port becomes reachable before the backend is
+  # ready, so gate on the startup.log handshake, not the port alone.
   $deadline = (Get-Date).AddSeconds($ReadyTimeoutSeconds)
+  $backendReady = $false
+  while ((Get-Date) -lt $deadline) {
+    Start-Sleep -Milliseconds 1000
+    $content = Read-TextFileShared $startupLog
+    if ($content -match "backend ready http://127\.0\.0\.1:\d+") { $backendReady = $true; break }
+    if ($content -match "无法启动|backend startup failed|harness runtime preparation failed") { break }
+  }
+  Assert-True $backendReady "installed backend became ready (archive extraction + harness runtime)" "(see $startupLog)"
+
+  # CDP must be reachable for the UI driver.
+  $deadline = (Get-Date).AddSeconds(30)
   $cdpReady = $false
   while ((Get-Date) -lt $deadline) {
     Start-Sleep -Milliseconds 500
