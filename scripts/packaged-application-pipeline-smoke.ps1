@@ -76,7 +76,12 @@ function Wait-ForBackendReady([string]$StartupLog, [string]$ScratchPath, [int]$T
   while ((Get-Date) -lt $deadline) {
     Start-Sleep -Milliseconds 500
     $content = Read-TextFileShared $StartupLog
-    if ($content -match "backend ready (http://127\.0\.0\.1:\d+)") { $url = $Matches[1]; break }
+    # The startup log accumulates across launches sharing one userData dir. The
+    # second launch appends a NEW backend-ready line with a NEW loopback port;
+    # matching only the first occurrence would return the already-closed port
+    # of the previous launch. Take the LAST backend-ready line instead.
+    $readyMatches = [regex]::Matches($content, "backend ready (http://127\.0\.0\.1:\d+)")
+    if ($readyMatches.Count -gt 0) { $url = $readyMatches[$readyMatches.Count - 1].Groups[1].Value; break }
     if ($content -match "backend startup failed") { break }
     if ($content -match "无法启动") { break }
   }
