@@ -95,16 +95,17 @@ export function spawnBackend({
       `Workbench backend script is missing at ${script}. Run \`npm run build:test\` first.`,
     )
   }
-  if (!existsSync(projectRoot)) {
+  // projectRoot is optional: without it the backend starts the human-first V1
+  // entry (letter/conversation), which needs no repository at all.
+  if (projectRoot !== undefined && !existsSync(projectRoot)) {
     throw new Error(`Selected project directory does not exist: ${projectRoot}`)
   }
 
   const args = [
     script,
-    '--project',
-    projectRoot,
     '--workbench-root',
     workbenchRoot,
+    ...(projectRoot ? ['--project', projectRoot] : []),
     ...(harnessCheckout ? ['--harness-checkout', harnessCheckout] : []),
     ...(storeDir ? ['--store-dir', storeDir] : []),
     ...extraArgs,

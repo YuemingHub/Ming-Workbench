@@ -74,6 +74,50 @@ const server = createServer((req, res) => {
     // Harness prompt, so probe must be tested first; only genuine execution
     // requests advance the phase machine.
     const isExecution = !isProbe && promptText.includes('AAOP Provider Execution Grant')
+    // Human-first V1 entry synthesis reuses the same provider endpoint with
+    // deterministic JSON responses (no Harness agent loop involved).
+    const isHumanFirstTurn = promptText.includes('MING_HUMAN_FIRST_TURN')
+    const isHumanFirstAgreement = promptText.includes('MING_HUMAN_FIRST_AGREEMENT')
+
+    if (isHumanFirstTurn || isHumanFirstAgreement) {
+      // Grounded synthesis: everything quotes what the person actually said.
+      const humanLines = [...promptText.matchAll(/这个人说：([^\n]+)/g)].map((m) => m[1].trim()).filter(Boolean)
+      const lastLine = humanLines.length ? humanLines[humanLines.length - 1] : '你想做成的那件事'
+      const firstLine = humanLines.length ? humanLines[0] : '你想做成的那件事'
+      let content
+      if (isHumanFirstAgreement) {
+        content = JSON.stringify({
+          willGet: `这一轮你会得到一个能直接用的「${firstLine}」最小版本`,
+          solves: `把你心里「${firstLine}」这件事，从想法变成一个看得见、用得上的东西`,
+          whereSee: '做完之后，你会在桌面上直接打开它来用',
+          notDoing: `这一轮不会把它做成一个大而全的东西，也不会去碰和「${firstLine}」无关的事`,
+        })
+      } else if (humanLines.length < 2) {
+        content = JSON.stringify({ reply: '我记下了。能再多说一点吗——这件事对你来说，最重要的结果是什么？', ready: false })
+      } else {
+        content = JSON.stringify({
+          reply: '我看清楚了。把你刚才说的，整理成下面这样，你看对不对。',
+          ready: true,
+          synthesis: {
+            desiredReality: `把「${firstLine}」这件事做成`,
+            strengths: [`你已经清楚地说了你想要什么：${firstLine}`, `你补充了细节：${lastLine}`],
+            path: [
+              '先用一两句话，把这件事的核心定下来',
+              '列出这件事最小的、能真正用起来的那个版本',
+              '把第一版做出来，给你亲自看',
+            ],
+            recommendation: `先做出一个能实现「${firstLine}」的最小版本，让你真的能看到和用到`,
+          },
+        })
+      }
+      res.writeHead(200, {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store',
+      })
+      res.end(JSON.stringify({ choices: [{ index: 0, message: { role: 'assistant', content } }] }))
+      return
+    }
+
     console.log(`fixture request: isProbe=${isProbe} isExecution=${isExecution}`)
 
     // The execution phase machine advances ONLY on execution requests; probe

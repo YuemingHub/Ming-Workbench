@@ -27,7 +27,6 @@ import {
 
 const desktopDir = resolve(fileURLToPath(new URL('.', import.meta.url)))
 const repoRoot = resolve(desktopDir, '..')
-const welcomePagePath = join(desktopDir, 'welcome.html')
 
 // Optional explicit user-data relocation (portable/testing isolation). Must run
 // before the single-instance lock so each isolated launch gets its own lock,
@@ -270,48 +269,54 @@ async function startBackend(projectRoot) {
   activeBackendOrigin = ''
 
   const workbenchRoot = resolveWorkbenchRoot()
-  const harnessCheckout = process.env.MING_HARNESS_CHECKOUT
-    ? resolve(process.env.MING_HARNESS_CHECKOUT)
-    : undefined
-
   const nodeBin = resolveNodeBin()
   const script = resolveBackendScriptPath(workbenchRoot)
-  appendStartupLog(
-    `backend spawn nodeBin=${nodeBin} script=${script} project=${projectRoot} harnessCheckout=${harnessCheckout ?? 'auto-bundled'}`,
-  )
 
-  // Resolve the exact reviewed Harness checkout automatically:
-  // 1) env var (backward compat)
-  // 2) bundled git bundle extraction + identity verification + deps install
+  // The human-first V1 entry needs no project and no Harness runtime: it is a
+  // thin letter/conversation surface over the provider + idea store.
   let resolvedHarnessCheckout
-  try {
-    const runtime = await prepareHarnessRuntime({
-      workbenchRoot,
-      harnessCheckout,
-    })
-    resolvedHarnessCheckout = runtime.checkout
+  if (projectRoot) {
+    const harnessCheckout = process.env.MING_HARNESS_CHECKOUT
+      ? resolve(process.env.MING_HARNESS_CHECKOUT)
+      : undefined
     appendStartupLog(
-      `harness runtime ready source=${runtime.source} commit=${runtime.identity.commit}`,
+      `backend spawn nodeBin=${nodeBin} script=${script} project=${projectRoot} harnessCheckout=${harnessCheckout ?? 'auto-bundled'}`,
     )
-  } catch (error) {
-    appendStartupLog(
-      `harness runtime preparation failed: ${error instanceof Error ? error.message : String(error)}`,
-    )
-    // B4: packaged error messages must never show npm/node/terminal commands.
-    const userMessage = app.isPackaged
-      ? 'Ming Workbench 需要准备运行环境，但未能完成。\n\n请检查安装是否完整后重新启动。'
-      : `Harness runtime 未准备好。\n\n${error instanceof Error ? error.message : String(error)}\n\n请检查网络连接或运行 \`npm run harness:prepare\`。`
-    dialog.showErrorBox(
-      'Ming Workbench 无法启动',
-      userMessage,
-    )
-    app.quit()
-    return
-  }
 
-  // The window may have been closed (app quitting) while the runtime was
-  // preparing; never spawn a backend for a quitting app.
-  if (cleanShutdownDone) return
+    // Resolve the exact reviewed Harness checkout automatically:
+    // 1) env var (backward compat)
+    // 2) bundled git bundle extraction + identity verification + deps install
+    try {
+      const runtime = await prepareHarnessRuntime({
+        workbenchRoot,
+        harnessCheckout,
+      })
+      resolvedHarnessCheckout = runtime.checkout
+      appendStartupLog(
+        `harness runtime ready source=${runtime.source} commit=${runtime.identity.commit}`,
+      )
+    } catch (error) {
+      appendStartupLog(
+        `harness runtime preparation failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      // B4: packaged error messages must never show npm/node/terminal commands.
+      const userMessage = app.isPackaged
+        ? 'Ming Workbench 需要准备运行环境，但未能完成。\n\n请检查安装是否完整后重新启动。'
+        : `Harness runtime 未准备好。\n\n${error instanceof Error ? error.message : String(error)}\n\n请检查网络连接或运行 \`npm run harness:prepare\`。`
+      dialog.showErrorBox(
+        'Ming Workbench 无法启动',
+        userMessage,
+      )
+      app.quit()
+      return
+    }
+
+    // The window may have been closed (app quitting) while the runtime was
+    // preparing; never spawn a backend for a quitting app.
+    if (cleanShutdownDone) return
+  } else {
+    appendStartupLog('human-first V1 entry: no project; starting without Harness runtime')
+  }
 
   backend = spawnBackend({
     nodeBin,
@@ -320,6 +325,7 @@ async function startBackend(projectRoot) {
     workbenchRoot,
     harnessCheckout: resolvedHarnessCheckout,
     storeDir: app.getPath('userData'),
+    extraArgs: projectRoot ? [] : ['--mode', 'human-first'],
     extraEnv: {
       ...(providerSecret ? { DEEPSEEK_API_KEY: providerSecret } : {}),
       // User-configurable provider/model (non-secret preferences) reach the
@@ -359,8 +365,10 @@ async function startBackend(projectRoot) {
   // IPC can observe it. Only the exact ready URL becomes trusted.
   activeBackendOrigin = urlOrigin(backendUrl) ?? ''
   currentProjectRoot = projectRoot
-  appendStartupLog(`backend ready ${backendUrl} origin=${activeBackendOrigin}`)
-  writeLastProject(projectRoot)
+  appendStartupLog(
+    `backend ready ${backendUrl} origin=${activeBackendOrigin} mode=${projectRoot ? 'project' : 'human-first'}`,
+  )
+  if (projectRoot) writeLastProject(projectRoot)
   return backendUrl
 }
 
@@ -790,10 +798,26 @@ if (!gotLock) {
 
     createWindow()
     if (!projectRoot) {
-      // First run: never pop a dialog out of nowhere. Show the welcome page
-      // whose [选择项目] button opens the OS folder picker through IPC.
-      appendStartupLog('no project yet; showing welcome page')
-      void win.loadFile(welcomePagePath)
+      // Human-first V1 entry: fresh userData / no project opens the human-facing
+      // letter, never a project picker and never an engineering console. The
+      // human-first backend needs no repository and no Harness runtime.
+      appendStartupLog('no project; entering human-first V1 entry')
+      try {
+        const url = await startBackend(undefined)
+        if (win && !win.isDestroyed()) {
+          void win.loadURL(url)
+        }
+      } catch (error) {
+        appendStartupLog(`human-first backend startup failed: ${error instanceof Error ? error.message : String(error)}`)
+        const userMessage = app.isPackaged
+          ? 'Ming Workbench 没有准备好。\n\n请重新启动。如果问题持续，请检查安装是否完整。'
+          : `Ming Workbench 没有准备好。\n\n${error instanceof Error ? error.message : String(error)}`
+        dialog.showErrorBox(
+          'Ming Workbench 无法启动',
+          userMessage,
+        )
+        app.quit()
+      }
       return
     }
     appendStartupLog(`project fixed ${projectRoot}`)
