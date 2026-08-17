@@ -136,6 +136,6 @@ const server = createServer((req, res) => {
   })
 })
 
-server.listen(PORT, '127.0.0.1', () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`provider-fixture ready on http://127.0.0.1:${PORT}/v1 target=${TARGET}`)
 })

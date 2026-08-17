@@ -198,6 +198,28 @@ function Invoke-L3UiJourney([string]$Label, [string]$UserData) {
   return $proc
 }
 
+# Start the repository-owned OpenAI-compatible provider fixture INSIDE this
+# process so it is guaranteed alive for the whole journey (a workflow-level
+# Start-Process may be cleaned up between steps). The driver configures the
+# product to reach it through the UI, never via launch env.
+$fixtureTarget = Join-Path $ScratchRoot "fixture-target"
+New-Item -ItemType Directory -Force -Path $fixtureTarget | Out-Null
+$env:FIXTURE_TARGET_DIR = $fixtureTarget
+$env:FIXTURE_PORT = "8000"
+$env:FIXTURE_API_KEY = "fixture-key"
+$fixtureLog = Join-Path $ScratchRoot "fixture.out.log"
+$fixtureProc = Start-Process -FilePath "node" -ArgumentList "scripts/provider-fixture-server.mjs" -WorkingDirectory $WorkDir -WindowStyle Hidden -RedirectStandardOutput $fixtureLog -RedirectStandardError (Join-Path $ScratchRoot "fixture.err.log") -PassThru
+$deadline = (Get-Date).AddSeconds(60)
+$fixtureReady = $false
+while ((Get-Date) -lt $deadline) {
+  Start-Sleep -Seconds 1
+  if (Test-Path $fixtureLog) {
+    $content = Get-Content $fixtureLog -Raw -ErrorAction SilentlyContinue
+    if ($content -match "provider-fixture ready") { $fixtureReady = $true; break }
+  }
+}
+Assert-True $fixtureReady "provider fixture ready inside L3 process"
+
 # First launch: fresh userData, project selected, AAOP setup through UI,
 # provider configured through UI, request, intake, approve, execute.
 $firstUserData = Join-Path $appDataDir "first"
@@ -255,6 +277,14 @@ if (Test-Path $uninstaller) {
   Start-Sleep -Seconds 3
 }
 Assert-True (-not (Test-Path $installedExe)) "installed exe removed after uninstall"
+
+# Stop the provider fixture.
+if ($fixtureProc -and -not $fixtureProc.HasExited) {
+  try { $fixtureProc.Kill() } catch { }
+}
+Remove-Item Env:FIXTURE_TARGET_DIR -ErrorAction SilentlyContinue
+Remove-Item Env:FIXTURE_PORT -ErrorAction SilentlyContinue
+Remove-Item Env:FIXTURE_API_KEY -ErrorAction SilentlyContinue
 
 Write-Host "CONSUMER_HUMAN_JOURNEY_L3: PASS"
 exit 0
