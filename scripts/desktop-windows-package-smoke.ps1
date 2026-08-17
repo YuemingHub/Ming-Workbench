@@ -103,17 +103,17 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
   foreach ($id in $TrackedIds) {
     $p = Get-Process -Id $id -ErrorAction SilentlyContinue
     if ($p -and $p.MainWindowHandle -ne 0) {
-      $p.CloseMainWindow() | Out-Null
+      $wmClose = $p.CloseMainWindow()
       $closed = $true
-      Write-Host "close requested via window of pid=$id"
+      Write-Host "close requested via window of pid=$id title='$($p.MainWindowTitle)' wmClose=$wmClose"
       break
     }
   }
   if (-not $closed -and $RootPid -and (Get-Process -Id $RootPid -ErrorAction SilentlyContinue)) {
     $root = Get-Process -Id $RootPid -ErrorAction SilentlyContinue
     if ($root -and $root.MainWindowHandle -ne 0) {
-      $root.CloseMainWindow() | Out-Null
-      Write-Host "close requested via root window pid=$RootPid"
+      $wmClose = $root.CloseMainWindow()
+      Write-Host "close requested via root window pid=$RootPid title='$($root.MainWindowTitle)' wmClose=$wmClose"
     }
   }
 
@@ -131,6 +131,12 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
   }
 
   Write-Host "L2_GRACEFUL_CLOSE: FAIL (tracked launch tree did not drain within 60s)"
+  $rootP = Get-Process -Id $RootPid -ErrorAction SilentlyContinue
+  if ($rootP) {
+    Write-Host "root pid=$RootPid still alive; MainWindowHandle=$($rootP.MainWindowHandle) title='$($rootP.MainWindowTitle)'"
+  } else {
+    Write-Host "root pid=$RootPid exited (orphan tree kept matching)"
+  }
   Write-Host "residual processes still matching the tracked launch tree:"
   $nowScratch = Get-ScratchMatchingProcesses $ScratchPath
   foreach ($p in $nowScratch) {

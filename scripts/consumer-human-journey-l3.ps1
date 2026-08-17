@@ -268,8 +268,10 @@ Assert-True ($status -match "README\.md") "git status shows only README.md modif
 function Close-InstalledTree([int]$RootPid, [string]$ScratchPath) {
   $p = Get-Process -Id $RootPid -ErrorAction SilentlyContinue
   if ($p -and $p.MainWindowHandle -ne 0) {
-    $p.CloseMainWindow() | Out-Null
-    Write-Host "close requested via window pid=$RootPid"
+    $wmClose = $p.CloseMainWindow()
+    Write-Host "close requested via window pid=$RootPid title='$($p.MainWindowTitle)' wmClose=$wmClose"
+  } else {
+    Write-Host "close requested but no main window handle for pid=$RootPid"
   }
   $deadline = (Get-Date).AddSeconds(90)
   while ((Get-Date) -lt $deadline) {
@@ -283,6 +285,12 @@ function Close-InstalledTree([int]$RootPid, [string]$ScratchPath) {
     Start-Sleep -Milliseconds 500
   }
   Write-Host "L3_GRACEFUL_CLOSE: FAIL (installed tree did not drain within 90s)"
+  $rootP = Get-Process -Id $RootPid -ErrorAction SilentlyContinue
+  if ($rootP) {
+    Write-Host "root pid=$RootPid still alive; MainWindowHandle=$($rootP.MainWindowHandle) title='$($rootP.MainWindowTitle)'"
+  } else {
+    Write-Host "root pid=$RootPid exited (orphan tree kept matching)"
+  }
   Write-Host "residual processes still matching the installed tree:"
   Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
     $_.CommandLine -and $_.CommandLine.IndexOf($ScratchPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0

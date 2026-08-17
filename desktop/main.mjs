@@ -730,10 +730,19 @@ if (!gotLock) {
     event.preventDefault()
     const current = backend
     backend = null
+    // Bounded clean close: a backend tree kill must never block the window
+    // close. Work Units are persisted on every state change, so a forced exit
+    // loses nothing; if the kill stalls, exit anyway within the bound.
+    const killGuard = setTimeout(() => {
+      appendStartupLog('backend kill stalled; forcing app exit')
+      cleanShutdownDone = true
+      app.exit(0)
+    }, 5000)
     current
       .kill()
       .catch(() => {})
       .finally(() => {
+        clearTimeout(killGuard)
         cleanShutdownDone = true
         app.quit()
       })
