@@ -115,6 +115,9 @@ Assert-True (-not (Test-Path (Join-Path $scratchRepo "package.json"))) "scratch 
 
 $installer = Get-ChildItem -Path (Join-Path $distRoot "Ming Workbench Setup *.exe") -File -ErrorAction SilentlyContinue | Select-Object -First 1
 Assert-True ($null -ne $installer) "real NSIS installer exists"
+$installerSha256 = (Get-FileHash -Algorithm SHA256 -Path $installer.FullName).Hash
+$installerBytes = $installer.Length
+Write-Host "L3_EVIDENCE installer=$($installer.Name) sha256=$installerSha256 bytes=$installerBytes"
 $installDir = Join-Path $ScratchRoot "l3-installed"
 Write-Step "INSTALL (silent per-user)"
 $installProc = Start-Process -FilePath $installer.FullName -ArgumentList "/S /D=$installDir" -Wait -PassThru
@@ -322,6 +325,32 @@ if ($ArtifactDir) {
   if (Test-Path $fixtureLog) { Copy-Item $fixtureLog (Join-Path $ArtifactDir "fixture.out.log") -Force }
   if (Test-Path (Join-Path $ScratchRoot "fixture.err.log")) { Copy-Item (Join-Path $ScratchRoot "fixture.err.log") (Join-Path $ArtifactDir "fixture.err.log") -Force }
 }
+
+# Independent evidence summary (facts already verified above; printed here as a
+# single reviewable block). Installed exe + runtime identity come from the real
+# installed app and its startup.log, not from agent claims.
+$evidenceStartupLog = Join-Path $firstUserData "startup.log"
+$startupText = Read-TextFileShared $evidenceStartupLog
+$harnessIdentity = "unknown"
+if ($startupText -match "harness runtime ready source=bundled-capsule commit=([0-9a-f]{40})") { $harnessIdentity = $Matches[1] }
+# Bundled Python identity comes from the installed app's runtime manifest.
+$pythonIdentity = "unknown"
+$pythonRuntimeJson = Join-Path $installDir "resources\app\.workbench\runtime\python\python-runtime.json"
+if (Test-Path $pythonRuntimeJson) {
+  try {
+    $pythonIdentity = (Read-TextFileShared $pythonRuntimeJson | ConvertFrom-Json).version
+  } catch { }
+}
+$installedSize = 0
+if (Test-Path $installedExe) { $installedSize = (Get-Item $installedExe).Length }
+
+Write-Host "L3_EVIDENCE installer_sha256=$installerSha256"
+Write-Host "L3_EVIDENCE installer_bytes=$installerBytes"
+Write-Host "L3_EVIDENCE installed_exe=$installedExe"
+Write-Host "L3_EVIDENCE installed_exe_bytes=$installedSize"
+Write-Host "L3_EVIDENCE harness_commit=$harnessIdentity"
+Write-Host "L3_EVIDENCE python_version=$pythonIdentity"
+Write-Host "L3_EVIDENCE scratch_repo=$scratchRepo"
 
 Write-Host "CONSUMER_HUMAN_JOURNEY_L3: PASS"
 exit 0
