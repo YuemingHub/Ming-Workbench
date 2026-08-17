@@ -57,11 +57,34 @@ async function waitForText(page, text, timeout = 30_000) {
 async function main() {
   const browser = await chromium.connectOverCDP(CDP_URL)
   const context = browser.contexts()[0]
-  const page = context.pages()[0]
+
+  // The installed app may expose several targets; the WORKBENCH backend page is
+  // the one whose URL is a loopback http origin. Give the backend a moment to
+  // finish its first-launch archive extraction before enumerating pages.
+  await new Promise((resolvePromise) => setTimeout(resolvePromise, 3000))
+
+  let page = null
+  const deadline = Date.now() + 45_000
+  while (Date.now() < deadline && !page) {
+    for (const candidate of context.pages()) {
+      const url = candidate.url()
+      if (/^http:\/\/127\.0\.0\.1:\d+/.test(url)) {
+        page = candidate
+        break
+      }
+    }
+    if (!page) await new Promise((resolvePromise) => setTimeout(resolvePromise, 2000))
+  }
+  if (!page) {
+    // Fall back to the first page (welcome page) so the failure is a clear
+    // assertion, not a crash.
+    page = context.pages()[0]
+  }
   await page.bringToFront()
+  console.log(`connected to page: ${page.url()}`)
 
   step('1. project rendered')
-  await page.waitForSelector('#project-summary', { timeout: 20_000 })
+  await page.waitForSelector('#project-summary', { timeout: 30_000 })
   const projectTitle = await page.locator('#project-summary h2').textContent()
   console.log(`project title: ${projectTitle}`)
   assert(projectTitle.length > 0, 'project title rendered')

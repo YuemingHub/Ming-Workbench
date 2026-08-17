@@ -154,12 +154,26 @@ function Invoke-L3UiJourney([string]$Label, [string]$UserData) {
   Push-Location $WorkDir
   try {
     & node scripts/ui-journey-driver.mjs 2>&1 | Tee-Object -FilePath (Join-Path $ScratchRoot "$Label-ui.log")
-    if ($LASTEXITCODE -ne 0) { throw "ui journey driver exited $LASTEXITCODE" }
+    $driverExit = $LASTEXITCODE
+    if ($driverExit -ne 0) {
+      Write-Host "--- ui journey driver log ---"
+      Get-Content (Join-Path $ScratchRoot "$Label-ui.log") -Tail 60
+      Write-Host "--- installed app startup.log ---"
+      Get-Content $startupLog -Tail 40
+      throw "ui journey driver exited $driverExit"
+    }
   } finally { Pop-Location }
   Remove-Item Env:MING_CDP_URL -ErrorAction SilentlyContinue
   Remove-Item Env:MING_JOURNEY_REQUEST -ErrorAction SilentlyContinue
   Remove-Item Env:MING_JOURNEY_CREDENTIAL -ErrorAction SilentlyContinue
   Remove-Item Env:MING_JOURNEY_BASE_URL -ErrorAction SilentlyContinue
+
+  # Copy diagnostics to the artifact dir so failures are inspectable.
+  if ($ArtifactDir) {
+    New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
+    if (Test-Path $startupLog) { Copy-Item $startupLog (Join-Path $ArtifactDir "$Label-startup.log") -Force }
+    if (Test-Path (Join-Path $ScratchRoot "$Label-ui.log")) { Copy-Item (Join-Path $ScratchRoot "$Label-ui.log") (Join-Path $ArtifactDir "$Label-ui.log") -Force }
+  }
 
   return $proc
 }
