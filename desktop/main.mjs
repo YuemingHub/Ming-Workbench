@@ -50,6 +50,7 @@ let backend = null
 let backendUrl = ''
 let activeBackendOrigin = ''
 let switching = false
+let pendingRestart = false
 let cleanShutdownDone = false
 let providerSecret = null
 let providerPreferences = defaultProviderPreferences()
@@ -677,7 +678,14 @@ function registerIpc() {
  */
 async function restartBackendForProviderActivation() {
   if (!currentProjectRoot) return
-  if (switching) return
+  // A restart may already be in flight (e.g. saving the secret and the
+  // preferences each trigger one). Do not drop the second request: mark it
+  // pending and run it once the current restart finishes, so the LAST saved
+  // configuration (including a custom base URL) actually reaches the backend.
+  if (switching) {
+    pendingRestart = true
+    return
+  }
   switching = true
   try {
     const url = await startBackend(currentProjectRoot)
@@ -691,6 +699,10 @@ async function restartBackendForProviderActivation() {
     return url
   } finally {
     switching = false
+    if (pendingRestart) {
+      pendingRestart = false
+      void restartBackendForProviderActivation()
+    }
   }
 }
 
