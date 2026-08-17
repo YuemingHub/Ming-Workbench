@@ -5,6 +5,7 @@ All coding agents, review agents, cloud agents, and local agents working in this
 Then read:
 
 - `docs/WORKBENCH_CONSTITUTION.md`
+- `docs/V1_PRODUCT_CONTRACT.md` (authoritative for the V1 human-first entry)
 - the current repository state, branch, PR, tests, and evidence relevant to your task
 
 The constitution is the durable product boundary. Current branch documents may be stale; repository reality wins for factual status.
@@ -149,16 +150,21 @@ When tests are green but a real user cannot complete the intended journey, the r
 
 ---
 
-## Family Space
+## First proving ground
 
-Family Space is the first serious real-world proving ground for Ming Workbench, not merely a demo.
+Per `docs/V1_PRODUCT_CONTRACT.md`, the first real proving ground after the
+human-first entry loop is a **new low-risk idea** executed and verified
+end-to-end, not Family Space. Family Space is a proving ground only after such a
+low-risk real outcome round has succeeded.
 
 Preferred progression:
 
 ```text
-small scratch Work Unit
+human-first confirmation round
+→ small scratch Work Unit
 → real Ming Workbench Work Unit
-→ real Family Space Work Unit
+→ new low-risk real idea executed and verified
+→ real Family Space Work Unit (only after low-risk success)
 → repeated real-world outcomes
 ```
 
