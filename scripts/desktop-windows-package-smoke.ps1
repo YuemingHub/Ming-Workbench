@@ -317,9 +317,19 @@ Assert-True (Test-Path $exePath) "win-unpacked exe exists"
 Assert-True (Test-Path (Join-Path $appRoot ".tmp\index.js")) "packaged app contains compiled .tmp runtime"
 Assert-True (Test-Path (Join-Path $appRoot "harness.lock.json")) "packaged app contains harness.lock.json"
 Assert-True (Test-Path (Join-Path $appRoot "scripts\start-local-web.mjs")) "packaged app contains backend entry script"
-Assert-True (Test-Path (Join-Path $appRoot ".workbench\vendor\deepseek-harness-capsule\harness-runtime-manifest.json")) "packaged app contains prebuilt Harness capsule manifest"
-Assert-True (Test-Path (Join-Path $appRoot ".workbench\vendor\deepseek-harness-capsule\node_modules\tsx\dist\cli.mjs")) "packaged capsule contains tsx runner"
-Assert-True (Test-Path (Join-Path $appRoot ".workbench\vendor\deepseek-harness-capsule\apps\cli\package.json")) "packaged capsule contains reviewed Harness source"
+# Packaging contract: the installer ships the reviewed Harness runtime as a
+# SINGLE-FILE capsule archive (deepseek-harness-capsule.tar.gz), not the unpacked
+# capsule directory — prepare-packaged-runtime.mjs removes the loose directory
+# before electron-builder so makensis never enumerates tens of thousands of
+# small files. The archive contains the full reviewed capsule (source,
+# node_modules closure, harness-runtime-manifest.json). The runtime extracts it
+# to a per-user cache on first launch and verifies every pinned key file by
+# SHA-256 plus the exact reviewed commit/version; the launch assertions below
+# prove the app really started from source=bundled-capsule with the pinned
+# identity, so the archive is proven to carry the correct Harness runtime.
+$capsuleArchive = Join-Path $appRoot ".workbench\vendor\deepseek-harness-capsule.tar.gz"
+Assert-True (Test-Path $capsuleArchive) "packaged app contains the single-file Harness capsule archive"
+Assert-True ((Get-Item $capsuleArchive).Length -gt 0) "capsule archive is non-empty" "(bytes=$((Get-Item $capsuleArchive).Length))"
 
 # Ephemeral scratch Git repository (launch target; never a real project).
 $scratchRepo = Join-Path $ScratchRoot "repo"

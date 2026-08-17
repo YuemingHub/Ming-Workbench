@@ -263,7 +263,16 @@ function Invoke-ConsumerLaunch([string]$Label) {
     $setupBody = $setup.Content | ConvertFrom-Json
     Assert-True ($setup.StatusCode -eq 200) "POST /api/setup 200"
     Assert-True ($setupBody.status -eq "installed") "AAOP installed through product path" "(status=$($setupBody.status) message=$($setupBody.message))"
-    Assert-True ($setupBody.aaopVersion) "AAOP release identity returned"
+    # Type-correct, semantic assertion: aaopVersion must be a non-empty string
+    # and must equal the AAOP release identity really installed into the scratch
+    # project (.aaop/VERSION). The setup API reports the version it bootstrapped;
+    # the filesystem must agree.
+    $reportedAaopVersion = $setupBody.aaopVersion
+    Assert-True (-not [string]::IsNullOrWhiteSpace([string]$reportedAaopVersion)) "AAOP release identity returned by setup" "(aaopVersion=$reportedAaopVersion)"
+    $installedAaopVersionPath = Join-Path $scratchRepo ".aaop\VERSION"
+    Assert-True (Test-Path $installedAaopVersionPath) "AAOP VERSION file exists in the scratch project"
+    $installedAaopVersion = (Read-TextFileShared $installedAaopVersionPath).Trim()
+    Assert-True ([string]$reportedAaopVersion -eq $installedAaopVersion) "AAOP setup identity matches installed VERSION" "(setup=$reportedAaopVersion installed=$installedAaopVersion)"
     Assert-True ($setupBody.project.status -eq "ready") "project ready after setup"
 
     # Provider connection through the real Workbench application pipeline.
