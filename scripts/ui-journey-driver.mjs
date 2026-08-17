@@ -255,7 +255,15 @@ async function main() {
       const disabled = await approve.isDisabled()
       if (!disabled) {
         await click(page, '#execute-approve-button', 'approve mutation scope')
-        await waitForText(page, '执行', 60_000).catch(() => {})
+        // Bounded execution runs a real Harness ACP session; wait generously.
+        await page.waitForTimeout(30_000)
+        const execStatus = await page.locator('#execute-status').textContent().catch(() => '')
+        const workState = await page.locator('#work-state').textContent().catch(() => '')
+        console.log(`execution status="${execStatus}" workState="${workState}"`)
+        await waitForText(page, '执行完成', 120_000).catch(() => console.log('execution completion text not asserted'))
+        const execStatus2 = await page.locator('#execute-status').textContent().catch(() => '')
+        const workState2 = await page.locator('#work-state').textContent().catch(() => '')
+        console.log(`execution after-wait status="${execStatus2}" workState="${workState2}"`)
         console.log('execution requested through UI')
       } else {
         console.log('approve disabled (scope not ready or UI disallows)')

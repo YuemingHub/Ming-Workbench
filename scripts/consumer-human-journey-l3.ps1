@@ -169,7 +169,7 @@ function Invoke-L3UiJourney([string]$Label, [string]$UserData) {
   try {
     & node scripts/ui-journey-driver.mjs 2>&1 | Tee-Object -FilePath (Join-Path $ScratchRoot "$Label-ui.log")
     $driverExit = $LASTEXITCODE
-    # Always stage diagnostics so a failure is inspectable via artifacts.
+    # Stage diagnostics so a failure is inspectable via artifacts.
     if ($ArtifactDir) {
       New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
       if (Test-Path $startupLog) { Copy-Item $startupLog (Join-Path $ArtifactDir "$Label-startup.log") -Force }
@@ -291,6 +291,10 @@ if ($fixtureProc -and -not $fixtureProc.HasExited) {
 Remove-Item Env:FIXTURE_TARGET_DIR -ErrorAction SilentlyContinue
 Remove-Item Env:FIXTURE_PORT -ErrorAction SilentlyContinue
 Remove-Item Env:FIXTURE_API_KEY -ErrorAction SilentlyContinue
+if ($ArtifactDir) {
+  if (Test-Path $fixtureLog) { Copy-Item $fixtureLog (Join-Path $ArtifactDir "fixture.out.log") -Force }
+  if (Test-Path (Join-Path $ScratchRoot "fixture.err.log")) { Copy-Item (Join-Path $ScratchRoot "fixture.err.log") (Join-Path $ArtifactDir "fixture.err.log") -Force }
+}
 
 Write-Host "CONSUMER_HUMAN_JOURNEY_L3: PASS"
 exit 0
