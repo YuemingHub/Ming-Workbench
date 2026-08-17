@@ -75,29 +75,6 @@ jobs:
           npm run desktop:package
           if ($LASTEXITCODE -ne 0) { Write-Error "desktop:package failed (exit $LASTEXITCODE)" }
 
-      - name: Start repository-owned OpenAI-compatible provider fixture
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $fixtureTarget = Join-Path $env:RUNNER_TEMP 'pipeline-fixture-target'
-          New-Item -ItemType Directory -Force -Path $fixtureTarget | Out-Null
-          $env:FIXTURE_TARGET_DIR = $fixtureTarget
-          $env:FIXTURE_PORT = '8000'
-          $env:FIXTURE_API_KEY = 'fixture-key'
-          Start-Process -FilePath 'node' -ArgumentList 'scripts/provider-fixture-server.mjs' -WindowStyle Hidden -RedirectStandardOutput (Join-Path $env:RUNNER_TEMP 'fixture.out.log') -RedirectStandardError (Join-Path $env:RUNNER_TEMP 'fixture.err.log')
-          # Wait for the fixture to bind.
-          $deadline = (Get-Date).AddSeconds(60)
-          $ready = $false
-          while ((Get-Date) -lt $deadline) {
-            if (Test-Path (Join-Path $env:RUNNER_TEMP 'fixture.out.log')) {
-              $content = Get-Content (Join-Path $env:RUNNER_TEMP 'fixture.out.log') -Raw -ErrorAction SilentlyContinue
-              if ($content -match 'provider-fixture ready') { $ready = $true; break }
-            }
-            Start-Sleep -Seconds 1
-          }
-          if (-not $ready) { Write-Error 'provider fixture did not become ready' }
-          "MING_MOCK_FIXTURE_READY=1" | Out-File $env:GITHUB_ENV -Append
-
       - name: Run Packaged Application Pipeline Smoke (L2+, not L3)
         shell: pwsh
         env:
