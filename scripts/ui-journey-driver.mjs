@@ -255,15 +255,20 @@ async function main() {
       const disabled = await approve.isDisabled()
       if (!disabled) {
         await click(page, '#execute-approve-button', 'approve mutation scope')
-        // Bounded execution runs a real Harness ACP session; wait generously.
-        await page.waitForTimeout(30_000)
-        const execStatus = await page.locator('#execute-status').textContent().catch(() => '')
+        // Bounded execution runs a real Harness ACP session; poll the status.
+        let lastStatus = ''
+        for (let i = 0; i < 30; i++) {
+          await page.waitForTimeout(2000)
+          const st = await page.locator('#execute-status').textContent().catch(() => '')
+          if (st && st !== lastStatus) {
+            lastStatus = st
+            console.log(`execute-status: ${st}`)
+          }
+          if (/执行完成|授权失败|执行失败|错误|没有成功/.test(st)) break
+        }
         const workState = await page.locator('#work-state').textContent().catch(() => '')
-        console.log(`execution status="${execStatus}" workState="${workState}"`)
-        await waitForText(page, '执行完成', 120_000).catch(() => console.log('execution completion text not asserted'))
-        const execStatus2 = await page.locator('#execute-status').textContent().catch(() => '')
-        const workState2 = await page.locator('#work-state').textContent().catch(() => '')
-        console.log(`execution after-wait status="${execStatus2}" workState="${workState2}"`)
+        const evidenceCount = await page.locator('#evidence-list li').count().catch(() => 0)
+        console.log(`execution final status="${lastStatus}" workState="${workState}" evidenceItems=${evidenceCount}`)
         console.log('execution requested through UI')
       } else {
         console.log('approve disabled (scope not ready or UI disallows)')

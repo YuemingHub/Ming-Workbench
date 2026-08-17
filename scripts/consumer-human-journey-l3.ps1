@@ -193,6 +193,7 @@ function Invoke-L3UiJourney([string]$Label, [string]$UserData) {
     New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
     if (Test-Path $startupLog) { Copy-Item $startupLog (Join-Path $ArtifactDir "$Label-startup.log") -Force }
     if (Test-Path (Join-Path $ScratchRoot "$Label-ui.log")) { Copy-Item (Join-Path $ScratchRoot "$Label-ui.log") (Join-Path $ArtifactDir "$Label-ui.log") -Force }
+    if (Test-Path $fixtureLog) { Copy-Item $fixtureLog (Join-Path $ArtifactDir "fixture.out.log") -Force }
   }
 
   return $proc
