@@ -254,10 +254,31 @@ async function main() {
     if (await approve.count()) {
       const disabled = await approve.isDisabled()
       if (!disabled) {
+        // The product asks for an explicit human confirmation before it issues
+        // the execution grant (window.confirm showing the exact file surface).
+        // A real user reads that surface and accepts it; the driver does the
+        // same. Without this handler the dialog is auto-dismissed, confirm
+        // returns false and /api/authorize + /api/execute are never called —
+        // which would leave the real repository untouched while the UI looked
+        // like it approved.
+        let dialogHandled = false
+        const dialogPromise = new Promise((resolvePromise) => {
+          page.once('dialog', async (dialog) => {
+            dialogHandled = true
+            await dialog.accept()
+            resolvePromise()
+          })
+        })
         await click(page, '#execute-approve-button', 'approve mutation scope')
-        // Bounded execution runs a real Harness ACP session; poll the status.
+        await Promise.race([dialogPromise, new Promise((r) => setTimeout(r, 5000))])
+        console.log(`approve confirm dialog ${dialogHandled ? 'accepted' : 'not observed'}`)
+        // Bounded execution runs a real Harness ACP session (tsx + app-boot +
+        // provider round trips + isolation delta + apply-back), which can take
+        // well over a minute on a fresh packaged first launch. Poll long enough
+        // that the driver exits only AFTER the real repository has actually been
+        // written, so the L3 independent readback never races the execution.
         let lastStatus = ''
-        for (let i = 0; i < 30; i++) {
+        for (let i = 0; i < 120; i++) {
           await page.waitForTimeout(2000)
           const st = await page.locator('#execute-status').textContent().catch(() => '')
           if (st && st !== lastStatus) {
@@ -270,6 +291,10 @@ async function main() {
         const evidenceCount = await page.locator('#evidence-list li').count().catch(() => 0)
         console.log(`execution final status="${lastStatus}" workState="${workState}" evidenceItems=${evidenceCount}`)
         console.log('execution requested through UI')
+        if (!/执行完成/.test(lastStatus)) {
+          console.error('execution did not reach a completed status through the UI')
+          process.exitCode = 1
+        }
       } else {
         console.log('approve disabled (scope not ready or UI disallows)')
       }
