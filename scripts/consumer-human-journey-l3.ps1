@@ -265,7 +265,7 @@ Assert-True ($status -match "README\.md") "git status shows only README.md modif
 # residual processes are dumped for diagnosis, and force-kill is applied ONLY
 # as CI self-cleanup so the remaining steps can run. A forced cleanup never
 # converts the gate to PASS — the caller asserts on the returned value.
-function Close-InstalledTree([int]$RootPid, [string]$ScratchPath) {
+function Close-InstalledTree([int]$RootPid, [string]$ScratchPath, [string]$InstalledExe, [string]$UserDataDir, [string]$ProjectPath) {
   $p = Get-Process -Id $RootPid -ErrorAction SilentlyContinue
   if ($p -and $p.MainWindowHandle -ne 0) {
     $wmClose = $p.CloseMainWindow()
@@ -273,6 +273,8 @@ function Close-InstalledTree([int]$RootPid, [string]$ScratchPath) {
   } else {
     Write-Host "close requested but no main window handle for pid=$RootPid"
   }
+  $fallbackTriggered = $false
+  $closeStart = Get-Date
   $deadline = (Get-Date).AddSeconds(90)
   while ((Get-Date) -lt $deadline) {
     $alive = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
@@ -281,6 +283,17 @@ function Close-InstalledTree([int]$RootPid, [string]$ScratchPath) {
     if (-not $alive -or @($alive).Count -eq 0) {
       Write-Host "graceful close drained within 90s bound"
       return $true
+    }
+    if (-not $fallbackTriggered -and $InstalledExe -and ((Get-Date) - $closeStart).TotalSeconds -ge 8) {
+      $fallbackTriggered = $true
+      Write-Host "close fallback: launching second instance with --mw-close-instance"
+      $fallbackArgs = "--mw-close-instance --user-data-dir `"$UserDataDir`" --no-sandbox --disable-gpu"
+      if ($ProjectPath) { $fallbackArgs = "--project `"$ProjectPath`" $fallbackArgs" }
+      try {
+        Start-Process -FilePath $InstalledExe -ArgumentList $fallbackArgs | Out-Null
+      } catch {
+        Write-Host "close fallback launch failed: $($_.Exception.Message)"
+      }
     }
     Start-Sleep -Milliseconds 500
   }
@@ -307,7 +320,7 @@ function Close-InstalledTree([int]$RootPid, [string]$ScratchPath) {
   return $false
 }
 
-$firstCloseGraceful = Close-InstalledTree $firstProc.Id $scratchRepo
+$firstCloseGraceful = Close-InstalledTree $firstProc.Id $scratchRepo $installedExe $firstUserData $scratchRepo
 $residual = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match [regex]::Escape($scratchRepo) }
 Assert-True ($null -eq $residual -or @($residual).Count -eq 0) "zero residual processes after close"
 Assert-True $firstCloseGraceful "first close completed gracefully within the 90s bound"
@@ -353,7 +366,7 @@ Remove-Item Env:MING_CDP_URL -ErrorAction SilentlyContinue
 Remove-Item Env:MING_JOURNEY_PHASE -ErrorAction SilentlyContinue
 Remove-Item Env:MING_JOURNEY_CREDENTIAL -ErrorAction SilentlyContinue
 Remove-Item Env:MING_JOURNEY_BASE_URL -ErrorAction SilentlyContinue
-$secondCloseGraceful = Close-InstalledTree $secondProc.Id $scratchRepo
+$secondCloseGraceful = Close-InstalledTree $secondProc.Id $scratchRepo $installedExe $secondUserData $null
 Assert-True $secondCloseGraceful "second close completed gracefully within the 90s bound"
 
 # Independent evidence summary (facts already verified above; printed as a

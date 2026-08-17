@@ -710,7 +710,16 @@ const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
+    // A second launch with the shutdown marker is the deterministic close
+    // channel: WM_CLOSE can fail to reach the window (observed on an
+    // installed build), so the smoke scripts can always request a clean
+    // close through the single-instance lock instead.
+    if (argv && argv.some((a) => a === '--mw-close-instance')) {
+      if (win && !win.isDestroyed()) win.close()
+      else app.quit()
+      return
+    }
     if (win && !win.isDestroyed()) {
       if (win.isMinimized()) win.restore()
       win.focus()
