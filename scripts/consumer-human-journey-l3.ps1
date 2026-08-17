@@ -129,9 +129,12 @@ $appDataDir = Join-Path $ScratchRoot "l3-userdata"
 New-Item -ItemType Directory -Force -Path $appDataDir | Out-Null
 $cdpPort = 9333
 
+$script:launchDurations = @{}
+
 function Invoke-L3UiJourney([string]$Label, [string]$UserData) {
   Write-Step "L3 UI JOURNEY $Label"
   $startupLog = Join-Path $UserData "startup.log"
+  $launchStart = Get-Date
   $proc = Start-Process -FilePath $installedExe `
     -ArgumentList "--project `"$scratchRepo`" --user-data-dir `"$UserData`" --remote-debugging-port=$cdpPort --no-sandbox --disable-gpu" `
     -PassThru
@@ -149,6 +152,8 @@ function Invoke-L3UiJourney([string]$Label, [string]$UserData) {
     if ($content -match "backend ready http://127\.0\.0\.1:\d+") { $backendReady = $true; break }
     if ($content -match "无法启动|backend startup failed|harness runtime preparation failed") { break }
   }
+  $script:launchDurations[$Label] = ((Get-Date) - $launchStart).TotalSeconds
+  Write-Host "L3_LAUNCH_DURATION $Label=$([math]::Round($script:launchDurations[$Label],1))s"
   Assert-True $backendReady "installed backend became ready (archive extraction + harness runtime)" "(see $startupLog)"
 
   # CDP must be reachable for the UI driver.
@@ -285,6 +290,7 @@ Assert-True ($null -eq $residual -or @($residual).Count -eq 0) "zero residual pr
 # Second launch: same userData, no --project, restore project/state.
 Write-Step "SECOND LAUNCH (restore)"
 $secondUserData = $firstUserData
+$secondLaunchStart = Get-Date
 $secondProc = Start-Process -FilePath $installedExe `
   -ArgumentList "--user-data-dir `"$secondUserData`" --remote-debugging-port=$cdpPort --no-sandbox --disable-gpu" -PassThru
 $deadline = (Get-Date).AddSeconds($ReadyTimeoutSeconds)
@@ -296,6 +302,8 @@ while ((Get-Date) -lt $deadline) {
     if ($resp.StatusCode -eq 200) { $cdpReady = $true; break }
   } catch { }
 }
+$script:launchDurations['second'] = ((Get-Date) - $secondLaunchStart).TotalSeconds
+Write-Host "L3_LAUNCH_DURATION second=$([math]::Round($script:launchDurations['second'],1))s"
 Assert-True $cdpReady "second launch CDP endpoint reachable"
 $env:MING_CDP_URL = "http://127.0.0.1:$cdpPort"
 Push-Location $WorkDir
@@ -332,6 +340,8 @@ Write-Host "L3_EVIDENCE installed_exe_bytes=$installedSize"
 Write-Host "L3_EVIDENCE harness_commit=$harnessIdentity"
 Write-Host "L3_EVIDENCE python_version=$pythonIdentity"
 Write-Host "L3_EVIDENCE scratch_repo=$scratchRepo"
+Write-Host "L3_EVIDENCE first_launch_duration_s=$([math]::Round([double]$script:launchDurations['first'],1))"
+Write-Host "L3_EVIDENCE second_launch_duration_s=$([math]::Round([double]$script:launchDurations['second'],1))"
 
 # Uninstall cleanup.
 Write-Step "UNINSTALL"
