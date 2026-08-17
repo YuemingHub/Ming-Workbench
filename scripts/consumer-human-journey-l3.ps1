@@ -246,9 +246,36 @@ Assert-True ($diff -match "Version: OLD" -and $diff -match "Version: NEW") "git 
 $status = & git -C $scratchRepo status --porcelain 2>&1 | Out-String
 Assert-True ($status -match "README\.md") "git status shows only README.md modified"
 
-# Clean close.
-try { $firstProc.CloseMainWindow() | Out-Null } catch { }
-Start-Sleep -Seconds 5
+# Clean close: request the product window to close, then give the whole tree
+# (Electron main + backend child + any Harness/ACP child still settling) time
+# to exit gracefully. A fresh packaged first launch has more children settling
+# than a plain window, so a few seconds is not enough; wait for the tracked
+# tree to drain before asserting zero residual.
+function Close-InstalledTree([int]$RootPid, [string]$ScratchPath) {
+  $p = Get-Process -Id $RootPid -ErrorAction SilentlyContinue
+  if ($p -and $p.MainWindowHandle -ne 0) {
+    $p.CloseMainWindow() | Out-Null
+    Write-Host "close requested via window pid=$RootPid"
+  }
+  $deadline = (Get-Date).AddSeconds(90)
+  while ((Get-Date) -lt $deadline) {
+    $alive = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+      ($_.ProcessId -eq $RootPid) -or ($_.CommandLine -and $_.CommandLine.IndexOf($ScratchPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0)
+    }
+    if (-not $alive -or @($alive).Count -eq 0) { return }
+    Start-Sleep -Milliseconds 500
+  }
+  Write-Host "WARN: graceful close timed out; force-killing installed tree"
+  Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.CommandLine -and $_.CommandLine.IndexOf($ScratchPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+  } | ForEach-Object {
+    try { taskkill /PID $_.ProcessId /T /F 2>&1 | Out-Null } catch { }
+  }
+  try { taskkill /PID $RootPid /T /F 2>&1 | Out-Null } catch { }
+  Start-Sleep -Seconds 3
+}
+
+Close-InstalledTree $firstProc.Id $scratchRepo
 $residual = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match [regex]::Escape($scratchRepo) }
 Assert-True ($null -eq $residual -or @($residual).Count -eq 0) "zero residual processes after close"
 
@@ -273,8 +300,7 @@ try {
   & node scripts/ui-journey-driver.mjs 2>&1 | Tee-Object -FilePath (Join-Path $ScratchRoot "second-ui.log")
 } finally { Pop-Location }
 Remove-Item Env:MING_CDP_URL -ErrorAction SilentlyContinue
-try { $secondProc.CloseMainWindow() | Out-Null } catch { }
-Start-Sleep -Seconds 5
+Close-InstalledTree $secondProc.Id $scratchRepo
 
 # Uninstall cleanup.
 Write-Step "UNINSTALL"
