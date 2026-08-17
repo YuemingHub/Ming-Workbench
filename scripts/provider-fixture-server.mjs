@@ -61,9 +61,6 @@ const server = createServer((req, res) => {
     }
 
     const content = readReadme()
-    const thisPhase = phase
-    phase += 1
-    console.log(`fixture request: phase=${thisPhase} readmeNew=${content.includes(NEW_MARK)}`)
 
     // Distinguish request kinds by their prompt text so the same fixture serves
     // the whole journey: provider probe, AAOP intake, and bounded execution.
@@ -74,6 +71,13 @@ const server = createServer((req, res) => {
     const isProbe = promptText.includes('只回复') && promptText.includes('不要调用任何工具')
     const isExecution = promptText.includes('AAOP Provider Execution Grant')
     console.log(`fixture request: isProbe=${isProbe} isExecution=${isExecution}`)
+
+    // The execution phase machine advances ONLY on execution requests; probe
+    // and intake requests never consume a phase, so a fresh journey always
+    // reaches read -> write -> conclude exactly once.
+    const thisPhase = isExecution ? phase : -1
+    if (isExecution) phase += 1
+    if (isExecution) console.log(`fixture execution phase=${thisPhase} readmeNew=${content.includes(NEW_MARK)}`)
 
     const sseChunk = (payload) => {
       res.write(`data: ${JSON.stringify(payload)}\n\n`)
