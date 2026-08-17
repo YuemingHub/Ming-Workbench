@@ -121,12 +121,17 @@ const server = createServer((req, res) => {
         generated_at: new Date().toISOString(),
         raw_request: rawRequest,
         situation: 'existing_repository',
-        route: 'understand-review',
-        route_confidence: 0.8,
+        route: 'feature-change',
+        route_confidence: 0.9,
         ambiguities: [],
         question_needed: null,
-        project_evidence_summary: [],
-        next_action: 'Inspect the repository before deciding the mutation surface.',
+        // Ground the canonical task: the request is to change Version in
+        // README.md, which is a real tracked file. Workbench's scope proposal
+        // derives candidate paths from this evidence.
+        project_evidence_summary: [
+          'README.md — repository README containing "Version: OLD" (the request asks to change it to "Version: NEW").',
+        ],
+        next_action: 'Change the Version line in README.md from OLD to NEW.',
       })
       sseChunk({ choices: [{ index: 0, delta: { content: envelope }, finish_reason: null }] })
       sseChunk({ choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 10 } })
