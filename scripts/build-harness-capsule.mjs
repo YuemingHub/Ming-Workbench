@@ -335,4 +335,11 @@ await writeCapsuleArchive()
 console.log(
   `MING WORKBENCH HARNESS CAPSULE BUILT: ${finalManifest.harness.version} @ ${finalManifest.harness.commit}`,
 )
+
+// 6c. Remove the staging directory. It contains the full pnpm-deployed
+// dependency closure (hundreds of MB of loose files); leaving it under
+// .tmp/harness-capsule-build would make electron-builder/makensis choke on the
+// huge file count (RangeError: Invalid string length) even though only the
+// single-file archive is the distribution carrier.
+rmSync(staging, { recursive: true, force: true })
 console.log(`capsule: ${destination}`)

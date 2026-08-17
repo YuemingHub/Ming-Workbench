@@ -51,6 +51,7 @@
       ".workbench/runtime/**/*",
       ".tmp/**/*",
       "!.tmp/harness-runtime-test/**",
+      "!.tmp/harness-capsule-build/**",
       "package.json",
       "harness.lock.json",
       "tsconfig.json",
