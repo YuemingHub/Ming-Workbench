@@ -69,7 +69,11 @@ const server = createServer((req, res) => {
     const messages = Array.isArray(parsed.messages) ? parsed.messages : []
     const promptText = messages.map((m) => String(m.content ?? '')).join(' ')
     const isProbe = promptText.includes('只回复') && promptText.includes('不要调用任何工具')
-    const isExecution = promptText.includes('AAOP Provider Execution Grant')
+    // Execution is a NON-probe request that carries the AAOP Provider
+    // Execution Grant. A probe request may ALSO embed grant context in the
+    // Harness prompt, so probe must be tested first; only genuine execution
+    // requests advance the phase machine.
+    const isExecution = !isProbe && promptText.includes('AAOP Provider Execution Grant')
     console.log(`fixture request: isProbe=${isProbe} isExecution=${isExecution}`)
 
     // The execution phase machine advances ONLY on execution requests; probe
