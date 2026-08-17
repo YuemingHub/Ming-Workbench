@@ -110,11 +110,12 @@ test('provider activation restart path is wired in the desktop main process', ()
   )
   // The restart must reuse the existing startBackend lifecycle (kill old
   // backend -> clear origin -> spawn with updated secret env -> ready ->
-  // atomic origin rotation) and then reload the window so the renderer picks
-  // up the fresh request token and resumes persisted state.
+  // atomic origin rotation) and then navigate the window to the fresh
+  // origin (a plain reload would hit the dead old port) so the renderer
+  // picks up the fresh request token and resumes persisted state.
   assert.match(source, /async function restartBackendForProviderActivation/)
   assert.match(source, /const url = await startBackend\(currentProjectRoot\)/)
-  assert.match(source, /win\.webContents\.reload\(\)/)
+  assert.match(source, /win\.loadURL\(url\)/)
   // No secret may ever enter argv: every line mentioning the key must be the
   // child-env injection or a comment, never an argument-list write.
   const keyLines = source.split('\n').filter((line) => line.includes('DEEPSEEK_API_KEY'))
@@ -122,8 +123,37 @@ test('provider activation restart path is wired in the desktop main process', ()
   for (const line of keyLines) {
     assert.match(
       line,
-      /extraEnv|spawned with the updated/,
+      /extraEnv|spawned with the updated|DEEPSEEK_API_KEY: providerSecret/,
       `DEEPSEEK_API_KEY appears outside extraEnv injection: ${line.trim()}`,
     )
+  }
+})
+
+test('custom OpenAI-compatible provider env wiring is present', () => {
+  const source = readFileSync(
+    new URL('../desktop/main.mjs', import.meta.url),
+    'utf8',
+  )
+  // Custom endpoints flow through DEEPSEEK_BASE_URL + conservative harness
+  // tuning (thinking disabled, effort off, bounded maxTokens); official
+  // DeepSeek keeps its defaults by leaving them unset.
+  assert.match(source, /DEEPSEEK_BASE_URL: providerPreferences\.baseUrl/)
+  assert.match(source, /MING_HARNESS_THINKING: 'disabled'/)
+  assert.match(source, /MING_HARNESS_REASONING_EFFORT: 'off'/)
+  assert.match(source, /MING_HARNESS_MAX_TOKENS: '16384'/)
+  // The ACP child runner must inherit the custom-provider env.
+  const acp = readFileSync(
+    new URL('../src/transports/harness-acp.ts', import.meta.url),
+    'utf8',
+  )
+  assert.ok(acp.includes("'MING_HARNESS_THINKING'"))
+  assert.ok(acp.includes("'MING_HARNESS_REASONING_EFFORT'"))
+  assert.ok(acp.includes("'MING_HARNESS_MAX_TOKENS'"))
+  // The ACP configs parameterize thinking/effort/maxTokens via env.
+  for (const name of ['workbench.cordis.yml', 'intake.cordis.yml']) {
+    const yml = readFileSync(new URL(`../harness/acp/${name}`, import.meta.url), 'utf8')
+    assert.ok(yml.includes('MING_HARNESS_THINKING'), `${name} reads MING_HARNESS_THINKING`)
+    assert.ok(yml.includes('MING_HARNESS_REASONING_EFFORT'), `${name} reads MING_HARNESS_REASONING_EFFORT`)
+    assert.ok(yml.includes('MING_HARNESS_MAX_TOKENS'), `${name} reads MING_HARNESS_MAX_TOKENS`)
   }
 })

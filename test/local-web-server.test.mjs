@@ -187,12 +187,16 @@ test('authorized API token returns only a human-facing project snapshot', async 
       })
       assert.equal(response.status, 200)
       const body = await response.json()
+      // projectPath is intentionally exposed: the desktop home card must show
+      // the owner the real full path of the fixed selected project.
+      const expectedPath = resolve('/workspace/fixture')
       assert.deepEqual(body, {
         status: 'ready',
         project: {
           id: 'local-fixture-123456789abc',
           title: 'Fixture Project',
         },
+        projectPath: expectedPath,
         aaopVersion: '1.2.0',
         message: '项目已准备，可以先做只读理解。',
       })
@@ -460,21 +464,62 @@ test('local UI HTML and JS are DOM-consistent: every JS id exists in HTML, no st
   assert.equal(js.includes('/api/provider/status'), false)
 
   // Legacy DOM ids tied to the old browser secret form must not exist.
-  assert.ok(!htmlIds.has('provider-save-button') === false)
-  // The HTML now intentionally includes provider-* ids for the Desktop-only
-  // provider setup affordance. Verify they are present.
+  assert.ok(!htmlIds.has('provider-message'), 'legacy provider-card message id is gone')
+  // The Desktop-only provider setup is now a permanent AI card + panel.
   assert.ok(htmlIds.has('provider-save-button'))
   assert.ok(htmlIds.has('provider-key-input'))
-  assert.ok(htmlIds.has('provider-message'))
-  assert.ok(htmlIds.has('provider-status'))
+  assert.ok(htmlIds.has('provider-panel'))
+  assert.ok(htmlIds.has('provider-panel-status'))
+  assert.ok(htmlIds.has('ai-summary-card'))
+  assert.ok(htmlIds.has('project-summary-card'))
+  assert.ok(htmlIds.has('select-project-button'))
+  assert.ok(htmlIds.has('switch-project-button'))
+
+  // Hard product invariant: the [选择项目] button must be visible in the
+  // initial HTML (never starts hidden), and the JS must have real logic to
+  // flip the buttons — a static shell must never tell the user to pick a
+  // project without a visible button.
+  assert.ok(!htmlIds.has('readiness-checklist'), 'internal readiness checklist is not owner UI')
+  assert.ok(!htmlIds.has('next-step-card'), 'internal next-step card is not owner UI')
+  assert.ok(!/id="select-project-button"[^>]*class="[^"]*hidden/.test(html), 'select-project-button starts visible')
+  assert.ok(/id="switch-project-button"[^>]*class="[^"]*hidden/.test(html), 'switch-project-button starts hidden')
+  assert.ok(js.includes('function renderProjectButtons'), 'JS has project button visibility logic')
+  assert.ok(js.includes('select-project-button\').classList.toggle'), 'JS toggles select-project-button visibility')
+  assert.ok(js.includes('switch-project-button\').classList.toggle'), 'JS toggles switch-project-button visibility')
+
+  // Startup dead-end guard must exist (no infinite "正在准备…").
+  assert.ok(htmlIds.has('boot-failure'))
+  assert.ok(htmlIds.has('boot-reload-button'))
+  assert.ok(js.includes('BOOT_TIMEOUT_MS'), 'JS has a bootstrap timeout guard')
+
+  // Owner guidance: the model field offers real suggestions, and the input
+  // placeholder tells the user what to do next in every state.
+  assert.ok(htmlIds.has('model-options'))
+  assert.ok(html.includes('value="deepseek-v4-pro"'))
+  assert.ok(html.includes('value="deepseek-chat"'))
+  assert.ok(html.includes('platform.deepseek.com'), 'API key hint points to the real provider portal')
+  assert.ok(js.includes('先点击「配置 AI」'), 'placeholder guides unconfigured users')
+  assert.ok(js.includes('点击「测试连接」确认'), 'placeholder guides configured-untested users')
+
+  // Custom OpenAI-compatible provider support: a real runtime path exists
+  // (DEEPSEEK_BASE_URL flows through SAFE_INHERITED_ENV into the harness
+  // plugin), so the UI may honestly expose it.
+  assert.ok(htmlIds.has('provider-kind-select'))
+  assert.ok(html.includes('DeepSeek 官方'))
+  assert.ok(html.includes('自定义（OpenAI 接口兼容）'))
+  assert.ok(htmlIds.has('base-url-input'))
+  assert.ok(js.includes('DEEPSEEK_BASE_URL') === false, 'renderer never touches env names directly')
+  assert.ok(js.includes('setProviderPreferences({') , 'preferences save carries provider config')
 
   // The legacy provider-check in JS must not reference those ids in the old
   // browser-side way (no direct IPC to /api/provider/secret).
-  assert.ok(!js.includes('provider-save-button') === false)
   assert.ok(js.includes('provider-save-button'))
   assert.ok(js.includes('provider-key-input'))
-  assert.ok(js.includes('provider-message'))
-  assert.ok(js.includes('provider-status'))
+  assert.ok(js.includes('provider-panel'))
+  assert.ok(js.includes('window.mingWorkbench.setProviderSecret'))
+  assert.ok(js.includes('window.mingWorkbench.getProviderPreferences'))
+  assert.ok(js.includes('window.mingWorkbench.setProviderPreferences'))
+  assert.ok(js.includes('window.mingWorkbench.clearProviderSecret'))
 
   // Verify the new Desktop-only secret path uses window.mingWorkbench, not HTTP.
   assert.ok(js.includes('window.mingWorkbench.setProviderSecret'))
@@ -665,4 +710,85 @@ test('resume restores persisted Work Unit and detects mutable facts changes', as
       // git HEAD/dirty/provider/harness availability changes.
     },
   )
+})
+
+test('provider connection test requires a configured key', async () => {
+  const previous = process.env.DEEPSEEK_API_KEY
+  delete process.env.DEEPSEEK_API_KEY
+  try {
+    await withServer({}, async (handle) => {
+      const res = await fetch(`${handle.url}/api/test-provider-connection`, {
+        method: 'POST',
+        headers: apiHeaders(handle, { 'content-type': 'application/json' }),
+        body: JSON.stringify({}),
+      })
+      assert.equal(res.status, 402)
+      const body = await res.json()
+      assert.equal(body.status, 'provider-required')
+    })
+  } finally {
+    if (previous === undefined) delete process.env.DEEPSEEK_API_KEY
+    else process.env.DEEPSEEK_API_KEY = previous
+  }
+})
+
+test('provider connection test reports a real round trip through the probe', async () => {
+  const previous = process.env.DEEPSEEK_API_KEY
+  process.env.DEEPSEEK_API_KEY = 'test-key'
+  try {
+    let probeOptions = null
+    await withServer({
+      runProviderProbe: async (options) => {
+        probeOptions = options
+        return { sessionId: 'SESSION-probe', stopReason: 'end_turn', assistantText: 'OK' }
+      },
+    }, async (handle) => {
+      const res = await fetch(`${handle.url}/api/test-provider-connection`, {
+        method: 'POST',
+        headers: apiHeaders(handle, { 'content-type': 'application/json' }),
+        body: JSON.stringify({}),
+      })
+      assert.equal(res.status, 200)
+      const body = await res.json()
+      assert.equal(body.ok, true)
+      assert.equal(body.provider, 'deepseek-official')
+      assert.equal(body.model, 'deepseek-v4-pro')
+      assert.equal(body.sessionId, 'SESSION-probe')
+      assert.ok(probeOptions, 'probe was invoked with harness/workbench context')
+      assert.equal(probeOptions.harnessCheckout, resolve('/harness'))
+    }, { provider: 'deepseek-official', model: 'deepseek-v4-pro' })
+  } finally {
+    if (previous === undefined) delete process.env.DEEPSEEK_API_KEY
+    else process.env.DEEPSEEK_API_KEY = previous
+  }
+})
+
+test('provider connection failure is human-readable and secret-safe', async () => {
+  const previous = process.env.DEEPSEEK_API_KEY
+  process.env.DEEPSEEK_API_KEY = 'test-key'
+  try {
+    await withServer({
+      runProviderProbe: async () => {
+        throw new Error(
+          '401 unauthorized request https://api.deepseek.com/v1/chat/completions ' +
+          'with key sk-abcdefghijklmnopqrstuvwxyz0123456789ABCDEF',
+        )
+      },
+    }, async (handle) => {
+      const res = await fetch(`${handle.url}/api/test-provider-connection`, {
+        method: 'POST',
+        headers: apiHeaders(handle, { 'content-type': 'application/json' }),
+        body: JSON.stringify({}),
+      })
+      assert.equal(res.status, 200)
+      const body = await res.json()
+      assert.equal(body.ok, false)
+      assert.ok(body.message.includes('401'), 'human-readable status preserved')
+      assert.ok(!body.message.includes('sk-'), 'credential shape redacted')
+      assert.ok(!body.message.includes('test-key'), 'key value never echoed')
+    })
+  } finally {
+    if (previous === undefined) delete process.env.DEEPSEEK_API_KEY
+    else process.env.DEEPSEEK_API_KEY = previous
+  }
 })

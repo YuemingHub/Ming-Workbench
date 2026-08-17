@@ -104,3 +104,14 @@ test('package.json wires the desktop shell without replacing the web slice', () 
   assert.ok(pkg.build.files.includes('scripts/**/*'))
   assert.ok(pkg.build.files.includes('.tmp/**/*'))
 })
+
+test('welcome page guides the user through selection and preparation', () => {
+  const html = readFileSync(new URL('../desktop/welcome.html', import.meta.url), 'utf8')
+  // The visible CTA exists.
+  assert.ok(html.includes('id="pick-project"'))
+  // After clicking, the page must explain the ~1 minute first-run preparation
+  // instead of going silent while the backend prepares.
+  assert.ok(html.includes('id="welcome-progress"'))
+  assert.ok(html.includes('约需 1 分钟'))
+  assert.ok(html.includes('请勿关闭窗口'))
+})

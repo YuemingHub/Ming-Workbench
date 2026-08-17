@@ -60,6 +60,7 @@ export function renderAaopCoordinatorPrompt(
     '- question_needed is null unless a genuinely human-owned decision remains after repository inspection.',
     '- Do not ask the human to choose files, frameworks, agents, providers, or other engineering details that current evidence/AAOP can resolve.',
     '- project_evidence_summary contains concise current repository evidence, not speculation.',
+    '- When route is bug-fix, feature-change, repo-recovery, or release-operations AND read-only repository inspection identified implementation files directly relevant to this request, project_evidence_summary SHOULD name those files using repo-relative exact paths (for example "src/web/local-ui.ts — 当前首页主界面与用户输入入口"). Do not fabricate paths; when a file is not confirmed, do not write a path.',
     '- next_action describes the next AAOP control step; it is not permission to mutate the repository.',
     '- This read-only session must not modify files, branches, refs, remotes, credentials, deployments, or external systems.',
     '[/AAOP_CANONICAL_INTAKE_ENVELOPE_OUTPUT_CONTRACT]',

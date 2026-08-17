@@ -13,7 +13,8 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
-import { join, resolve, dirname } from 'node:path'
+import { join, resolve, dirname, basename } from 'node:path'
+import { tmpdir } from 'node:os'
 
 export interface HarnessRuntimeOptions {
   workbenchRoot: string
@@ -42,7 +43,15 @@ function defaultBundlePath(workbenchRoot: string): string {
 }
 
 function defaultBundledRuntimeDir(workbenchRoot: string): string {
-  return resolve(workbenchRoot, '.workbench', 'runtime', 'deepseek-harness')
+  // Extract under a SHORT per-user cache directory, not under workbenchRoot.
+  // On Windows, the packaged app's resources path is deep enough that pnpm's
+  // .pnpm virtual store exceeds MAX_PATH (260) and the native install/copy
+  // fails. os.tmpdir() is short and writable for a per-user install.
+  // MING_HARNESS_CACHE is a diagnostic override for tests/operators.
+  const cacheRoot = process.env.MING_HARNESS_CACHE
+    ? resolve(process.env.MING_HARNESS_CACHE)
+    : join(tmpdir(), 'ming-workbench-harness')
+  return join(cacheRoot, 'deepseek-harness')
 }
 
 function git(cwd: string, args: string[]): string {
@@ -118,17 +127,149 @@ function assertSupportedNode(): void {
   }
 }
 
-function installDependencies(checkout: string): void {
+/** Diagnostic tails are bounded so failures never dump unbounded output. */
+const DIAGNOSTIC_TAIL_LIMIT = 4000
+
+export interface PnpmInvocation {
+  executable: string
+  args: string[]
+  env: Record<string, string>
+  shell: boolean
+  kind: 'electron-process-exec' | 'node' | 'npx'
+}
+
+/**
+ * Resolves the exact pnpm invocation for a Harness checkout so the packaged
+ * desktop failure can be diagnosed and tested as a plain configuration
+ * builder. Env additions are scoped to the returned invocation only; the
+ * caller's process.env is never mutated.
+ */
+export function resolvePnpmInvocation(workbenchRoot: string, checkout: string): PnpmInvocation {
+  // Use the bundled pnpm package (dependency of Ming Workbench) instead of
+  // requiring the user to have npx or pnpm installed globally. In a packaged
+  // desktop app, the bundled pnpm is in node_modules; in dev mode it is too.
+  const pnpmBin = resolve(workbenchRoot, 'node_modules', 'pnpm', 'bin', 'pnpm.cjs')
+  const pnpmArgs = [
+    '--dir', checkout,
+    'install',
+    '--no-frozen-lockfile',
+    '--config.node-linker=hoisted',
+  ]
+  const env: Record<string, string> = {
+    ...process.env,
+    // Ensure pnpm's store is writable for per-user installs.
+    PNPM_HOME: process.env.PNPM_HOME ?? join(workbenchRoot, '.workbench', 'pnpm-store'),
+  }
+
+  if (existsSync(pnpmBin)) {
+    const executable = process.execPath
+    return {
+      executable,
+      args: [pnpmBin, ...pnpmArgs],
+      env: {
+        ...env,
+        // The packaged main process is the Electron app binary. It only runs
+        // the bundled pnpm script when told to act as Node; the flag is
+        // scoped to this child, never the app's own environment.
+        ELECTRON_RUN_AS_NODE: '1',
+      },
+      // Never route the app binary through cmd.exe: its path contains spaces
+      // and cmd mis-quotes them, so the install fails before pnpm runs.
+      shell: false,
+      kind: executableKind(executable),
+    }
+  }
+
+  // Fallback: npx (dev/CI environments that already have pnpm globally).
+  // npx.cmd on Windows can only be executed through a shell.
+  const executable = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+  return {
+    executable,
+    args: ['-y', 'pnpm@11.7.0', ...pnpmArgs],
+    env,
+    shell: process.platform === 'win32',
+    kind: 'npx',
+  }
+}
+
+export function executableKind(executable: string): PnpmInvocation['kind'] {
+  const base = basename(executable).toLowerCase()
+  if (base === 'node' || base === 'node.exe') return 'node'
+  if (base === 'npx' || base === 'npx.cmd') return 'npx'
+  return 'electron-process-exec'
+}
+
+/** Env var names whose values must never reach a diagnostic. */
+const SECRET_ENV_NAME_RE = /(?:api[_-]?key|token|secret|passwd|password|credential)/i
+
+/** Well-known credential shapes, redacted from diagnostics regardless of env. */
+const CREDENTIAL_SHAPE_RES: Array<[RegExp, string]> = [
+  [/sk-[A-Za-z0-9_-]{12,}/g, '[REDACTED-API-KEY]'],
+  [/gh[pousr]_[A-Za-z0-9]{20,}/g, '[REDACTED-TOKEN]'],
+  [/AIza[0-9A-Za-z_-]{20,}/g, '[REDACTED-API-KEY]'],
+  [/xox[baprs]-[A-Za-z0-9-]{10,}/g, '[REDACTED-TOKEN]'],
+]
+
+/**
+ * Scrubs secret-bearing env values and credential-shaped strings out of
+ * diagnostic text. Only this sanitized text may be logged.
+ */
+export function sanitizeDiagnosticText(text: string): string {
+  let out = String(text ?? '')
+  for (const name of Object.keys(process.env)) {
+    if (!SECRET_ENV_NAME_RE.test(name)) continue
+    const value = process.env[name]
+    if (value && out.includes(value)) {
+      out = out.split(value).join(`[REDACTED:${name}]`)
+    }
+  }
+  for (const [pattern, placeholder] of CREDENTIAL_SHAPE_RES) {
+    out = out.replace(pattern, placeholder)
+  }
+  return out
+}
+
+function boundedTail(text: string): string {
+  const value = String(text ?? '')
+  if (value.length <= DIAGNOSTIC_TAIL_LIMIT) return value
+  return `[${value.length - DIAGNOSTIC_TAIL_LIMIT} chars truncated]${value.slice(-DIAGNOSTIC_TAIL_LIMIT)}`
+}
+
+function describePnpmFailure(invocation: PnpmInvocation, error: unknown): string {
+  const err = error as { status?: number | null; code?: string; stderr?: unknown; stdout?: unknown }
+  const exit = err?.status != null ? String(err.status) : (err?.code ?? 'unknown')
+  const stderr = sanitizeDiagnosticText(boundedTail(String(err?.stderr ?? '')))
+  const stdout = sanitizeDiagnosticText(boundedTail(String(err?.stdout ?? '')))
+
+  const lines = [
+    `PNPM_EXECUTABLE_KIND: ${invocation.kind}`,
+    `PROCESS_EXEC_PATH: ${basename(invocation.executable)}`,
+    `ELECTRON_RUN_AS_NODE: ${invocation.env.ELECTRON_RUN_AS_NODE === '1' ? 'present' : 'absent'}`,
+    `EXIT_CODE: ${exit}`,
+  ]
+  if (stderr) lines.push(`STDERR_TAIL: ${stderr}`)
+  if (!stderr && stdout) lines.push(`STDOUT_TAIL: ${stdout}`)
+  return `\n${lines.join('\n')}`
+}
+
+function installDependencies(checkout: string, workbenchRoot: string): void {
   assertSupportedNode()
-  const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+
+  const invocation = resolvePnpmInvocation(workbenchRoot, checkout)
   try {
-    execFileSync(npx, ['-y', `pnpm@11.7.0`, '--dir', checkout, 'install', '--frozen-lockfile'], {
+    execFileSync(invocation.executable, invocation.args, {
       encoding: 'utf8',
-      stdio: 'inherit',
-      shell: process.platform === 'win32',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      shell: invocation.shell,
+      env: invocation.env,
+      // The install can print a lot; never let a noisy-but-successful run
+      // look like a failure because the pipe buffer filled.
+      maxBuffer: 16 * 1024 * 1024,
     })
-  } catch {
-    throw new Error(`Harness dependency installation failed in ${checkout}.`)
+  } catch (error) {
+    throw new Error(
+      `Harness dependency installation failed in ${checkout}.${describePnpmFailure(invocation, error)}`,
+    )
   }
 }
 
@@ -239,7 +380,7 @@ export async function prepareHarnessRuntime(
 
   extractBundle(bundlePath, bundledDir)
   const identity = verifyIdentity(bundledDir, lock)
-  installDependencies(bundledDir)
+  installDependencies(bundledDir, workbenchRoot)
 
   return { checkout: bundledDir, source: 'bundled', identity }
 }

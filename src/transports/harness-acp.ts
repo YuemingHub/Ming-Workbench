@@ -1,5 +1,6 @@
 import { execFileSync, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { resolve, join } from 'node:path'
 import { Readable as NodeReadable, Writable as NodeWritable } from 'node:stream'
 import {
@@ -112,6 +113,11 @@ const SAFE_INHERITED_ENV = [
   // (GitHub, cloud deploy keys, databases, etc.) are deliberately not inherited.
   'DEEPSEEK_API_KEY',
   'DEEPSEEK_BASE_URL',
+  // Custom OpenAI-compatible provider tuning (third-party endpoints accept
+  // the common reasoning vocabulary but not DeepSeek's max/off).
+  'MING_HARNESS_THINKING',
+  'MING_HARNESS_REASONING_EFFORT',
+  'MING_HARNESS_MAX_TOKENS',
 ] as const
 
 function git(cwd: string, args: string[]): string {
@@ -474,4 +480,47 @@ export async function runHarnessAcpReadOnlyIntake(
     shutdownGraceMs: options.shutdownGraceMs,
     label: 'Harness ACP Intake',
   })
+}
+
+export interface HarnessProviderProbeOptions {
+  /** Absolute reviewed DeepSeek Harness source checkout. */
+  harnessCheckout: string
+  /** Absolute Ming Workbench checkout containing harness/acp/launcher.mjs. */
+  workbenchRoot: string
+  provider?: string
+  model?: string
+  sessionRoot?: string
+  shutdownGraceMs?: number
+}
+
+/**
+ * Real provider round trip: runs one minimal read-only ACP session against
+ * the configured provider/model so the product can honestly report "已连接"
+ * or a human-readable failure. The probe never touches a project, never
+ * calls tools, and runs in a disposable temp directory.
+ */
+export async function runHarnessProviderProbe(
+  options: HarnessProviderProbeOptions,
+): Promise<HarnessAcpRunResult> {
+  assertReviewedHarnessCheckout(options.harnessCheckout)
+
+  const probeDir = mkdtempSync(join(tmpdir(), 'mw-provider-probe-'))
+  try {
+    return await runHarnessAcpPrompt({
+      prompt: '只回复「OK」。不要调用任何工具，不要读取或修改任何文件，不要做任何其他事情。',
+      cwd: probeDir,
+      harnessCheckout: options.harnessCheckout,
+      workbenchRoot: options.workbenchRoot,
+      env: buildHarnessChildEnvForPermission(
+        process.env,
+        options,
+        'read-only',
+        'workbench.cordis.yml',
+      ),
+      shutdownGraceMs: options.shutdownGraceMs,
+      label: 'Harness Provider Probe',
+    })
+  } finally {
+    rmSync(probeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
+  }
 }

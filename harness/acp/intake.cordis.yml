@@ -5,8 +5,9 @@
 - id: llm-deepseek
   name: '@deepseek-ai/dsh-llm-deepseek'
   config:
-    thinking: enabled
-    reasoningEffort: max
+    thinking: !!js "process.env.MING_HARNESS_THINKING ?? 'enabled'"
+    reasoningEffort: !!js "process.env.MING_HARNESS_REASONING_EFFORT ?? 'max'"
+    maxTokens: !!js "Number(process.env.MING_HARNESS_MAX_TOKENS ?? 256000)"
     models:
       - id: deepseek-v4-flash
       - id: deepseek-v4-pro

@@ -36,6 +36,10 @@ import {
   type MutationSlice,
 } from '../execution/mutation-slice.js'
 import {
+  proposeMutationScope,
+  type ProposedMutation,
+} from '../execution/scope-proposal.js'
+import {
   fromPersistedWorkUnit,
   noopWorkUnitStore,
   toPersistedWorkUnit,
@@ -44,6 +48,11 @@ import {
 } from '../persistence/work-unit-store.js'
 import { createFileWorkUnitStore } from '../persistence/file-work-unit-store.js'
 import type { WorkUnit } from '../core/model.js'
+import {
+  runHarnessProviderProbe,
+  type HarnessProviderProbeOptions,
+} from '../transports/harness-acp.js'
+import { sanitizeDiagnosticText } from '../hosts/harness-runtime.js'
 
 const LOOPBACK_HOST = '127.0.0.1'
 const MAX_JSON_BODY_BYTES = 64 * 1024
@@ -70,6 +79,7 @@ export interface LocalWorkbenchServerDependencies {
     options: { projectRoot: string; authorized: boolean },
   ) => Promise<EnableProjectAaopResult>
   runIntake?: typeof runDevelopmentIntakeApplication
+  runProviderProbe?: (options: HarnessProviderProbeOptions) => Promise<unknown>
   logError?: (error: unknown) => void
   /** Work Unit store. Defaults to a file store at storeDir, or no-op. */
   store?: WorkUnitStoreApi
@@ -313,7 +323,10 @@ export async function startLocalWorkbenchServer(
       }
 
       if (method === 'GET' && url.pathname === '/api/project') {
-        sendJson(response, 200, projectOnboardingSnapshot(resolveOnboarding(projectRoot)))
+        sendJson(response, 200, {
+          ...projectOnboardingSnapshot(resolveOnboarding(projectRoot)),
+          projectPath: projectRoot,
+        })
         return
       }
 
@@ -389,6 +402,7 @@ export async function startLocalWorkbenchServer(
           },
           factsChanged,
           currentFacts,
+          proposedMutation: deriveProposedMutationFromRecord(projectRoot, record),
         })
         return
       }
@@ -482,7 +496,10 @@ export async function startLocalWorkbenchServer(
           sendJson(response, 503, intakeUnavailable(rawRequest))
           return
         }
-        sendJson(response, 200, result)
+        sendJson(response, 200, {
+          ...result,
+          proposedMutation: deriveProposedMutation(projectRoot, result),
+        })
 
         // Persist the authoritative Work Unit so the product survives close/reopen.
         try {
@@ -738,6 +755,16 @@ export async function startLocalWorkbenchServer(
             // disabled unless an operator explicitly enables write mutation.
             allowWrite: process.env.MING_WORKBENCH_ALLOW_WRITE === '1',
           }
+          // B2: persist the 'running' state BEFORE execution starts so the
+          // authoritative Work Unit store reflects active execution.  The
+          // desktop main process reads this store to gate updates.
+          const runningUnits = loaded.workUnits.map((w) =>
+            w.id === workUnit.id
+              ? { ...w, state: 'running', updatedAt: new Date().toISOString() }
+              : w,
+          )
+          store.save({ ...loaded, projectRoot, workUnits: runningUnits, lastProjectRoot: projectRoot })
+
           executionResult = await runBoundedExecution(executionOptions)
 
           // Persist the evidence-backed Work Unit update so resume survives close.
@@ -749,6 +776,28 @@ export async function startLocalWorkbenchServer(
           store.save({ ...loaded, projectRoot, workUnits: updated, lastProjectRoot: projectRoot })
         } catch (error) {
           logError(error)
+          // B2: restore an evidence-honest non-running state so the desktop
+          // updater gate never sees a stale 'running' after a failed execution.
+          // Reusing the existing 'blocked' WorkUnitState; the failure reason is
+          // preserved in nextFrontier so the user can see this attempt did not
+          // complete.
+          try {
+            const failedStore = store.load()
+            const failureMessage = error instanceof Error ? error.message : '执行过程中发生未知错误。'
+            const restored = failedStore.workUnits.map((w) =>
+              w.id === workUnitId && w.state === 'running'
+                ? {
+                    ...w,
+                    state: 'blocked',
+                    nextFrontier: `执行未完成：${failureMessage}`,
+                    updatedAt: new Date().toISOString(),
+                  }
+                : w,
+            )
+            store.save({ ...failedStore, projectRoot, workUnits: restored, lastProjectRoot: projectRoot })
+          } catch (persistError) {
+            logError(persistError)
+          }
           sendJson(response, 502, {
             status: 'execution-failed',
             message: error instanceof Error ? error.message : '执行过程中发生未知错误。',
@@ -773,6 +822,44 @@ export async function startLocalWorkbenchServer(
           repositoryReadback: executionResult.repositoryReadback,
           runOutcome: executionResult.runOutcome,
         })
+        return
+      }
+
+      // Provider connectivity: a REAL round trip through the reviewed Harness
+      // (one minimal read-only ACP session), never just "an API key string
+      // exists". Failures are human-readable and sanitized — the API key,
+      // auth headers and secret-bearing URLs never reach the response.
+      if (method === 'POST' && url.pathname === '/api/test-provider-connection') {
+        if (!process.env.DEEPSEEK_API_KEY) {
+          sendJson(response, 402, {
+            status: 'provider-required',
+            message: '还没有配置模型服务密钥。请先在「配置 AI」里保存 API Key。',
+          })
+          return
+        }
+        const probe = dependencies.runProviderProbe ?? runHarnessProviderProbe
+        try {
+          const result = await probe({
+            harnessCheckout,
+            workbenchRoot,
+            provider: options.provider,
+            model: options.model,
+            sessionRoot: options.sessionRoot,
+            shutdownGraceMs: 90_000,
+          })
+          sendJson(response, 200, {
+            ok: true,
+            provider: options.provider ?? 'deepseek-official',
+            model: options.model ?? 'deepseek-v4-pro',
+            sessionId: (result as { sessionId?: string })?.sessionId ?? null,
+          })
+        } catch (error) {
+          const raw = error instanceof Error ? error.message : String(error)
+          sendJson(response, 200, {
+            ok: false,
+            message: sanitizeDiagnosticText(raw),
+          })
+        }
         return
       }
 
@@ -871,6 +958,46 @@ function mutableFactsChanged(a: MutableFacts, b: MutableFacts): boolean {
     a.providerAvailable !== b.providerAvailable ||
     a.harnessAvailable !== b.harnessAvailable
   )
+}
+
+/**
+ * B3: Derive a proposed mutation scope from a persisted Work Unit record
+ * (for the resume flow). Uses the Work Unit title and nextFrontier as
+ * context for keyword extraction.
+ */
+function deriveProposedMutationFromRecord(
+  projectRoot: string,
+  record: { title: string; outcome: string; nextFrontier?: string },
+): ProposedMutation | undefined {
+  return proposeMutationScope({
+    projectRoot,
+    rawRequest: record.title,
+    intakeEvidence: record.nextFrontier ? [record.nextFrontier] : [],
+    nextAction: record.nextFrontier ?? '',
+    route: '',
+  })
+}
+
+/**
+ * B3: Derive a non-authoritative proposed mutation scope from the read-only
+ * intake result. This is a Workbench product-owned suggestion — not AAOP Core,
+ * not Provider Execution Grant. The real authority is the frozen MutationSlice
+ * created by buildExactSlice after human approval.
+ */
+function deriveProposedMutation(
+  projectRoot: string,
+  result: DevelopmentIntakeApplicationResult,
+): ProposedMutation | undefined {
+  if (result.status !== 'ready' && result.status !== 'needs-human') return undefined
+  if (!result.intake) return undefined
+
+  return proposeMutationScope({
+    projectRoot,
+    rawRequest: result.workUnit.title,
+    intakeEvidence: result.intake.projectEvidenceSummary,
+    nextAction: result.intake.nextAction,
+    route: result.intake.route,
+  })
 }
 
 /**
