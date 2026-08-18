@@ -32,8 +32,9 @@ node scripts/adversarial/static-audit.mjs \
 | E12 | PASS | projection returns `completed` only when verification `passed` AND acceptance `accepted`; else `partial`/`not_proven`/`failed` — no false `completed` from agent/driver report |
 | E13 | **PARTIAL** | `projectOutcomeFromRun` maps `verification=passed + acceptance=rejected` to `partial` (overwrites the rejection). Latent today: `deriveRunOutcome` only emits `rejected` paired with verification `failed`, so a new outcome producer could re-open this. |
 | E14 | PASS | browser journey fails closed on non-Linux (no xvfb) — cannot fake a browser PASS; advertised determinism is Linux-scoped |
+| E20 | **PARTIAL** | independent clean-exact-head `node --test test/*.test.mjs` on the Windows desktop target reports `227 tests / 224 pass / 1 fail / 2 skip` → non-zero exit. PR #29's headline `221 pass / 0 fail` is stale (pre-base-merge) and does NOT reproduce on Windows. |
 
-Result: `PASS=4  PARTIAL=2  FAIL=0`.
+Result: `PASS=4  PARTIAL=3  FAIL=0`.
 
 ## Findings (evidence-bound to fff0424c)
 
@@ -75,6 +76,30 @@ the slice **exits non-zero**. The PR's "two fresh runs both exit 0 … 21 PASS /
 0 FAIL / 0 SKIP" therefore holds only on Linux CI. On the actual desktop target
 (Windows, per PR #28) this evidence is not reproducible from this repo state.
 
+### F5 — E20: reported "221 pass / 0 fail" is not reproducible on the desktop target OS
+
+Independent run on a clean `git worktree` at exact head `fff0424c`, Windows host
+(the target OS per PR #28), with node_modules junctioned in (no product path
+changed):
+
+```
+> node --test test/*.test.mjs
+ℹ tests 227   ℹ pass 224   ℹ fail 1   ℹ skipped 2
+```
+
+- The single failure is `execution-isolation.test.mjs` "B: symlink escape inside
+  the isolation is detected and never applied back": `symlinkSync` throws
+  `EPERM: operation not permitted, symlink` at line 302. This is the **test
+  fixture setup** being blocked because the Windows host has no Developer Mode /
+  symlink privilege — it is NOT a product logic failure. The symlink/junction
+  protections it asserts are elsewhere exercised and correct fail-closed.
+- PR #29's headline `221 pass / 0 fail (2 skips)` is (a) stale relative to the
+  base-merged head (now 227 tests), and (b) only ever observed on Linux CI.
+  On the actual desktop target the suite **exits non-zero**, so the "0 fail"
+  gate claim is platform-scoped and not independently reproduced here.
+- No false `completed` integrity issue: the failing test aborts at fixture setup,
+  it does not silently pass a leak path.
+
 ### F4 — working HEAD drift / concurrency (tracking note)
 - The audited PR remote head is `fff0424c`.
 - Local working checkout received an unpushed local commit `49e23a3`
@@ -90,10 +115,13 @@ the slice **exits non-zero**. The PR's "two fresh runs both exit 0 … 21 PASS /
 
 - Whether `DEEPSEEK_API_KEY` (set to the fixture key at
   `scripts/stage3-first-outcome-slice.mjs`) persists anywhere the harness
-  writes (Idea Space / Work Unit / Evidence / session ledger / argv). Env
-  allowlist at `src/transports/harness-acp.ts` passes only
-  `DEEPSEEK_API_KEY`/`DEEPSEEK_BASE_URL` through, which is correct; a runtime
-  session inspection is still required.
+  writes (Idea Space / Work Unit / Evidence / session ledger / argv). Static
+  audit of `src/transports/harness-acp.ts`: the child-harness env is a genuine
+  **whitelist** (only `DEEPSEEK_API_KEY`/`DEEPSEEK_BASE_URL` provider keys plus
+  proxies/electron/thinking-tuning are inherited; GitHub/cloud/db task creds
+  are excluded); the fixture uses the non-real `stage3-fixture-key`. A live
+  runtime session inspection (does the key value reach argv/Idea/WorkUnit/
+  Evidence) still must run on Linux CI.
 - Real paid provider path (explicitly not run).
 - Installed-consumer journey on the target OS (Windows).
 
@@ -103,8 +131,12 @@ Founder Alpha cannot pass this lane until:
 1. F1 is corrected (readback vs test verified labeling, content-truth claim
    removed from the summary).
 2. F2 (rejection branch) is either proved unreachable end-to-end or fixed.
-3. A real-provider and/or installed-journey on the target OS exists for the
+3. F5 is reconciled: the `227 tests / 224 pass / 1 fail / 2 skip` non-zero exit
+   on the Windows target, or an explicit platform/privilege note that the 0-fail
+   gate is Linux-CI-only.
+4. A real-provider and/or installed-journey on the target OS exists for the
    remaining "real outcome" claim.
 
 No false `completed` path was found at fff0424c (E12 PASS). Security scan is
-green (E10 PASS).
+green (E10 PASS). Child-harness env boundary verified as a real whitelist at
+fff0424c (no task-scoped credential inheritance).
