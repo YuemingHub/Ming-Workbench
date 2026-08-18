@@ -101,6 +101,14 @@ function tryLoadAutoUpdater() {
 }
 
 function setupAutoUpdater() {
+  // In CI environments (GitHub Actions), skip auto-updater entirely because
+  // there are no published versions and the check would crash the process.
+  const isCI = process.env.GITHUB_ACTIONS || process.env.CI
+  if (isCI) {
+    appendStartupLog('auto-updater: skipped in CI environment')
+    return
+  }
+
   const loaded = tryLoadAutoUpdater()
   if (!loaded) return
   autoUpdater = loaded
@@ -151,7 +159,12 @@ function setupAutoUpdater() {
   // Quietly check for updates shortly after launch.
   setTimeout(() => {
     if (autoUpdater) {
-      autoUpdater.checkForUpdates().catch(() => {})
+      try {
+        autoUpdater.checkForUpdates().catch(() => {})
+      } catch {
+        // Defensive: electron-updater may throw synchronously in some paths
+        appendStartupLog('auto-updater: synchronous checkForUpdates error caught')
+      }
     }
   }, 5000)
 }
