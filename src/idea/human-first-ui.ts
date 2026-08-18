@@ -492,6 +492,11 @@ export const HUMAN_FIRST_APP_JS = `
   window.clearProviderSecret = clearProviderSecretAction;
   window.getState = function() { return STATE; };
   window.getProviderState = function() { return PROVIDER_STATE; };
+  window.reloadProviderState = async function() {
+    PROVIDER_STATE = await loadProviderState();
+    updateProviderCta();
+    return PROVIDER_STATE;
+  };
 
   document.addEventListener('DOMContentLoaded', function () {
     boot().catch(function (e) {

@@ -668,14 +668,30 @@ async function removeKeyFlow(page) {
     await click(page, '#continue-conversation-button', 'continue conversation from confirmed')
     await page.waitForSelector('#conversation-view', { state: 'visible', timeout: 10_000 })
   } else if (currentView === 'letter' || currentView === 'entry') {
-    // State NOT preserved — this is a real failure, not a navigation issue.
-    // The reopenChecks already verified persistence; if we end up here with
-    // letter/entry, something is seriously wrong.
     console.log('FAIL: remove flow sees letter/entry → state NOT preserved across reopen')
     throw new Error(`remove flow FAIL: letter/entry visible but state should be preserved. ` +
       `Reopen checks passed but state was lost between checks.`)
   } else {
     throw new Error(`remove flow: unknown view: ${currentView}`)
+  }
+
+  // Ensure provider state is loaded after navigation (race condition with boot)
+  // Reload provider state and wait for hasSecret to become true
+  let providerReady = false
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const provState = await page.evaluate(() => window.reloadProviderState ? window.reloadProviderState() : null)
+    if (provState && provState.loaded && provState.hasSecret) {
+      providerReady = true
+      console.log(`remove flow: provider state loaded (hasSecret=${provState.hasSecret})`)
+      break
+    }
+    if (attempt < 9) {
+      console.log(`remove flow: waiting for provider state (${attempt + 1}/10)... state=${JSON.stringify(provState)}`)
+      await page.waitForTimeout(2000)
+    }
+  }
+  if (!providerReady) {
+    throw new Error('remove flow: provider state not loaded after navigation. #ai-service-entry will be hidden.')
   }
 
   // Send a message to ensure conversation is active and AI service entry appears
