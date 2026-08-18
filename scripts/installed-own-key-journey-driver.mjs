@@ -163,11 +163,14 @@ async function firstLaunch(page) {
 
   // ---- 6. providerRequired=true ----
   step('6. backend returns providerRequired=true')
-  await waitForText(page, '连接我的 AI 服务', 30_000)
+  // Wait for the CTA to be VISIBLE (not just text in hidden DOM)
+  // The CTA starts hidden; updateProviderCta() removes 'hidden' when providerRequired=true
+  const ctaLocator = page.locator('#provider-cta')
+  await ctaLocator.waitFor({ state: 'visible', timeout: 30_000 })
+  console.log('provider CTA visible')
   checkpoint('PROVIDER_REQUIRED_OK')
 
   // CTA element exists and is visible
-  const ctaLocator = page.locator('#provider-cta')
   assert(await ctaLocator.count() > 0, 'provider CTA element exists')
   assert(await ctaLocator.isVisible(), 'provider CTA is visible')
   checkpoint('CONNECT_AI_CTA_OK')
