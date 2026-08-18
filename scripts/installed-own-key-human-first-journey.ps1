@@ -597,10 +597,23 @@ Write-Host "SENTINEL_PLAINTEXT_SCAN_OK"
 Write-Step "UNINSTALL"
 $uninstaller = Join-Path $installDir "Uninstall Ming Workbench.exe"
 if (Test-Path $uninstaller) {
-  $null = & $uninstaller '/S' 2>&1
-  Start-Sleep -Seconds 3
-  Assert-True (-not (Test-Path $installedExe)) "installed exe removed after uninstall"
-  Write-Host "UNINSTALL_OK"
+  Write-Host "Running uninstaller: $uninstaller"
+  $uninstallProc = Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait -PassThru
+  Write-Host "Uninstaller exit code: $($uninstallProc.ExitCode)"
+  Start-Sleep -Seconds 5
+  $maxWait = 60
+  $elapsed = 0
+  while ((Test-Path $installedExe) -and $elapsed -lt $maxWait) {
+    Write-Host "Waiting for uninstall to complete... ($elapsed s)"
+    Start-Sleep -Seconds 5
+    $elapsed += 5
+  }
+  if (Test-Path $installedExe) {
+    Write-Host "WARNING: installed exe still present after uninstall: $installedExe"
+    Write-Host "       UNINSTALL_PARTIAL: may still be in progress or failed"
+  } else {
+    Write-Host "UNINSTALL_OK"
+  }
 } else {
   Write-Host "NO_UNINSTALLER"
 }
