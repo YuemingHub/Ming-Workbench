@@ -100,12 +100,31 @@ h2 { font-size: 22px; line-height: 1.25; letter-spacing: -.02em; }
 .actions { margin-top: 18px; display: flex; gap: 10px; align-items: center; }
 .muted { color: #8a94a8; font-size: 13px; }
 .status { margin-top: 14px; font-size: 14px; color: #43506a; }
+.provider-cta { margin-top: 14px; padding: 14px 16px; background: #fff7df; border: 1px solid #f1dfaa; border-radius: 12px; color: #6f5111; font-size: 14px; line-height: 1.6; }
+.provider-cta .link { color: #963d35; font-weight: 700; cursor: pointer; text-decoration: underline; }
+.provider-panel-overlay { position: fixed; inset: 0; background: rgba(23, 32, 51, .42); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px 16px; z-index: 50; overflow-y: auto; }
+.provider-panel { position: relative; width: min(480px, 100%); background: #fff; border-radius: 16px; padding: 24px; box-shadow: 0 24px 64px rgba(23, 32, 51, .18); }
+.provider-panel h3 { margin: 0 0 4px; font-size: 18px; }
+.provider-panel .panel-desc { margin: 0 0 16px; color: #596579; font-size: 14px; line-height: 1.6; }
+.provider-panel .field-label { display: block; margin: 14px 0 6px; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #667085; }
+.provider-panel input { width: 100%; padding: 11px 12px; border: 1px solid #d8deea; border-radius: 10px; background: #fbfcfe; color: #172033; outline: none; font: inherit; }
+.provider-panel input:focus { border-color: #8da2c6; box-shadow: 0 0 0 4px rgba(103, 132, 184, .11); }
+.provider-panel .field-hint { margin: 6px 0 0; font-size: 12px; color: #8a94a8; }
+.provider-panel .panel-actions { display: flex; gap: 10px; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+.provider-panel .panel-status { margin-top: 12px; font-size: 13px; color: #43506a; }
+.provider-panel .panel-status.ok { color: #19633f; }
+.provider-panel .panel-status.error { color: #963d35; }
+.provider-panel .panel-close { position: absolute; top: 12px; right: 16px; background: none; border: none; font-size: 20px; color: #8a94a8; cursor: pointer; }
+.ai-service-entry { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 8px 14px; background: #f5f7fb; border: 1px solid #d8deea; border-radius: 10px; color: #43506a; font-size: 13px; cursor: pointer; }
+.ai-service-entry:hover { background: #eaf0f7; border-color: #b9c3d4; }
+.ai-service-entry .dot { width: 8px; height: 8px; border-radius: 50%; background: #19633f; }
 `
 
 export const HUMAN_FIRST_APP_JS = `
 (function () {
   var TOKEN = document.querySelector('meta[name="ming-workbench-token"]').getAttribute('content');
   var STATE = null;
+  var PROVIDER_STATE = { hasSecret: false, preferences: null, loaded: false };
 
   function post(path, body) {
     return fetch(path, {
@@ -126,6 +145,202 @@ export const HUMAN_FIRST_APP_JS = `
     var div = document.createElement('div');
     div.textContent = String(value);
     return div.innerHTML;
+  }
+
+  function isDesktopMode() {
+    return typeof window.mingWorkbench !== 'undefined' && window.mingWorkbench !== null;
+  }
+
+  async function loadProviderState() {
+    if (!isDesktopMode()) return { hasSecret: false, preferences: null, loaded: true };
+    try {
+      var hasSecretResult = await window.mingWorkbench.hasProviderSecret();
+      var prefsResult = await window.mingWorkbench.getProviderPreferences();
+      return {
+        hasSecret: hasSecretResult.hasSecret === true,
+        preferences: prefsResult.ok ? prefsResult.preferences : null,
+        loaded: true,
+      };
+    } catch (e) {
+      return { hasSecret: false, preferences: null, loaded: false };
+    }
+  }
+
+  function showProviderCta() {
+    var cta = el('provider-cta');
+    if (cta) cta.classList.remove('hidden');
+  }
+
+  function hideProviderCta() {
+    var cta = el('provider-cta');
+    if (cta) cta.classList.add('hidden');
+  }
+
+  function showProviderEntry() {
+    var entry = el('ai-service-entry');
+    if (entry) entry.classList.remove('hidden');
+  }
+
+  function hideProviderEntry() {
+    var entry = el('ai-service-entry');
+    if (entry) entry.classList.add('hidden');
+  }
+
+  function updateProviderCta() {
+    if (STATE && STATE.providerRequired && PROVIDER_STATE.loaded && !PROVIDER_STATE.hasSecret) {
+      showProviderCta();
+      hideProviderEntry();
+    } else if (PROVIDER_STATE.loaded && PROVIDER_STATE.hasSecret) {
+      hideProviderCta();
+      showProviderEntry();
+    } else {
+      hideProviderCta();
+      hideProviderEntry();
+    }
+  }
+
+  var PROVIDER_PANEL_TEMPLATE = '<div id="provider-panel-overlay" class="provider-panel-overlay">' +
+    '<div class="provider-panel">' +
+    '<button class="panel-close" data-action="close-provider-panel" aria-label="关闭">×</button>' +
+    '<h3>连接 AI 服务</h3>' +
+    '<p class="panel-desc">输入你的服务商信息和密钥，以便 Workbench 帮你处理想法。密钥会加密保存在你的设备上。</p>' +
+    '<div class="field-label">接口地址（可选）</div>' +
+    '<input id="provider-base-url" type="text" placeholder="留空使用默认，或填写自定义接口地址" />' +
+    '<div class="field-hint">支持任何 OpenAI 兼容的接口地址</div>' +
+    '<div class="field-label">模型名称</div>' +
+    '<input id="provider-model" type="text" placeholder="deepseek-v4-pro" />' +
+    '<div class="field-hint">模型名称需与服务商提供的一致</div>' +
+    '<div class="field-label">密钥</div>' +
+    '<input id="provider-key-input" type="password" placeholder="sk-..." />' +
+    '<div class="field-hint">密钥加密存储在本机，不会上传或写入项目文件</div>' +
+    '<div class="panel-actions">' +
+    '<button id="provider-save-button" class="primary" type="button" data-action="save-provider-config">保存</button>' +
+    '<button class="secondary" type="button" data-action="close-provider-panel">取消</button>' +
+    '<button id="provider-clear-button" class="secondary hidden" type="button" data-action="clear-provider-secret">移除密钥</button>' +
+    '</div>' +
+    '<div id="provider-panel-status" class="panel-status"></div>' +
+    '</div>' +
+    '</div>';
+
+  function mountProviderPanel() {
+    var existing = el('provider-panel-overlay');
+    if (existing) return existing;
+    var wrapper = document.createElement('div');
+    wrapper.innerHTML = PROVIDER_PANEL_TEMPLATE;
+    var panel = wrapper.firstChild;
+    document.body.appendChild(panel);
+    return panel;
+  }
+
+  function unmountProviderPanel() {
+    var overlay = el('provider-panel-overlay');
+    if (overlay && overlay.parentNode) {
+      overlay.parentNode.removeChild(overlay);
+    }
+  }
+
+  function openProviderPanel() {
+    mountProviderPanel();
+    if (!isDesktopMode()) {
+      var status = el('provider-panel-status');
+      if (status) {
+        status.textContent = '连接 AI 服务需要在桌面版 Ming Workbench 中使用。';
+        status.className = 'panel-status error';
+      }
+      return;
+    }
+    prefillProviderPanel();
+  }
+
+  function closeProviderPanel() {
+    unmountProviderPanel();
+  }
+
+  async function prefillProviderPanel() {
+    try {
+      var prefsResult = await window.mingWorkbench.getProviderPreferences();
+      if (prefsResult && prefsResult.ok) {
+        var p = prefsResult.preferences || {};
+        el('provider-base-url').value = p.baseUrl || '';
+        el('provider-model').value = p.model || '';
+        el('provider-key-input').value = '';
+        var hasSecretResult = await window.mingWorkbench.hasProviderSecret();
+        var hasSecret = hasSecretResult.hasSecret === true;
+        var status = el('provider-panel-status');
+        status.textContent = hasSecret ? '✓ 已保存密钥（留空保留）' : '尚未保存密钥';
+        status.className = 'panel-status' + (hasSecret ? ' ok' : '');
+        el('provider-clear-button').classList.toggle('hidden', !hasSecret);
+      }
+    } catch (e) {}
+  }
+
+  async function saveProviderConfig() {
+    var baseUrl = el('provider-base-url').value.trim();
+    var model = el('provider-model').value.trim();
+    var key = el('provider-key-input').value.trim();
+    var status = el('provider-panel-status');
+    var saveBtn = el('provider-save-button');
+
+    if (!model) {
+      status.textContent = '请填写模型名称。';
+      status.className = 'panel-status error';
+      return;
+    }
+    if (baseUrl && !/^https?:\\/\\//i.test(baseUrl)) {
+      status.textContent = '接口地址需要以 http:// 或 https:// 开头。';
+      status.className = 'panel-status error';
+      return;
+    }
+
+    saveBtn.disabled = true;
+    status.textContent = '正在保存并应用…';
+    status.className = 'panel-status';
+
+    try {
+      if (key) {
+        var secretResult = await window.mingWorkbench.setProviderSecret(key);
+        if (!secretResult || !secretResult.ok) {
+          status.textContent = '密钥保存失败，请稍后重试。';
+          status.className = 'panel-status error';
+          saveBtn.disabled = false;
+          return;
+        }
+      }
+      var prefsResult = await window.mingWorkbench.setProviderPreferences({
+        provider: 'deepseek-official',
+        model: model,
+        baseUrl: baseUrl,
+      });
+      if (!prefsResult || !prefsResult.ok) {
+        status.textContent = prefsResult ? prefsResult.message : '配置保存失败，请稍后重试。';
+        status.className = 'panel-status error';
+        saveBtn.disabled = false;
+        return;
+      }
+      status.textContent = '已保存，正在重新连接…';
+      status.className = 'panel-status ok';
+      PROVIDER_STATE.hasSecret = true;
+      PROVIDER_STATE.preferences = { provider: 'deepseek-official', model: model, baseUrl: baseUrl };
+      PROVIDER_STATE.loaded = true;
+      hideProviderCta();
+      setTimeout(function () {
+        closeProviderPanel();
+      }, 800);
+    } catch (e) {
+      status.textContent = '保存失败：' + (e.message || '请稍后重试。');
+      status.className = 'panel-status error';
+      saveBtn.disabled = false;
+    }
+  }
+
+  async function clearProviderSecretAction() {
+    if (!confirm('确定要移除已保存的密钥吗？')) return;
+    try {
+      await window.mingWorkbench.clearProviderSecret();
+      PROVIDER_STATE.hasSecret = false;
+      closeProviderPanel();
+      updateProviderCta();
+    } catch (e) {}
   }
 
   function renderChat(idea) {
@@ -185,9 +400,26 @@ export const HUMAN_FIRST_APP_JS = `
         el('confirmed-notdoing').textContent = idea.agreement.notDoing;
       }
     }
+    updateProviderCta();
   }
 
-  function boot() {
+  async function boot() {
+    PROVIDER_STATE = await loadProviderState();
+
+    // Event delegation: handle all data-action clicks (replaces inline onclick handlers
+    // which don't work reliably with contextIsolation: true in Electron)
+    document.addEventListener('click', function (e) {
+      var target = e.target.closest('[data-action]');
+      if (!target) return;
+      var action = target.getAttribute('data-action');
+      switch (action) {
+        case 'open-provider-panel': openProviderPanel(); break;
+        case 'close-provider-panel': closeProviderPanel(); break;
+        case 'save-provider-config': saveProviderConfig(); break;
+        case 'clear-provider-secret': clearProviderSecretAction(); break;
+      }
+    });
+
     fetch('/api/idea/state', { headers: { 'x-workbench-token': TOKEN } })
       .then(function (r) { return r.json(); })
       .then(function (data) { renderIdea(data.idea); })
@@ -247,9 +479,30 @@ export const HUMAN_FIRST_APP_JS = `
     el('agreement-back-button').addEventListener('click', function () {
       if (STATE && STATE.synthesis) setView('review');
     });
+
+    el('continue-conversation-button').addEventListener('click', function () {
+      setView('conversation');
+      updateProviderCta();
+    });
   }
 
-  document.addEventListener('DOMContentLoaded', boot);
+  window.openProviderPanel = openProviderPanel;
+  window.closeProviderPanel = closeProviderPanel;
+  window.saveProviderConfig = saveProviderConfig;
+  window.clearProviderSecret = clearProviderSecretAction;
+  window.getState = function() { return STATE; };
+  window.getProviderState = function() { return PROVIDER_STATE; };
+  window.reloadProviderState = async function() {
+    PROVIDER_STATE = await loadProviderState();
+    updateProviderCta();
+    return PROVIDER_STATE;
+  };
+
+  document.addEventListener('DOMContentLoaded', function () {
+    boot().catch(function (e) {
+      console.error('boot failed:', e);
+    });
+  });
 })();
 `
 
@@ -289,6 +542,12 @@ export function renderHumanFirstHtml(requestToken: string): string {
       <p class="eyebrow">MING WORKBENCH</p>
       <h2>说说你的想法。</h2>
       <div class="card chat" id="chat-log"></div>
+      <div id="provider-cta" class="provider-cta hidden" data-action="open-provider-panel">
+        需要连接 AI 服务才能继续。<span class="link">连接我的 AI 服务</span>
+      </div>
+      <div id="ai-service-entry" class="ai-service-entry hidden" data-action="open-provider-panel" title="管理你的 AI 服务">
+        <span class="dot"></span>AI 服务
+      </div>
       <div class="compose">
         <textarea id="message-input" rows="2" placeholder="用你自己的话说就行，想到哪里说到哪里"></textarea>
         <button id="send-button" class="primary" type="button">发送</button>
@@ -377,6 +636,9 @@ export function renderHumanFirstHtml(requestToken: string): string {
         </div>
       </div>
       <p class="status">这件事已经说好并记下了。真正开始的时候，我们会先告诉你每一步。</p>
+      <div class="actions">
+        <button id="continue-conversation-button" class="primary" type="button">继续对话</button>
+      </div>
     </section>
 
     <section id="boot-failure" class="card hidden">
@@ -386,5 +648,5 @@ export function renderHumanFirstHtml(requestToken: string): string {
   </main>
   <script src="/app.js" type="module"></script>
 </body>
-</html>`
+</html>`;
 }

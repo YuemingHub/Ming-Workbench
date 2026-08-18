@@ -34,3 +34,6 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+      - name: Credential scan
+        run: npm run credential-scan
