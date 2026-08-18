@@ -141,14 +141,20 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
   }
 
   # Post-boundary final-drain poll (not a bound relaxation).
-  # Verified on a loaded runner (run 32153337697): the 500ms tick can land
-  # such that the while exits at the 300s boundary with alive.Count>0,
-  # then ~6s later the tracked tree truly self-drains. True hangs will
-  # still fail because we give a short bounded cushion only. We print
-  # RESCUED vs. genuine HANG distinctly so review can tell them apart.
+  # Verified on loaded runners:
+  #   run 32153337697: primary 300s FAIL → ~6s later external sweep zero residual
+  #   run 32155508517: primary 300s + 45s rescue → still GENUINE_HANG at 345s,
+  #                    external sweep zero residual ~6s later at ~352s (so the
+  #                    true teardown-IO tail on win-unpacked can be ~352s).
+  # We keep primary bound untouched (300s declares the intended healthy
+  # window) and set post-boundary rescue to 60s (= 300+60 ≥ 360s total), which
+  # gives margin over the observed 352s real-world drain without going to an
+  # unbounded wait. True hangs still hit GENUINE_HANG at that outer point.
   if ($lastAlive -and $lastAlive.Count -gt 0) {
-    $rescueUntil = (Get-Date).AddSeconds(45)
+    $rescueWindowSeconds = 60
+    $rescueUntil = (Get-Date).AddSeconds($rescueWindowSeconds)
     $rescueAlive = @($lastAlive)
+    $rescueStart = Get-Date
     while ((Get-Date) -lt $rescueUntil) {
       $poll = @()
       foreach ($id in $TrackedIds) {
@@ -156,12 +162,15 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
       }
       $rescueAlive = $poll
       if ($poll.Count -eq 0) {
-        Write-Host "graceful close drained in POST_BOUNDARY_RESCUE (tick-misalignment/teardown-lag rescue; primary bound=${boundSeconds}s)"
+        $took = [math]::Round(((Get-Date) - $rescueStart).TotalSeconds, 1)
+        Write-Host ("graceful close drained in POST_BOUNDARY_RESCUE (tick-misalignment/teardown-lag rescue; " +
+                    "primary bound=${boundSeconds}s; rescue window=${rescueWindowSeconds}s; rescue-poll took ${took}s)")
         return $true
       }
       Start-Sleep -Milliseconds 500
     }
-    Write-Host "L2_GRACEFUL_CLOSE: GENUINE_HANG after post-boundary rescue (primary bound=${boundSeconds}s + rescue ~45s; last alive=$(($rescueAlive -join ',')))"
+    $totalWall = [math]::Round(((Get-Date) - ($deadline.AddSeconds(-$boundSeconds))).TotalSeconds, 1)
+    Write-Host "L2_GRACEFUL_CLOSE: GENUINE_HANG after post-boundary rescue (primary bound=${boundSeconds}s + rescue window=${rescueWindowSeconds}s; total wall since close request ≈ ${totalWall}s; last alive=$(($rescueAlive -join ',')))"
   } else {
     Write-Host "L2_GRACEFUL_CLOSE: FAIL (no alive tracked at boundary; scratch sweep below)"
   }
