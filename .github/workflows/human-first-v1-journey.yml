@@ -1,0 +1,93 @@
+name: human-first-v1-journey
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'desktop/**'
+      - 'src/idea/**'
+      - 'src/index.ts'
+      - 'docs/V1_PRODUCT_CONTRACT.md'
+      - 'scripts/start-local-web.mjs'
+      - 'scripts/human-first-journey-driver.mjs'
+      - 'scripts/consumer-human-first-journey-l3.ps1'
+      - 'scripts/provider-fixture-server.mjs'
+      - 'package.json'
+      - '.github/workflows/human-first-v1-journey.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'src/idea/**'
+      - 'src/index.ts'
+      - 'docs/V1_PRODUCT_CONTRACT.md'
+      - 'scripts/start-local-web.mjs'
+      - 'scripts/human-first-journey-driver.mjs'
+      - 'scripts/consumer-human-first-journey-l3.ps1'
+      - 'scripts/provider-fixture-server.mjs'
+      - 'package.json'
+      - '.github/workflows/human-first-v1-journey.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  human-first-v1-l3:
+    runs-on: windows-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout Ming Workbench
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package.json
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Typecheck and unit tests
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          npm run check
+          npm test
+
+      - name: Build NSIS installer (prepares bundled Python + Harness capsule + packages once)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path 'node_modules/electron/dist/electron.exe')) {
+            Write-Host 'electron binary missing; running install.js'
+            node node_modules/electron/install.js
+            if ($LASTEXITCODE -ne 0) { Write-Error "electron install.js failed (exit $LASTEXITCODE)" }
+          }
+          npm run desktop:package
+          if ($LASTEXITCODE -ne 0) { Write-Error "desktop:package failed (exit $LASTEXITCODE)" }
+
+      - name: Run Consumer Human-First Journey (V1 L3)
+        shell: pwsh
+        env:
+          DEEPSEEK_API_KEY: fixture-key
+          DEEPSEEK_BASE_URL: http://127.0.0.1:8000/v1
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $artifact = Join-Path $env:RUNNER_TEMP 'human-first-artifacts'
+          & pwsh -NoProfile -File scripts/consumer-human-first-journey-l3.ps1 -SkipBuild -ArtifactDir $artifact
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "consumer human-first journey L3 failed (exit $LASTEXITCODE)"
+          }
+
+      - name: Upload human-first diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: human-first-v1-journey-logs
+          path: |
+            ${{ runner.temp }}/human-first-artifacts/**
+          if-no-files-found: ignore

@@ -238,6 +238,9 @@ The North Star should remain stable while the product form stays evolvable.
 
 ## 8. V0.1 success criterion
 
+> Product authority for the V1 human-first entry is `docs/V1_PRODUCT_CONTRACT.md`.
+> This section describes the durable product loop it enters after confirmation.
+
 The first meaningful Ming Workbench exists when a non-technical user can:
 
 ```text
@@ -314,18 +317,21 @@ Tests are evidence. They are not reality itself.
 
 ---
 
-## 11. Family Space is the first real-world proving ground
+## 11. First proving ground is a new low-risk idea, then Family Space
 
-Family Space is not merely a demo repository for Ming Workbench.
-
-It is the first serious real-world product environment where Ming Workbench must prove that it can convert a human's real judgment into a controlled, verified result.
+For V1, the first real proving ground **after the human-first loop** (see
+`docs/V1_PRODUCT_CONTRACT.md`) is a **new low-risk idea** executed and verified
+end-to-end — not Family Space. Family Space remains a real-world proving ground
+only after such a low-risk real outcome round has succeeded.
 
 A healthy progression is:
 
 ```text
-small scratch Work Unit
+human-first confirmation round
+→ small scratch Work Unit
 → real Ming Workbench repository Work Unit
-→ real Family Space Work Unit
+→ new low-risk real idea executed and verified
+→ real Family Space Work Unit (only after low-risk success)
 → repeated Family Space outcomes
 → broader domains only after real evidence
 ```

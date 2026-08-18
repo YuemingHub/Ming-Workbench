@@ -1,5 +1,7 @@
 # Ming Workbench
 
+> **V1 product authority is [`docs/V1_PRODUCT_CONTRACT.md`](./docs/V1_PRODUCT_CONTRACT.md)** — the human-first entry (letter → 开始 → three entries → conversation → one smallest complete real outcome → round agreement → confirmation).
+>
 > **Agents: start with [`AGENTS.md`](./AGENTS.md), then read [`docs/WORKBENCH_CONSTITUTION.md`](./docs/WORKBENCH_CONSTITUTION.md) before changing the repository.**
 >
 > The durable rule is **Reuse Before Build**: Ming Workbench owns the Reality → Intent → Evidence → Outcome loop and should reuse or thinly adapt existing execution infrastructure rather than rebuild it.
