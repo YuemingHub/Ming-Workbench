@@ -406,6 +406,13 @@ async function reopenChecks(page) {
   // After clean close and reopen with SAME userData
   step('reopen phase: verify persistence')
 
+  // Wait for page to fully load and JavaScript boot() to complete.
+  // The initial HTML has all views visible; boot() then calls renderIdea()
+  // which applies the 'hidden' class to switch to the correct view.
+  // We need to wait for this to complete before checking view visibility.
+  await page.waitForLoadState('networkidle').catch(() => {})
+  await page.waitForTimeout(3000)
+
   // After reopen with existing provider, the app may show:
   // - #conversation-view: direct conversation (state fully preserved)
   // - #letter-view: letter view (fresh start)
@@ -418,9 +425,26 @@ async function reopenChecks(page) {
   const retryDelayMs = 2000
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
-    letterVisible = await page.locator('#letter-view').isVisible().catch(() => false)
-    convVisible = await page.locator('#conversation-view').isVisible().catch(() => false)
-    entryVisible = await page.locator('#entry-view').isVisible().catch(() => false)
+    // Use evaluate-based visibility check for reliability
+    const visResult = await page.evaluate(() => {
+      function isVisible(id) {
+        var el = document.getElementById(id)
+        if (!el) return false
+        if (el.classList.contains('hidden')) return false
+        if (el.style && el.style.display === 'none') return false
+        if (el.offsetHeight === 0 && el.offsetWidth === 0) return false
+        return true
+      }
+      return {
+        letter: isVisible('letter-view'),
+        conversation: isVisible('conversation-view'),
+        entry: isVisible('entry-view'),
+      }
+    }).catch(() => ({ letter: false, conversation: false, entry: false }))
+
+    letterVisible = visResult.letter
+    convVisible = visResult.conversation
+    entryVisible = visResult.entry
 
     if (letterVisible || convVisible || entryVisible) break
     if (attempt < maxRetries - 1) {
@@ -496,15 +520,36 @@ async function removeKeyFlow(page) {
   // After reopen, user wants to remove key through visible AI service entry
   step('remove phase: remove key through human path')
 
+  // Wait for page to fully load
+  await page.waitForLoadState('networkidle').catch(() => {})
+  await page.waitForTimeout(2000)
+
   // Navigate to conversation view if not already there
   let convVisible = false
   let letterVisible = false
   let entryVisible = false
 
   for (let attempt = 0; attempt < 10; attempt++) {
-    convVisible = await page.locator('#conversation-view').isVisible().catch(() => false)
-    letterVisible = await page.locator('#letter-view').isVisible().catch(() => false)
-    entryVisible = await page.locator('#entry-view').isVisible().catch(() => false)
+    const visResult = await page.evaluate(() => {
+      function isVisible(id) {
+        var el = document.getElementById(id)
+        if (!el) return false
+        if (el.classList.contains('hidden')) return false
+        if (el.style && el.style.display === 'none') return false
+        if (el.offsetHeight === 0 && el.offsetWidth === 0) return false
+        return true
+      }
+      return {
+        letter: isVisible('letter-view'),
+        conversation: isVisible('conversation-view'),
+        entry: isVisible('entry-view'),
+      }
+    }).catch(() => ({ letter: false, conversation: false, entry: false }))
+
+    letterVisible = visResult.letter
+    convVisible = visResult.conversation
+    entryVisible = visResult.entry
+
     if (convVisible || letterVisible || entryVisible) break
     if (attempt < 9) {
       console.log(`remove flow retry ${attempt + 1}/10: waiting for a view...`)
