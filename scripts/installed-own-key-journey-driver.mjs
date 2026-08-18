@@ -101,27 +101,39 @@ async function waitForStage(page, stageName, timeoutMs = 30_000) {
 }
 
 async function mountBrowser() {
+  console.log(`mountBrowser: connecting to CDP at ${CDP_URL}...`)
   const browser = await chromium.connectOverCDP(CDP_URL)
   await new Promise((r) => setTimeout(r, 2000))
   const context = browser.contexts()[0]
+  console.log(`mountBrowser: got ${context.pages().length} pages in context`)
+
+  // Log all page URLs for diagnostics
+  for (const p of context.pages()) {
+    console.log(`mountBrowser: page: ${p.url()}`)
+  }
 
   let page = null
   const deadline = Date.now() + 60_000
   while (Date.now() < deadline && !page) {
     for (const candidate of context.pages()) {
       const url = candidate.url()
-      if (/^http:\/\/127\.0\.0\.1:\d+/.test(url)) {
+      // Accept both http:// and file:// URLs — Electron may use file:// in some modes
+      if (/^(http:\/\/127\.0\.0\.1:\d+|file:\/\/)/.test(url)) {
         page = candidate
         break
       }
     }
-    if (!page) await new Promise((r) => setTimeout(r, 2000))
+    if (!page) {
+      console.log(`mountBrowser: waiting for page to load... (${context.pages().length} pages)`)
+      await new Promise((r) => setTimeout(r, 2000))
+    }
   }
   if (!page) {
+    console.log('mountBrowser: no matching page found, using first page')
     page = context.pages()[0]
   }
-  await page.bringToFront()
-  console.log(`connected to page: ${page.url()}`)
+  await page.bringToFront().catch(() => {})
+  console.log(`mountBrowser: connected to page: ${page.url()}`)
   return { browser, page }
 }
 
@@ -410,8 +422,11 @@ async function reopenChecks(page) {
   // The initial HTML has all views visible; boot() then calls renderIdea()
   // which applies the 'hidden' class to switch to the correct view.
   // We need to wait for this to complete before checking view visibility.
+  console.log('reopen: waiting for networkidle...')
   await page.waitForLoadState('networkidle').catch(() => {})
+  console.log('reopen: networkidle reached, waiting 3s for boot...')
   await page.waitForTimeout(3000)
+  console.log('reopen: starting visibility checks...')
 
   // After reopen with existing provider, the app may show:
   // - #conversation-view: direct conversation (state fully preserved)
@@ -426,25 +441,32 @@ async function reopenChecks(page) {
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     // Use evaluate-based visibility check for reliability
-    const visResult = await page.evaluate(() => {
-      function isVisible(id) {
-        var el = document.getElementById(id)
-        if (!el) return false
-        if (el.classList.contains('hidden')) return false
-        if (el.style && el.style.display === 'none') return false
-        if (el.offsetHeight === 0 && el.offsetWidth === 0) return false
-        return true
-      }
-      return {
-        letter: isVisible('letter-view'),
-        conversation: isVisible('conversation-view'),
-        entry: isVisible('entry-view'),
-      }
-    }).catch(() => ({ letter: false, conversation: false, entry: false }))
+    let visResult = { letter: false, conversation: false, entry: false }
+    try {
+      visResult = await page.evaluate(() => {
+        function isVisible(id) {
+          var el = document.getElementById(id)
+          if (!el) return false
+          if (el.classList.contains('hidden')) return false
+          if (el.style && el.style.display === 'none') return false
+          if (el.offsetHeight === 0 && el.offsetWidth === 0) return false
+          return true
+        }
+        return {
+          letter: isVisible('letter-view'),
+          conversation: isVisible('conversation-view'),
+          entry: isVisible('entry-view'),
+        }
+      })
+    } catch (e) {
+      console.log(`reopen: evaluate attempt ${attempt} failed: ${e.message}`)
+    }
 
     letterVisible = visResult.letter
     convVisible = visResult.conversation
     entryVisible = visResult.entry
+
+    console.log(`reopen: attempt ${attempt}: letter=${letterVisible}, conv=${convVisible}, entry=${entryVisible}`)
 
     if (letterVisible || convVisible || entryVisible) break
     if (attempt < maxRetries - 1) {
@@ -675,6 +697,7 @@ async function main() {
 
 main().catch((error) => {
   console.error(`OWN_KEY_JOURNEY_DRIVER: ${error.message}`)
+  console.error(`OWN_KEY_JOURNEY_DRIVER stack: ${error.stack || 'no stack'}`)
   console.error(`PHASE=${PHASE}`)
   console.error(`SENTINEL_FINGERPRINT=${SENTINEL_FINGERPRINT}`)
   process.exit(process.exitCode ?? 1)
