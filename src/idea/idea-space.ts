@@ -54,6 +54,35 @@ export interface RoundAgreement {
   notDoing: string
 }
 
+/**
+ * Confirmed-idea execution record — persisted alongside the idea so a
+ * closed/reopened Workbench keeps showing the same result, what was verified,
+ * and what is still NOT proven. Carries product state only (no secrets).
+ */
+export interface IdeaExecution {
+  /** outcome status or a pre-execution gate marker */
+  status:
+    | 'cost-gate-required'
+    | 'running'
+    | 'unsupported'
+    | 'completed'
+    | 'partial'
+    | 'failed'
+    | 'not_proven'
+  /** honored execution mode (never presented as real when fixture) */
+  mode: 'fixture' | 'real' | 'none'
+  honesty: 'DETERMINISTIC' | 'REAL'
+  summary: string
+  verifiedFacts: string[]
+  notProvenFacts: string[]
+  producedFiles: string[]
+  artifactPath?: string
+  workspacePath?: string
+  workUnitId?: string
+  detail?: string
+  at?: string
+}
+
 export interface HumanFirstIdea {
   id: string
   stage: HumanFirstStage
@@ -61,10 +90,33 @@ export interface HumanFirstIdea {
   turns: IdeaTurn[]
   synthesis?: IdeaSynthesis
   agreement?: RoundAgreement
+  execution?: IdeaExecution
   confirmedAt?: string
   createdAt: string
   updatedAt: string
   providerRequired?: boolean
+}
+
+/**
+ * Attach the honest execution record to a confirmed idea and persist it, so the
+ * same result surface survives a close/reopen of the Workbench.
+ */
+export function applyExecution(
+  idea: HumanFirstIdea,
+  execution: IdeaExecution,
+  now = new Date().toISOString(),
+): HumanFirstIdea {
+  return { ...idea, execution, updatedAt: now }
+}
+
+/** Clear a stale execution record when restarting that round. */
+export function clearExecution(
+  idea: HumanFirstIdea,
+  now = new Date().toISOString(),
+): HumanFirstIdea {
+  const { execution: _removed, ...rest } = idea
+  void _removed
+  return { ...(rest as HumanFirstIdea), updatedAt: now }
 }
 
 export function createLetterIdea(now = new Date().toISOString()): HumanFirstIdea {

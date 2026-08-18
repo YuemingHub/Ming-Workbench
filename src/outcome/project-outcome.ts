@@ -17,7 +17,12 @@
 
 import type { RunOutcome } from '../execution/run-outcome.js'
 
-export type ProjectOutcomeStatus = 'completed' | 'partial' | 'failed' | 'not_proven'
+export type ProjectOutcomeStatus =
+  | 'completed'
+  | 'partial'
+  | 'failed'
+  | 'not_proven'
+  | 'unsupported'
 
 export interface ProjectOutcome {
   status: ProjectOutcomeStatus
