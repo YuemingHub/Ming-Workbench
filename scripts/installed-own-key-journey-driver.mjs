@@ -406,39 +406,45 @@ async function reopenChecks(page) {
   // After clean close and reopen with SAME userData
   step('reopen phase: verify persistence')
 
-  // After reopen with existing provider, the app may go directly to conversation
-  // OR show the letter. Handle both cases with robust retry logic.
-  // The app may take time to render after reopen, especially with backend restart.
+  // After reopen with existing provider, the app may show:
+  // - #conversation-view: direct conversation (state fully preserved)
+  // - #letter-view: letter view (fresh start)
+  // - #entry-view: welcome/entry page (needs navigation)
+  // Handle all cases with robust retry logic.
   let letterVisible = false
   let convVisible = false
+  let entryVisible = false
   const maxRetries = 10
   const retryDelayMs = 2000
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     letterVisible = await page.locator('#letter-view').isVisible().catch(() => false)
     convVisible = await page.locator('#conversation-view').isVisible().catch(() => false)
+    entryVisible = await page.locator('#entry-view').isVisible().catch(() => false)
 
-    if (letterVisible || convVisible) break
+    if (letterVisible || convVisible || entryVisible) break
     if (attempt < maxRetries - 1) {
-      console.log(`reopen retry ${attempt + 1}/${maxRetries}: waiting for letter or conversation view...`)
+      console.log(`reopen retry ${attempt + 1}/${maxRetries}: waiting for letter, conversation, or entry view...`)
       await page.waitForTimeout(retryDelayMs)
     }
   }
 
-  if (letterVisible) {
+  if (convVisible) {
+    console.log('conversation visible after reopen (existing state preserved)')
+  } else if (letterVisible) {
     console.log('letter visible after reopen (fresh start)')
-    // Click start
     await click(page, '#start-button', 'start on reopen')
-
-    // Choose first entry
     await page.waitForSelector('#entry-view', { state: 'visible', timeout: 10_000 })
     await click(page, '#entry-1', 'new idea choice on reopen')
-  } else if (convVisible) {
-    console.log('conversation visible after reopen (existing state preserved)')
+  } else if (entryVisible) {
+    console.log('entry-view visible after reopen (welcome page, need navigation)')
+    await click(page, '#start-button', 'start from entry on reopen')
+    await page.waitForSelector('#entry-view', { state: 'visible', timeout: 10_000 })
+    await click(page, '#entry-1', 'choose entry 1 after reopen')
   } else {
     // Diagnostic: log what's actually visible on the page
     const bodyText = await page.evaluate(() => document.body?.textContent?.substring(0, 500) || 'empty')
-    throw new Error(`reopen: neither letter-view nor conversation-view visible after ${maxRetries} retries. Page text: ${bodyText}`)
+    throw new Error(`reopen: no expected view visible after ${maxRetries} retries. Page text: ${bodyText}`)
   }
 
   // Verify hasSecret is still true via observable
@@ -448,12 +454,25 @@ async function reopenChecks(page) {
 
   // Verify the "AI 服务" visible entry is present (proves provider is configured)
   const aiEntry = page.locator('#ai-service-entry')
-  const entryVisible = await aiEntry.isVisible().catch(() => false)
-  console.log(`AI service entry visible: ${entryVisible}`)
+  const aiServiceEntryVisible = await aiEntry.isVisible().catch(() => false)
+  console.log(`AI service entry visible: ${aiServiceEntryVisible}`)
 
   // Send a new provider-dependent message to verify authenticated request
+  // After reopen navigation, the conversation view may take time to render
   const textarea = page.locator('#message-input, textarea').first()
-  if (await textarea.count() > 0) {
+  let textareaReady = false
+  for (let attempt = 0; attempt < 10; attempt++) {
+    if (await textarea.count() > 0 && await textarea.isVisible().catch(() => false)) {
+      textareaReady = true
+      break
+    }
+    if (attempt < 9) {
+      console.log(`waiting for textarea after reopen navigation (${attempt + 1}/10)...`)
+      await page.waitForTimeout(1500)
+    }
+  }
+
+  if (textareaReady) {
     await textarea.fill('继续完善这首诗，加一句关于月亮的')
     const sendBtn = page.locator('#send-button').first()
     if (await sendBtn.count() > 0) {
@@ -462,10 +481,7 @@ async function reopenChecks(page) {
       await textarea.press('Enter')
     }
   } else {
-    // If in letter view, go through the flow
-    if (letterVisible) {
-      // Already clicked start and chose entry above
-    }
+    throw new Error('reopen: textarea not found after navigation, cannot send verification message')
   }
 
   // Wait for response (this should be authenticated with the persisted sentinel)
@@ -481,36 +497,56 @@ async function removeKeyFlow(page) {
   step('remove phase: remove key through human path')
 
   // Navigate to conversation view if not already there
-  const convVisible = await page.locator('#conversation-view').isVisible().catch(() => false)
-  const letterVisible = await page.locator('#letter-view').isVisible().catch(() => false)
+  let convVisible = false
+  let letterVisible = false
+  let entryVisible = false
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    convVisible = await page.locator('#conversation-view').isVisible().catch(() => false)
+    letterVisible = await page.locator('#letter-view').isVisible().catch(() => false)
+    entryVisible = await page.locator('#entry-view').isVisible().catch(() => false)
+    if (convVisible || letterVisible || entryVisible) break
+    if (attempt < 9) {
+      console.log(`remove flow retry ${attempt + 1}/10: waiting for a view...`)
+      await page.waitForTimeout(2000)
+    }
+  }
 
   if (!convVisible) {
-    if (letterVisible) {
+    if (letterVisible || entryVisible) {
+      console.log(`remove flow: navigating from ${letterVisible ? 'letter' : 'entry'} view`)
       await click(page, '#start-button', 'start for remove flow')
       await page.waitForSelector('#entry-view', { state: 'visible', timeout: 10_000 })
       await click(page, '#entry-1', 'new idea choice')
     } else {
-      // Wait for view to settle
-      await page.waitForTimeout(3000)
-      const letterNow = await page.locator('#letter-view').isVisible().catch(() => false)
-      if (letterNow) {
-        await click(page, '#start-button', 'start for remove flow')
-        await page.waitForSelector('#entry-view', { state: 'visible', timeout: 10_000 })
-        await click(page, '#entry-1', 'new idea choice')
-      }
+      throw new Error('remove flow: no expected view visible, cannot navigate')
     }
   }
 
   // Send a message to ensure conversation is active and AI service entry appears
   const textarea = page.locator('#message-input, textarea').first()
-  if (await textarea.count() > 0) {
-    await textarea.fill('写一首关于春天的诗')
-    const sendBtn = page.locator('#send-button').first()
-    if (await sendBtn.count() > 0) {
-      await sendBtn.click()
-    } else {
-      await textarea.press('Enter')
+  let textareaReady = false
+  for (let attempt = 0; attempt < 10; attempt++) {
+    if (await textarea.count() > 0 && await textarea.isVisible().catch(() => false)) {
+      textareaReady = true
+      break
     }
+    if (attempt < 9) {
+      console.log(`remove flow: waiting for textarea (${attempt + 1}/10)...`)
+      await page.waitForTimeout(1500)
+    }
+  }
+
+  if (!textareaReady) {
+    throw new Error('remove flow: textarea not found after navigation')
+  }
+
+  await textarea.fill('写一首关于春天的诗')
+  const sendBtn = page.locator('#send-button').first()
+  if (await sendBtn.count() > 0) {
+    await sendBtn.click()
+  } else {
+    await textarea.press('Enter')
   }
 
   // Wait for conversation to settle
