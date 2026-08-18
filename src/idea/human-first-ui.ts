@@ -201,7 +201,7 @@ export const HUMAN_FIRST_APP_JS = `
 
   var PROVIDER_PANEL_TEMPLATE = '<div id="provider-panel-overlay" class="provider-panel-overlay">' +
     '<div class="provider-panel">' +
-    '<button class="panel-close" onclick="closeProviderPanel()" aria-label="关闭">×</button>' +
+    '<button class="panel-close" data-action="close-provider-panel" aria-label="关闭">×</button>' +
     '<h3>连接 AI 服务</h3>' +
     '<p class="panel-desc">输入你的服务商信息和密钥，以便 Workbench 帮你处理想法。密钥会加密保存在你的设备上。</p>' +
     '<div class="field-label">接口地址（可选）</div>' +
@@ -214,9 +214,9 @@ export const HUMAN_FIRST_APP_JS = `
     '<input id="provider-key-input" type="password" placeholder="sk-..." />' +
     '<div class="field-hint">密钥加密存储在本机，不会上传或写入项目文件</div>' +
     '<div class="panel-actions">' +
-    '<button id="provider-save-button" class="primary" type="button" onclick="saveProviderConfig()">保存</button>' +
-    '<button class="secondary" type="button" onclick="closeProviderPanel()">取消</button>' +
-    '<button id="provider-clear-button" class="secondary hidden" type="button" onclick="clearProviderSecret()">移除密钥</button>' +
+    '<button id="provider-save-button" class="primary" type="button" data-action="save-provider-config">保存</button>' +
+    '<button class="secondary" type="button" data-action="close-provider-panel">取消</button>' +
+    '<button id="provider-clear-button" class="secondary hidden" type="button" data-action="clear-provider-secret">移除密钥</button>' +
     '</div>' +
     '<div id="provider-panel-status" class="panel-status"></div>' +
     '</div>' +
@@ -405,6 +405,21 @@ export const HUMAN_FIRST_APP_JS = `
 
   async function boot() {
     PROVIDER_STATE = await loadProviderState();
+
+    // Event delegation: handle all data-action clicks (replaces inline onclick handlers
+    // which don't work reliably with contextIsolation: true in Electron)
+    document.addEventListener('click', function (e) {
+      var target = e.target.closest('[data-action]');
+      if (!target) return;
+      var action = target.getAttribute('data-action');
+      switch (action) {
+        case 'open-provider-panel': openProviderPanel(); break;
+        case 'close-provider-panel': closeProviderPanel(); break;
+        case 'save-provider-config': saveProviderConfig(); break;
+        case 'clear-provider-secret': clearProviderSecretAction(); break;
+      }
+    });
+
     fetch('/api/idea/state', { headers: { 'x-workbench-token': TOKEN } })
       .then(function (r) { return r.json(); })
       .then(function (data) { renderIdea(data.idea); })
@@ -517,10 +532,10 @@ export function renderHumanFirstHtml(requestToken: string): string {
       <p class="eyebrow">MING WORKBENCH</p>
       <h2>说说你的想法。</h2>
       <div class="card chat" id="chat-log"></div>
-      <div id="provider-cta" class="provider-cta hidden" onclick="openProviderPanel()">
+      <div id="provider-cta" class="provider-cta hidden" data-action="open-provider-panel">
         需要连接 AI 服务才能继续。<span class="link">连接我的 AI 服务</span>
       </div>
-      <div id="ai-service-entry" class="ai-service-entry hidden" onclick="openProviderPanel()" title="管理你的 AI 服务">
+      <div id="ai-service-entry" class="ai-service-entry hidden" data-action="open-provider-panel" title="管理你的 AI 服务">
         <span class="dot"></span>AI 服务
       </div>
       <div class="compose">
