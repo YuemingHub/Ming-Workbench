@@ -597,7 +597,7 @@ Write-Host "SENTINEL_PLAINTEXT_SCAN_OK"
 Write-Step "UNINSTALL"
 $uninstaller = Join-Path $installDir "Uninstall Ming Workbench.exe"
 if (Test-Path $uninstaller) {
-  & $uninstaller.FullName '/S' 2>&1 | Out-Null
+  $null = & $uninstaller '/S' 2>&1
   Start-Sleep -Seconds 3
   Assert-True (-not (Test-Path $installedExe)) "installed exe removed after uninstall"
   Write-Host "UNINSTALL_OK"
