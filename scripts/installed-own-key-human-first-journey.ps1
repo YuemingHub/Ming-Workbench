@@ -372,6 +372,7 @@ function Invoke-OwnKeyPhase([string]$Phase, [string]$UserData, [string]$Label) {
   # Close the app gracefully
   $closeOk = Close-InstalledTree $proc.Id $scratchDir $installedExe $UserData
   if (-not $closeOk) { throw "CLOSE_FAILED: could not gracefully close phase=$Phase" }
+  Write-Host "CLEAN_CLOSE_OK"
 
   return $proc
 }

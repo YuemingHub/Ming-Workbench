@@ -441,14 +441,14 @@ async function removeKeyFlow(page) {
   const removeVisible = await removeBtn.isVisible().catch(() => false)
   assert(removeVisible, 'remove key button visible in panel (human path)')
 
-  // Click remove key
-  await removeBtn.click()
-
-  // Handle confirmation dialog
+  // Set up dialog handler BEFORE clicking (native confirm dialog)
   page.on('dialog', async (dialog) => {
     console.log('confirmation dialog accepted')
     await dialog.accept()
   })
+
+  // Click remove key
+  await removeBtn.click()
   await page.waitForTimeout(3000)
 
   // Verify hasSecret is now false via observable
