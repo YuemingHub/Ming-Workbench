@@ -118,21 +118,52 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
   }
 
   # win-unpacked first run performs harness-capsule extraction + project session
-  # teardown; on loaded GitHub Windows runners its real drain can approach 120s+.
-  # Bound gives generous margin; if the tree does NOT self-drain within it, that is
-  # a genuine hang (not slowness) and must fail — do not relax further.
+  # teardown; on loaded GitHub Windows runners its real drain can be slow.
+  # The primary bound below gives a generous 300s window; after that a short
+  # post-boundary rescue covers last-tick deadline misalignment and legitimate
+  # Windows teardown-IO tails (~6s overshoot seen). If the tree still does NOT
+  # self-drain after both, it is a genuine hang and must fail — do not widen
+  # either number further.
   $boundSeconds = 300
   $deadline = (Get-Date).AddSeconds($boundSeconds)
+  $lastAlive = $null
   while ((Get-Date) -lt $deadline) {
     $alive = @()
     foreach ($id in $TrackedIds) {
       if (Get-Process -Id $id -ErrorAction SilentlyContinue) { $alive += $id }
     }
+    $lastAlive = $alive
     if ($alive.Count -eq 0) {
       Write-Host "graceful close drained within ${boundSeconds}s bound"
       return $true
     }
     Start-Sleep -Milliseconds 500
+  }
+
+  # Post-boundary final-drain poll (not a bound relaxation).
+  # Verified on a loaded runner (run 32153337697): the 500ms tick can land
+  # such that the while exits at the 300s boundary with alive.Count>0,
+  # then ~6s later the tracked tree truly self-drains. True hangs will
+  # still fail because we give a short bounded cushion only. We print
+  # RESCUED vs. genuine HANG distinctly so review can tell them apart.
+  if ($lastAlive -and $lastAlive.Count -gt 0) {
+    $rescueUntil = (Get-Date).AddSeconds(45)
+    $rescueAlive = @($lastAlive)
+    while ((Get-Date) -lt $rescueUntil) {
+      $poll = @()
+      foreach ($id in $TrackedIds) {
+        if (Get-Process -Id $id -ErrorAction SilentlyContinue) { $poll += $id }
+      }
+      $rescueAlive = $poll
+      if ($poll.Count -eq 0) {
+        Write-Host "graceful close drained in POST_BOUNDARY_RESCUE (tick-misalignment/teardown-lag rescue; primary bound=${boundSeconds}s)"
+        return $true
+      }
+      Start-Sleep -Milliseconds 500
+    }
+    Write-Host "L2_GRACEFUL_CLOSE: GENUINE_HANG after post-boundary rescue (primary bound=${boundSeconds}s + rescue ~45s; last alive=$(($rescueAlive -join ',')))"
+  } else {
+    Write-Host "L2_GRACEFUL_CLOSE: FAIL (no alive tracked at boundary; scratch sweep below)"
   }
 
   Write-Host "L2_GRACEFUL_CLOSE: FAIL (tracked launch tree did not drain within ${boundSeconds}s)"

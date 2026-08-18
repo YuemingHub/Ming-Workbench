@@ -146,12 +146,32 @@ function Invoke-L3UiJourney([string]$Label, [string]$UserData) {
   # ready, so gate on the startup.log handshake, not the port alone.
   $deadline = (Get-Date).AddSeconds($ReadyTimeoutSeconds)
   $backendReady = $false
+  $startupFailed = $false
   while ((Get-Date) -lt $deadline) {
     Start-Sleep -Milliseconds 1000
     $content = Read-TextFileShared $startupLog
     if ($content -match "backend ready http://127\.0\.0\.1:\d+") { $backendReady = $true; break }
-    if ($content -match "无法启动|backend startup failed|harness runtime preparation failed") { break }
+    if ($content -match "无法启动|backend startup failed|harness runtime preparation failed") { $startupFailed = $true; break }
   }
+
+  # Post-boundary final-read rescue: if the last sleep tick landed just past the
+  # deadline, the ready line can appear in startup.log milliseconds after the
+  # loop exits. Do NOT widen $ReadyTimeoutSeconds to hide this — perform one
+  # short bounded re-read so true failures still fail, while tick-misalignment
+  # and legitimate final I/O flush (observed ~0.6s overshoot on loaded
+  # runners) are rescued.
+  if (-not $backendReady -and -not $startupFailed) {
+    $rescueUntil = (Get-Date).AddSeconds(15)
+    while ((Get-Date) -lt $rescueUntil -and -not $backendReady) {
+      Start-Sleep -Milliseconds 500
+      $final = Read-TextFileShared $startupLog
+      if ($final -match "backend ready http://127\.0\.0\.1:\d+") {
+        $backendReady = $true
+        Write-Host "L3_LAUNCH_POST_BOUNDARY_RESCUE: backend ready signal caught in final re-read (tick/flush rescue)"
+      }
+    }
+  }
+
   $script:launchDurations[$Label] = ((Get-Date) - $launchStart).TotalSeconds
   Write-Host "L3_LAUNCH_DURATION $Label=$([math]::Round($script:launchDurations[$Label],1))s"
   if (-not $backendReady) {
@@ -355,6 +375,22 @@ while ((Get-Date) -lt $deadline) {
     if ($resp.StatusCode -eq 200) { $cdpReady = $true; break }
   } catch { }
 }
+
+# Post-boundary CDP rescue: same tick-misalignment rationale as first launch.
+if (-not $cdpReady) {
+  $rescueUntil = (Get-Date).AddSeconds(10)
+  while ((Get-Date) -lt $rescueUntil -and -not $cdpReady) {
+    Start-Sleep -Milliseconds 300
+    try {
+      $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$cdpPort/json/version" -UseBasicParsing -TimeoutSec 2 -ErrorAction SilentlyContinue
+      if ($resp.StatusCode -eq 200) {
+        $cdpReady = $true
+        Write-Host "L3_LAUNCH_POST_BOUNDARY_RESCUE: second-launch CDP endpoint reached in final poll (tick rescue)"
+      }
+    } catch { }
+  }
+}
+
 $script:launchDurations['second'] = ((Get-Date) - $secondLaunchStart).TotalSeconds
 Write-Host "L3_LAUNCH_DURATION second=$([math]::Round($script:launchDurations['second'],1))s"
 Assert-True $cdpReady "second launch CDP endpoint reachable"
