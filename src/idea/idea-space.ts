@@ -64,6 +64,7 @@ export interface HumanFirstIdea {
   confirmedAt?: string
   createdAt: string
   updatedAt: string
+  providerRequired?: boolean
 }
 
 export function createLetterIdea(now = new Date().toISOString()): HumanFirstIdea {

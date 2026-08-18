@@ -80,6 +80,10 @@ const server = createServer((req, res) => {
     const isHumanFirstAgreement = promptText.includes('MING_HUMAN_FIRST_AGREEMENT')
 
     if (isHumanFirstTurn || isHumanFirstAgreement) {
+      // SECRET-SAFE: log that an authenticated human-first request was received.
+      // Do NOT log the Authorization value or any secret material.
+      console.log('HUMAN_FIRST_AUTHENTICATED_REQUEST_OK')
+
       // Grounded synthesis: everything quotes what the person actually said.
       const humanLines = [...promptText.matchAll(/这个人说：([^\n]+)/g)].map((m) => m[1].trim()).filter(Boolean)
       const lastLine = humanLines.length ? humanLines[humanLines.length - 1] : '你想做成的那件事'
