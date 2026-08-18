@@ -668,11 +668,12 @@ async function removeKeyFlow(page) {
     await click(page, '#continue-conversation-button', 'continue conversation from confirmed')
     await page.waitForSelector('#conversation-view', { state: 'visible', timeout: 10_000 })
   } else if (currentView === 'letter' || currentView === 'entry') {
-    // This should NOT happen after reopen with persistence
-    console.log('remove flow: navigating from letter/entry (state may have been lost)')
-    await click(page, '#start-button', 'start for remove flow')
-    await page.waitForSelector('#entry-view', { state: 'visible', timeout: 10_000 })
-    await click(page, '#entry-1', 'new idea choice')
+    // State NOT preserved — this is a real failure, not a navigation issue.
+    // The reopenChecks already verified persistence; if we end up here with
+    // letter/entry, something is seriously wrong.
+    console.log('FAIL: remove flow sees letter/entry → state NOT preserved across reopen')
+    throw new Error(`remove flow FAIL: letter/entry visible but state should be preserved. ` +
+      `Reopen checks passed but state was lost between checks.`)
   } else {
     throw new Error(`remove flow: unknown view: ${currentView}`)
   }
