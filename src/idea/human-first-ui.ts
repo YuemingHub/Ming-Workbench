@@ -479,6 +479,11 @@ export const HUMAN_FIRST_APP_JS = `
     el('agreement-back-button').addEventListener('click', function () {
       if (STATE && STATE.synthesis) setView('review');
     });
+
+    el('continue-conversation-button').addEventListener('click', function () {
+      setView('conversation');
+      updateProviderCta();
+    });
   }
 
   window.openProviderPanel = openProviderPanel;
@@ -626,6 +631,9 @@ export function renderHumanFirstHtml(requestToken: string): string {
         </div>
       </div>
       <p class="status">这件事已经说好并记下了。真正开始的时候，我们会先告诉你每一步。</p>
+      <div class="actions">
+        <button id="continue-conversation-button" class="primary" type="button">继续对话</button>
+      </div>
     </section>
 
     <section id="boot-failure" class="card hidden">

@@ -419,96 +419,135 @@ async function reopenChecks(page) {
   step('reopen phase: verify persistence')
 
   // Wait for page to fully load and JavaScript boot() to complete.
-  // The initial HTML has all views visible; boot() then calls renderIdea()
-  // which applies the 'hidden' class to switch to the correct view.
-  // We need to wait for this to complete before checking view visibility.
   console.log('reopen: waiting for networkidle...')
   await page.waitForLoadState('networkidle').catch(() => {})
-  console.log('reopen: networkidle reached, waiting 3s for boot...')
-  await page.waitForTimeout(3000)
-  console.log('reopen: starting visibility checks...')
+  console.log('reopen: networkidle reached, waiting 5s for boot + API fetch...')
+  await page.waitForTimeout(5000)
+  console.log('reopen: starting visibility checks (all 6 views)...')
 
-  // After reopen with existing provider, the app may show:
-  // - #conversation-view: direct conversation (state fully preserved)
-  // - #letter-view: letter view (fresh start)
-  // - #entry-view: welcome/entry page (needs navigation)
-  // Handle all cases with robust retry logic.
-  let letterVisible = false
-  let convVisible = false
-  let entryVisible = false
-  const maxRetries = 10
+  // Check ALL 6 views to correctly identify the restored state
+  // confirmed-view = Idea Space fully preserved (CORRECT)
+  // conversation-view = Idea Space at conversation stage (CORRECT)
+  // review-view / agreement-view = Idea Space at intermediate stages (CORRECT)
+  // letter-view / entry-view = state NOT preserved (FAIL)
+  const maxRetries = 15
   const retryDelayMs = 2000
+  let lastDiag = null
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
-    // Use evaluate-based visibility check for reliability
-    let visResult = { letter: false, conversation: false, entry: false }
-    let diagResult = null
     try {
-      const evalResult = await page.evaluate(() => {
+      lastDiag = await page.evaluate(() => {
         function isVisible(id) {
           var el = document.getElementById(id)
-          if (!el) return { visible: false, reason: 'not-found', hasHidden: false, display: '', w: 0, h: 0 }
+          if (!el) return { visible: false, reason: 'not-found' }
           var hasHidden = el.classList.contains('hidden')
+          if (hasHidden) return { visible: false, reason: 'has-hidden-class' }
           var display = el.style ? el.style.display : ''
+          if (display === 'none') return { visible: false, reason: 'display-none' }
           var vis = el.style ? el.style.visibility : ''
-          var opacity = el.style ? el.style.opacity : ''
+          if (vis === 'hidden') return { visible: false, reason: 'visibility-hidden' }
           var w = el.offsetWidth
           var h = el.offsetHeight
-          var visible = !hasHidden && display !== 'none' && vis !== 'hidden' && !(w === 0 && h === 0)
-          return { visible: visible, reason: hasHidden ? 'has-hidden-class' : (display === 'none' ? 'display-none' : (vis === 'hidden' ? 'visibility-hidden' : (w === 0 && h === 0 ? 'zero-size' : 'ok'))), hasHidden: hasHidden, display: display, visibility: vis, opacity: opacity, w: w, h: h }
+          if (w === 0 && h === 0) return { visible: false, reason: 'zero-size' }
+          return { visible: true, reason: 'ok' }
         }
         return {
           letter: isVisible('letter-view'),
-          conversation: isVisible('conversation-view'),
           entry: isVisible('entry-view'),
-          bodyText: document.body ? document.body.textContent.substring(0, 300) : 'no-body',
+          conversation: isVisible('conversation-view'),
+          review: isVisible('review-view'),
+          agreement: isVisible('agreement-view'),
+          confirmed: isVisible('confirmed-view'),
+          state: typeof window.getState === 'function' ? window.getState() : null,
+          bodySnippet: document.body ? document.body.textContent.substring(0, 200) : 'no-body',
         }
       })
-      visResult = {
-        letter: evalResult.letter.visible,
-        conversation: evalResult.conversation.visible,
-        entry: evalResult.entry.visible,
-      }
-      diagResult = evalResult
     } catch (e) {
       console.log(`reopen: evaluate attempt ${attempt} failed: ${e.message}`)
     }
 
-    letterVisible = visResult.letter
-    convVisible = visResult.conversation
-    entryVisible = visResult.entry
+    if (lastDiag) {
+      const views = {
+        letter: lastDiag.letter.visible,
+        entry: lastDiag.entry.visible,
+        conversation: lastDiag.conversation.visible,
+        review: lastDiag.review.visible,
+        agreement: lastDiag.agreement.visible,
+        confirmed: lastDiag.confirmed.visible,
+      }
+      const viewNames = Object.keys(views).filter(k => views[k])
+      console.log(`reopen: attempt ${attempt}: visible views=[${viewNames.join(',') || 'none'}]`)
+      if (attempt < 5) {
+        console.log(`reopen: state=${JSON.stringify(lastDiag.state)}`)
+        console.log(`reopen: body=${lastDiag.bodySnippet?.substring(0, 80) || 'empty'}`)
+      }
 
-    console.log(`reopen: attempt ${attempt}: letter=${letterVisible}, conv=${convVisible}, entry=${entryVisible}`)
-    if (diagResult && attempt < 3) {
-      console.log(`reopen: letter diag: ${JSON.stringify(diagResult.letter)}`)
-      console.log(`reopen: conv diag: ${JSON.stringify(diagResult.conversation)}`)
-      console.log(`reopen: entry diag: ${JSON.stringify(diagResult.entry)}`)
-      console.log(`reopen: body text: ${diagResult.bodyText?.substring(0, 100) || 'empty'}`)
+      if (viewNames.length > 0) break
     }
 
-    if (letterVisible || convVisible || entryVisible) break
     if (attempt < maxRetries - 1) {
-      console.log(`reopen retry ${attempt + 1}/${maxRetries}: waiting for letter, conversation, or entry view...`)
+      console.log(`reopen retry ${attempt + 1}/${maxRetries}: waiting for any view to become visible...`)
       await page.waitForTimeout(retryDelayMs)
     }
   }
 
-  if (convVisible) {
-    console.log('conversation visible after reopen (existing state preserved)')
-  } else if (letterVisible) {
-    console.log('letter visible after reopen (fresh start)')
-    await click(page, '#start-button', 'start on reopen')
-    await page.waitForSelector('#entry-view', { state: 'visible', timeout: 10_000 })
-    await click(page, '#entry-1', 'new idea choice on reopen')
-  } else if (entryVisible) {
-    console.log('entry-view visible after reopen (welcome page, need navigation)')
-    await click(page, '#start-button', 'start from entry on reopen')
-    await page.waitForSelector('#entry-view', { state: 'visible', timeout: 10_000 })
-    await click(page, '#entry-1', 'choose entry 1 after reopen')
+  const d = lastDiag
+  if (!d) {
+    throw new Error('reopen: failed to get diagnostics after all retries')
+  }
+
+  const confirmedVisible = d.confirmed.visible
+  const conversationVisible = d.conversation.visible
+  const reviewVisible = d.review.visible
+  const agreementVisible = d.agreement.visible
+  const letterVisible = d.letter.visible
+  const entryVisible = d.entry.visible
+
+  // Branch diagnosis per user's A/B/C/D framework
+  const stateAfterReopen = d.state
+  console.log(`reopen: final state=${JSON.stringify(stateAfterReopen)}`)
+
+  if (confirmedVisible) {
+    console.log('confirmed-view visible after reopen → Idea Space fully preserved (Branch A)')
+    checkpoint('IDEA_SPACE_PRESERVED_CONFIRMED')
+
+    // Click "继续对话" to navigate back to conversation for provider-backed next turn
+    await click(page, '#continue-conversation-button', 'continue conversation from confirmed')
+    await page.waitForSelector('#conversation-view', { state: 'visible', timeout: 10_000 })
+    console.log('navigated from confirmed-view back to conversation-view')
+
+  } else if (conversationVisible) {
+    console.log('conversation-view visible after reopen → state preserved at conversation stage')
+    checkpoint('IDEA_SPACE_PRESERVED_CONVERSATION')
+
+  } else if (reviewVisible) {
+    console.log('review-view visible after reopen → state preserved at review stage')
+    // Navigate back to conversation via review-next-button
+    await click(page, '#review-next-button', 'proceed from review to agreement')
+    await page.waitForSelector('#agreement-view', { state: 'visible', timeout: 10_000 })
+    await click(page, '#agreement-confirm-button', 'confirm agreement to get to conversation')
+    await page.waitForSelector('#confirmed-view', { state: 'visible', timeout: 10_000 })
+    await click(page, '#continue-conversation-button', 'continue conversation from confirmed')
+    await page.waitForSelector('#conversation-view', { state: 'visible', timeout: 10_000 })
+
+  } else if (agreementVisible) {
+    console.log('agreement-view visible after reopen → state preserved at agreement stage')
+    await click(page, '#agreement-confirm-button', 'confirm agreement')
+    await page.waitForSelector('#confirmed-view', { state: 'visible', timeout: 10_000 })
+    await click(page, '#continue-conversation-button', 'continue conversation from confirmed')
+    await page.waitForSelector('#conversation-view', { state: 'visible', timeout: 10_000 })
+
+  } else if (letterVisible || entryVisible) {
+    // State NOT preserved — this is a real failure, not a navigation issue
+    console.log('FAIL: reopen shows letter/entry view only → Idea Space state LOST')
+    console.log(`FAIL: state after reopen: ${JSON.stringify(stateAfterReopen)}`)
+    console.log('FAIL: This indicates persistence or backend load bug (Branch B/C), not a driver issue')
+    throw new Error(`reopen FAIL: letter/entry visible but no preserved state. ` +
+      `State=${JSON.stringify(stateAfterReopen)}. ` +
+      `This means the confirmed Idea Space was NOT restored on startup.`)
   } else {
-    // Diagnostic: log what's actually visible on the page
     const bodyText = await page.evaluate(() => document.body?.textContent?.substring(0, 500) || 'empty')
-    throw new Error(`reopen: no expected view visible after ${maxRetries} retries. Page text: ${bodyText}`)
+    throw new Error(`reopen: no view visible after all retries. Page text: ${bodyText}`)
   }
 
   // Verify hasSecret is still true via observable
@@ -520,9 +559,9 @@ async function reopenChecks(page) {
   const aiEntry = page.locator('#ai-service-entry')
   const aiServiceEntryVisible = await aiEntry.isVisible().catch(() => false)
   console.log(`AI service entry visible: ${aiServiceEntryVisible}`)
+  checkpoint('AI_SERVICE_ENTRY_VISIBLE_AFTER_REOPEN_OK')
 
   // Send a new provider-dependent message to verify authenticated request
-  // After reopen navigation, the conversation view may take time to render
   const textarea = page.locator('#message-input, textarea').first()
   let textareaReady = false
   for (let attempt = 0; attempt < 10; attempt++) {
@@ -562,50 +601,80 @@ async function removeKeyFlow(page) {
 
   // Wait for page to fully load
   await page.waitForLoadState('networkidle').catch(() => {})
-  await page.waitForTimeout(2000)
+  await page.waitForTimeout(5000)
 
-  // Navigate to conversation view if not already there
-  let convVisible = false
-  let letterVisible = false
-  let entryVisible = false
+  // Detect current view among all 6 possibilities
+  let currentView = null
+  const maxRetries = 15
 
-  for (let attempt = 0; attempt < 10; attempt++) {
-    const visResult = await page.evaluate(() => {
-      function isVisible(id) {
-        var el = document.getElementById(id)
-        if (!el) return false
-        if (el.classList.contains('hidden')) return false
-        if (el.style && el.style.display === 'none') return false
-        if (el.offsetHeight === 0 && el.offsetWidth === 0) return false
-        return true
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const diag = await page.evaluate(() => {
+        function isVisible(id) {
+          var el = document.getElementById(id)
+          if (!el) return false
+          if (el.classList.contains('hidden')) return false
+          if (el.style && el.style.display === 'none') return false
+          if (el.offsetHeight === 0 && el.offsetWidth === 0) return false
+          return true
+        }
+        return {
+          letter: isVisible('letter-view'),
+          entry: isVisible('entry-view'),
+          conversation: isVisible('conversation-view'),
+          review: isVisible('review-view'),
+          agreement: isVisible('agreement-view'),
+          confirmed: isVisible('confirmed-view'),
+        }
+      })
+      const views = Object.keys(diag).filter(k => diag[k])
+      if (views.length > 0) {
+        currentView = views[0]
+        console.log(`remove flow: attempt ${attempt}, visible view: ${currentView}`)
+        break
       }
-      return {
-        letter: isVisible('letter-view'),
-        conversation: isVisible('conversation-view'),
-        entry: isVisible('entry-view'),
-      }
-    }).catch(() => ({ letter: false, conversation: false, entry: false }))
-
-    letterVisible = visResult.letter
-    convVisible = visResult.conversation
-    entryVisible = visResult.entry
-
-    if (convVisible || letterVisible || entryVisible) break
-    if (attempt < 9) {
-      console.log(`remove flow retry ${attempt + 1}/10: waiting for a view...`)
+    } catch (e) {
+      console.log(`remove flow: attempt ${attempt} failed: ${e.message}`)
+    }
+    if (attempt < maxRetries - 1) {
+      console.log(`remove flow retry ${attempt + 1}/${maxRetries}: waiting for a view...`)
       await page.waitForTimeout(2000)
     }
   }
 
-  if (!convVisible) {
-    if (letterVisible || entryVisible) {
-      console.log(`remove flow: navigating from ${letterVisible ? 'letter' : 'entry'} view`)
-      await click(page, '#start-button', 'start for remove flow')
-      await page.waitForSelector('#entry-view', { state: 'visible', timeout: 10_000 })
-      await click(page, '#entry-1', 'new idea choice')
-    } else {
-      throw new Error('remove flow: no expected view visible, cannot navigate')
-    }
+  if (!currentView) {
+    throw new Error('remove flow: no view visible after all retries')
+  }
+
+  // Navigate to conversation view based on current state
+  if (currentView === 'conversation') {
+    console.log('remove flow: already in conversation view')
+  } else if (currentView === 'confirmed') {
+    console.log('remove flow: navigating from confirmed to conversation')
+    await click(page, '#continue-conversation-button', 'continue conversation from confirmed')
+    await page.waitForSelector('#conversation-view', { state: 'visible', timeout: 10_000 })
+  } else if (currentView === 'review') {
+    console.log('remove flow: navigating from review to conversation')
+    await click(page, '#review-next-button', 'proceed from review')
+    await page.waitForSelector('#agreement-view', { state: 'visible', timeout: 10_000 })
+    await click(page, '#agreement-confirm-button', 'confirm agreement')
+    await page.waitForSelector('#confirmed-view', { state: 'visible', timeout: 10_000 })
+    await click(page, '#continue-conversation-button', 'continue conversation from confirmed')
+    await page.waitForSelector('#conversation-view', { state: 'visible', timeout: 10_000 })
+  } else if (currentView === 'agreement') {
+    console.log('remove flow: navigating from agreement to conversation')
+    await click(page, '#agreement-confirm-button', 'confirm agreement')
+    await page.waitForSelector('#confirmed-view', { state: 'visible', timeout: 10_000 })
+    await click(page, '#continue-conversation-button', 'continue conversation from confirmed')
+    await page.waitForSelector('#conversation-view', { state: 'visible', timeout: 10_000 })
+  } else if (currentView === 'letter' || currentView === 'entry') {
+    // This should NOT happen after reopen with persistence
+    console.log('remove flow: navigating from letter/entry (state may have been lost)')
+    await click(page, '#start-button', 'start for remove flow')
+    await page.waitForSelector('#entry-view', { state: 'visible', timeout: 10_000 })
+    await click(page, '#entry-1', 'new idea choice')
+  } else {
+    throw new Error(`remove flow: unknown view: ${currentView}`)
   }
 
   // Send a message to ensure conversation is active and AI service entry appears
@@ -638,7 +707,6 @@ async function removeKeyFlow(page) {
   await page.waitForTimeout(3000)
 
   // NOW: The AI service visible entry should be in the conversation view
-  // It appears when hasSecret=true. We click this visible entry.
   step('click visible AI 服务 entry (human path)')
   const aiEntry = page.locator('#ai-service-entry')
   await aiEntry.waitFor({ state: 'visible', timeout: 10_000 })
