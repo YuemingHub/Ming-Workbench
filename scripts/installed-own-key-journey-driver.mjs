@@ -442,22 +442,34 @@ async function reopenChecks(page) {
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     // Use evaluate-based visibility check for reliability
     let visResult = { letter: false, conversation: false, entry: false }
+    let diagResult = null
     try {
-      visResult = await page.evaluate(() => {
+      const evalResult = await page.evaluate(() => {
         function isVisible(id) {
           var el = document.getElementById(id)
-          if (!el) return false
-          if (el.classList.contains('hidden')) return false
-          if (el.style && el.style.display === 'none') return false
-          if (el.offsetHeight === 0 && el.offsetWidth === 0) return false
-          return true
+          if (!el) return { visible: false, reason: 'not-found', hasHidden: false, display: '', w: 0, h: 0 }
+          var hasHidden = el.classList.contains('hidden')
+          var display = el.style ? el.style.display : ''
+          var vis = el.style ? el.style.visibility : ''
+          var opacity = el.style ? el.style.opacity : ''
+          var w = el.offsetWidth
+          var h = el.offsetHeight
+          var visible = !hasHidden && display !== 'none' && vis !== 'hidden' && !(w === 0 && h === 0)
+          return { visible: visible, reason: hasHidden ? 'has-hidden-class' : (display === 'none' ? 'display-none' : (vis === 'hidden' ? 'visibility-hidden' : (w === 0 && h === 0 ? 'zero-size' : 'ok'))), hasHidden: hasHidden, display: display, visibility: vis, opacity: opacity, w: w, h: h }
         }
         return {
           letter: isVisible('letter-view'),
           conversation: isVisible('conversation-view'),
           entry: isVisible('entry-view'),
+          bodyText: document.body ? document.body.textContent.substring(0, 300) : 'no-body',
         }
       })
+      visResult = {
+        letter: evalResult.letter.visible,
+        conversation: evalResult.conversation.visible,
+        entry: evalResult.entry.visible,
+      }
+      diagResult = evalResult
     } catch (e) {
       console.log(`reopen: evaluate attempt ${attempt} failed: ${e.message}`)
     }
@@ -467,6 +479,12 @@ async function reopenChecks(page) {
     entryVisible = visResult.entry
 
     console.log(`reopen: attempt ${attempt}: letter=${letterVisible}, conv=${convVisible}, entry=${entryVisible}`)
+    if (diagResult && attempt < 3) {
+      console.log(`reopen: letter diag: ${JSON.stringify(diagResult.letter)}`)
+      console.log(`reopen: conv diag: ${JSON.stringify(diagResult.conversation)}`)
+      console.log(`reopen: entry diag: ${JSON.stringify(diagResult.entry)}`)
+      console.log(`reopen: body text: ${diagResult.bodyText?.substring(0, 100) || 'empty'}`)
+    }
 
     if (letterVisible || convVisible || entryVisible) break
     if (attempt < maxRetries - 1) {
