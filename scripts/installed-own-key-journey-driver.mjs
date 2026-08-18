@@ -748,6 +748,93 @@ async function removeKeyFlow(page) {
     await page.waitForTimeout(500)
   }
 
+  // After clear-secret triggers backend hot-restart, the page reloads and
+  // boot() re-fetches idea state (which is still stage=confirmed).
+  // We MUST navigate back to conversation-view before filling #message-input,
+  // otherwise the textarea exists in DOM but is hidden.
+  step('post-remove: navigate back to conversation after backend restart')
+
+  // Wait for page to settle after backend restart
+  await page.waitForLoadState('networkidle').catch(() => {})
+  await page.waitForTimeout(3000)
+
+  // Detect current visible view
+  let postRemoveView = null
+  for (let attempt = 0; attempt < 10; attempt++) {
+    try {
+      const diag = await page.evaluate(() => {
+        function isVisible(id) {
+          var el = document.getElementById(id)
+          if (!el) return false
+          if (el.classList.contains('hidden')) return false
+          if (el.style && el.style.display === 'none') return false
+          if (el.offsetHeight === 0 && el.offsetWidth === 0) return false
+          return true
+        }
+        return {
+          letter: isVisible('letter-view'),
+          entry: isVisible('entry-view'),
+          conversation: isVisible('conversation-view'),
+          review: isVisible('review-view'),
+          agreement: isVisible('agreement-view'),
+          confirmed: isVisible('confirmed-view'),
+          stage: typeof window.getState === 'function' ? window.getState()?.stage : null,
+        }
+      })
+      const views = Object.keys(diag).filter(k => k !== 'stage' && diag[k])
+      if (views.length > 0) {
+        postRemoveView = { view: views[0], stage: diag.stage }
+        console.log(`post-remove: attempt ${attempt}, visible view: ${views[0]}, stage: ${diag.stage}`)
+        break
+      }
+    } catch (e) {
+      console.log(`post-remove: attempt ${attempt} failed: ${e.message}`)
+    }
+    if (attempt < 9) {
+      console.log(`post-remove retry ${attempt + 1}/10...`)
+      await page.waitForTimeout(1500)
+    }
+  }
+
+  if (!postRemoveView) {
+    throw new Error('post-remove: no view visible after backend restart')
+  }
+
+  const prView = postRemoveView.view
+  if (prView === 'conversation') {
+    console.log('post-remove: already in conversation view')
+  } else if (prView === 'confirmed') {
+    console.log('post-remove: navigating from confirmed to conversation')
+    await click(page, '#continue-conversation-button', 'continue conversation from confirmed (post-remove)')
+    await page.waitForSelector('#conversation-view', { state: 'visible', timeout: 10_000 })
+  } else if (prView === 'review') {
+    console.log('post-remove: navigating from review to conversation')
+    await click(page, '#review-next-button', 'proceed from review (post-remove)')
+    await page.waitForSelector('#agreement-view', { state: 'visible', timeout: 10_000 })
+    await click(page, '#agreement-confirm-button', 'confirm agreement (post-remove)')
+    await page.waitForSelector('#confirmed-view', { state: 'visible', timeout: 10_000 })
+    await click(page, '#continue-conversation-button', 'continue conversation from confirmed (post-remove)')
+    await page.waitForSelector('#conversation-view', { state: 'visible', timeout: 10_000 })
+  } else if (prView === 'agreement') {
+    console.log('post-remove: navigating from agreement to conversation')
+    await click(page, '#agreement-confirm-button', 'confirm agreement (post-remove)')
+    await page.waitForSelector('#confirmed-view', { state: 'visible', timeout: 10_000 })
+    await click(page, '#continue-conversation-button', 'continue conversation from confirmed (post-remove)')
+    await page.waitForSelector('#conversation-view', { state: 'visible', timeout: 10_000 })
+  } else if (prView === 'letter' || prView === 'entry') {
+    throw new Error(`post-remove FAIL: letter/entry visible but idea state should persist. stage=${postRemoveView.stage}`)
+  }
+
+  // Verify conversation view is visible
+  const convVisibleAfterNav = await page.evaluate(() => {
+    var el = document.getElementById('conversation-view')
+    return el && !el.classList.contains('hidden')
+  })
+  if (!convVisibleAfterNav) {
+    throw new Error('post-remove: conversation view not visible after navigation')
+  }
+  console.log('post-remove: conversation view visible, ready to send verification message')
+
   // Send a provider-dependent message → should get providerRequired=true
   step('verify providerRequired returns after key removal')
   await fill(page, '#message-input', '再写一首关于夏天的诗', 'post-remove idea 2')
