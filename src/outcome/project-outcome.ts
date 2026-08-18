@@ -26,6 +26,17 @@ export interface ProjectOutcome {
 }
 
 export function projectOutcomeFromRun(outcome: RunOutcome): ProjectOutcome {
+  // A run that did not complete (failed / interrupted / orphaned) can never
+  // prove an outcome, whatever the other axes claim. Transport status is
+  // evidence too.
+  if (outcome.runStatus !== 'completed') {
+    return {
+      status: 'not_proven',
+      summary: '执行没有正常完成，成果还没有被证明。',
+      detail: outcome.reason,
+    }
+  }
+
   // Hard failure: verification failed (includes scope violations and produced
   // changes that left tests failing).
   if (outcome.verification === 'failed') {

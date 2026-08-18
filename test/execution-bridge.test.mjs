@@ -222,3 +222,74 @@ test('a passed run outcome never completes the Work Unit by itself', () => {
   // invariant must hold regardless of how well an execution run went.
   assert.equal(canMarkCompleted(result.workUnit), false)
 })
+
+test('routeForConfirmedIdea never routes on a software word that appears only in notDoing', () => {
+  const idea = baseIdea({
+    agreement: {
+      willGet: '这一轮你会得到一份每周健身动作清单。',
+      solves: '把你「不知道怎么安排锻炼动作」这件事理清楚。',
+      whereSee: '做完之后，你照着清单练就行。',
+      notDoing: '这一轮不做网页，也不做任何软件。',
+    },
+    synthesis: {
+      desiredReality: '把「每周健身动作安排」这件事理清楚',
+      strengths: ['你清楚地说了你想要什么'],
+      path: ['先把核心定下来', '做出每周能照着执行的一份清单'],
+      recommendation: '先做出一份你每周能照着执行的动作清单',
+    },
+  })
+  const decision = routeForConfirmedIdea(idea)
+  assert.equal(decision.route, 'unsupported')
+  assert.deepEqual(decision.matchedOn, [])
+})
+
+test('routeForConfirmedIdea keeps routing software when a positive surface names it, even if notDoing also names a software exclusion', () => {
+  const idea = baseIdea({
+    agreement: {
+      willGet: '这一轮你会得到一个能直接打开的「每日记录」网页。',
+      solves: '把「每天记录一句话、之后还能翻回来」这件事做成。',
+      whereSee: '做完之后，你在浏览器里打开这个网页就能用。',
+      notDoing: '这一轮不做网页版聊天功能，也不做多设备同步。',
+    },
+  })
+  const decision = routeForConfirmedIdea(idea)
+  assert.equal(decision.route, 'software_development')
+  assert.ok(decision.matchedOn.includes('网页'))
+})
+
+test('compileExecutableGoal keeps the notDoing boundary out of the goal statement but in the scope criteria', () => {
+  const idea = baseIdea({
+    agreement: {
+      willGet: '这一轮你会得到一个能直接打开的「每日记录」网页。',
+      solves: '把你心里「记录每天发生的事、之后还能翻回来」这件事，从想法变成一个用得上的网页。',
+      whereSee: '做完之后，你在浏览器里打开这个网页就能用。',
+      notDoing: '这一轮不做账号、不上传云端、不做多设备同步。',
+    },
+  })
+  const goal = compileExecutableGoal(idea)
+  assert.ok(!goal.goalStatement.includes('不做账号'), 'boundary must not leak into the goal statement')
+  assert.ok(
+    goal.acceptanceCriteria.some((criterion) => criterion === '范围：这一轮不做账号、不上传云端、不做多设备同步。'),
+    'boundary is carried as a scope acceptance criterion',
+  )
+})
+
+test('projectOutcomeFromRun never proves an outcome from a run that did not complete', () => {
+  const outcome = projectOutcomeFromRun({
+    runStatus: 'interrupted',
+    effect: 'mutation-observed',
+    verification: 'passed',
+    acceptance: 'accepted',
+    reason: 'The run was interrupted before completing.',
+  })
+  assert.equal(outcome.status, 'not_proven')
+
+  const failedRun = projectOutcomeFromRun({
+    runStatus: 'failed',
+    effect: 'mutation-observed',
+    verification: 'passed',
+    acceptance: 'accepted',
+    reason: 'The transport reported failure.',
+  })
+  assert.equal(failedRun.status, 'not_proven')
+})

@@ -69,11 +69,15 @@ export function routeForConfirmedIdea(idea: HumanFirstIdea): RouteDecision {
   const agreement = idea.agreement!
   const synthesis = idea.synthesis!
 
+  // Route-triggering surfaces are the POSITIVE claims the human agreed to
+  // (willGet / solves / whereSee + synthesis). `notDoing` is a boundary, never
+  // a surface: a software word that appears ONLY in "这一轮不做网页" must not
+  // route to software execution. notDoing is still carried into the goal as the
+  // scope boundary, so a positive route stays bounded by it.
   const surfaces = [
     agreement.willGet,
     agreement.solves,
     agreement.whereSee,
-    agreement.notDoing,
     synthesis.recommendation,
     synthesis.desiredReality,
   ]
