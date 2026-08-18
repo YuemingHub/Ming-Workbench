@@ -4,17 +4,12 @@
 # This is the repository-owned Windows installed journey for the
 # human-first entry with own-key configuration via the product UI.
 #
-# It proves:
-#   - Fresh installed app (no --project, no provider env)
-#   - Human-first V1 entry
-#   - providerRequired structured state
-#   - Dynamic provider panel mounting
-#   - safeStorage key persistence
-#   - Hot activation (no app restart)
-#   - Key removal and providerRequired re-assertion
-#   - Sentinel adversarial scan
-#   - Clean close
-#   - Uninstall verification
+# RULES:
+#   - All failures use throw or exit 1 (never return $ExitCode)
+#   - Sentinel NEVER logged in plaintext anywhere
+#   - Fixture env vars set BEFORE Start-Process
+#   - Artifacts collected even on failure
+#   - Every checkpoint fires only after its fact is verified
 #
 # Usage (Windows):
 #   pwsh -NoProfile -File scripts/installed-own-key-human-first-journey.ps1
@@ -50,9 +45,9 @@ function Read-TextFileShared([string]$Path) {
   } catch { return "" }
 }
 
-# ---- Resolve repo root exactly the same way as consumer-human-first-journey-l3.ps1 ----
+# ---- Resolve repo root ----
 if (-not $WorkDir) { $WorkDir = (Split-Path $PSScriptRoot -Parent) }
-if (-not (Test-Path (Join-Path $WorkDir "package.json"))) { Write-Host "FAIL: not a Ming Workbench repo root: $WorkDir"; exit 2 }
+if (-not (Test-Path (Join-Path $WorkDir "package.json"))) { throw "not a Ming Workbench repo root: $WorkDir" }
 if (-not $ScratchRoot) { $ScratchRoot = Join-Path $env:TEMP ("own-key-" + [guid]::NewGuid().ToString("N").Substring(0, 8)) }
 New-Item -ItemType Directory -Force -Path $ScratchRoot | Out-Null
 if ($ArtifactDir) { New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null }
@@ -68,7 +63,7 @@ $SentinelKey = -join ($SentinelBytes | ForEach-Object { $_.ToString('x2') })
 # Compute SHA256 fingerprint for correlation (NEVER log raw sentinel)
 $sha256 = [System.Security.Cryptography.SHA256]::Create()
 $sentinelHashBytes = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($SentinelKey))
-$sentinelFingerprint = -join ($sentinelHashBytes[0..7] | ForEach-Object { $_.ToString('x2') })
+$sentinelFingerprint = -join ($sentinelHashBytes[0..11] | ForEach-Object { $_.ToString('x2') })
 Write-Host "SENTINEL_FINGERPRINT=$sentinelFingerprint"
 Write-Host "SENTINEL_LENGTH=$($SentinelKey.Length)"
 
@@ -76,7 +71,6 @@ Write-Host "SENTINEL_LENGTH=$($SentinelKey.Length)"
 $installDir = Join-Path $ScratchRoot "installed"
 $userDataRoot = Join-Path $ScratchRoot "userdata"
 New-Item -ItemType Directory -Force -Path $userDataRoot | Out-Null
-$tempRoot = [System.IO.Path]::GetTempPath()
 $scratchDir = Join-Path $ScratchRoot "scratch"
 New-Item -ItemType Directory -Force -Path $scratchDir | Out-Null
 
@@ -85,105 +79,52 @@ Write-Host "USER_DATA=$userDataRoot"
 Write-Host "SCRATCH=$scratchDir"
 
 # ====================================================================
-# Phase 0: Build NSIS installer (skip if -SkipBuild)
+# ARTIFACT COLLECTION: ensure artifacts exist even on failure
 # ====================================================================
-Write-Step "BUILD NSIS installer (runtime:prepare + package)"
+function Collect-Evidence([string]$PhaseName) {
+  if (-not $ArtifactDir) { return }
+  New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
 
-if (-not $SkipBuild) {
-  $electronDist = Join-Path $WorkDir "node_modules\electron\dist"
-  if (-not (Test-Path (Join-Path $electronDist "electron.exe"))) {
-    Write-Host 'electron binary missing; running install.js'
-    Push-Location $WorkDir
-    try {
-      & node.exe node_modules/electron/install.js 2>&1 | Out-File (Join-Path $ScratchRoot "electron-install.log") -Encoding utf8
-      if ($LASTEXITCODE -ne 0) { Write-Error "electron install.js failed (exit $LASTEXITCODE)" }
-    } finally { Pop-Location }
+  # fixture server logs
+  $fixtureLog = Join-Path $ScratchRoot "fixture-server.log"
+  $fixtureErrLog = Join-Path $ScratchRoot "fixture-server.err.log"
+  if (Test-Path $fixtureLog) { Copy-Item $fixtureLog (Join-Path $ArtifactDir "fixture-server.log") -Force }
+  if (Test-Path $fixtureErrLog) { Copy-Item $fixtureErrLog (Join-Path $ArtifactDir "fixture-server.err.log") -Force }
+
+  # startup logs
+  Get-ChildItem -Path $ScratchRoot -Recurse -Filter 'startup.log' -ErrorAction SilentlyContinue | ForEach-Object {
+    $destName = $_.FullName.Replace('\', '_').Replace(':', '_')
+    Copy-Item $_.FullName (Join-Path $ArtifactDir "startup-$destName") -Force
   }
-  Push-Location $WorkDir
-  try {
-    & npm.cmd run desktop:package 2>&1 | Out-File (Join-Path $ScratchRoot "build-nsis.log") -Encoding utf8
-    if ($LASTEXITCODE -ne 0) {
-      Write-Host "--- build log tail ---"
-      Get-Content (Join-Path $ScratchRoot "build-nsis.log") -Tail 40
-      throw "desktop:package failed (exit $LASTEXITCODE)"
-    }
-  } finally { Pop-Location }
-} else {
-  Write-Host "build skipped (-SkipBuild)"
+
+  # driver logs
+  Get-ChildItem -Path $ScratchRoot -Filter '*driver*.log' -ErrorAction SilentlyContinue | ForEach-Object {
+    Copy-Item $_.FullName (Join-Path $ArtifactDir $_.Name) -Force
+  }
+
+  # build log
+  $buildLog = Join-Path $ScratchRoot "build-nsis.log"
+  if (Test-Path $buildLog) { Copy-Item $buildLog (Join-Path $ArtifactDir "build-nsis.log") -Force }
+
+  # electron install log
+  $eLog = Join-Path $ScratchRoot "electron-install.log"
+  if (Test-Path $eLog) { Copy-Item $eLog (Join-Path $ArtifactDir "electron-install.log") -Force }
+
+  # user data stores
+  if (Test-Path $firstUserData) {
+    $wuFile = Join-Path $firstUserData 'work-units.json'
+    if (Test-Path $wuFile) { Copy-Item $wuFile (Join-Path $ArtifactDir "work-units.json") -Force }
+    $prefsFile = Join-Path $firstUserData 'provider-preferences.json'
+    if (Test-Path $prefsFile) { Copy-Item $prefsFile (Join-Path $ArtifactDir "provider-preferences.json") -Force }
+    $ideaStore = Join-Path $firstUserData 'human-first-idea.json'
+    if (Test-Path $ideaStore) { Copy-Item $ideaStore (Join-Path $ArtifactDir "human-first-idea.json") -Force }
+  }
+
+  Write-Host "EVIDENCE_COLLECTED: artifacts copied to $ArtifactDir for phase=$PhaseName"
 }
 
-# Find the NSIS installer — reuse the exact pattern from consumer-human-first-journey-l3.ps1
-$installer = Get-ChildItem -Path (Join-Path $distRoot "Ming Workbench Setup *.exe") -File -ErrorAction SilentlyContinue | Select-Object -First 1
-Assert-True ($null -ne $installer) "real NSIS installer exists in dist-desktop"
-$installerSha256 = (Get-FileHash -Algorithm SHA256 -Path $installer.FullName).Hash
-Write-Host "INSTALLER=$($installer.Name) sha256=$installerSha256"
-
 # ====================================================================
-# Phase 1: Install (silent per-user, isolated dir)
-# ====================================================================
-Write-Step "INSTALL (silent per-user)"
-$installProc = Start-Process -FilePath $installer.FullName -ArgumentList "/S /D=$installDir" -Wait -PassThru
-if ($installProc.ExitCode -ne 0) { throw "installer exited $($installProc.ExitCode)" }
-$installedExe = Join-Path $installDir "Ming Workbench.exe"
-Assert-True (Test-Path $installedExe) "installed Ming Workbench.exe exists"
-Write-Host "NSIS_BUILD_OK"
-Write-Host "INSTALL_OK"
-
-# ====================================================================
-# Phase 0.5: Start fixture provider (env vars set BEFORE Start-Process)
-# ====================================================================
-Write-Step "START FIXTURE PROVIDER"
-
-# Set fixture env vars BEFORE launching the child process
-$fixturePort = 8000
-$fixtureBaseUrl = "http://127.0.0.1:$fixturePort/v1"
-
-$env:FIXTURE_PORT = "$fixturePort"
-$env:FIXTURE_API_KEY = $SentinelKey  # sentinel is the API key — proven via UI entry
-$env:FIXTURE_TARGET_DIR = $scratchDir
-
-Write-Host "FIXTURE_URL=$fixtureBaseUrl"
-Write-Host "FIXTURE_FINGERPRINT=$sentinelFingerprint"
-
-$fixtureLog = Join-Path $ScratchRoot "fixture-server.log"
-$fixtureServerProc = Start-Process -FilePath 'node' `
-  -ArgumentList 'scripts/provider-fixture-server.mjs' `
-  -WorkingDirectory $WorkDir `
-  -WindowStyle Hidden `
-  -RedirectStandardOutput $fixtureLog `
-  -RedirectStandardError (Join-Path $ScratchRoot "fixture-server.err.log") `
-  -PassThru
-
-# Wait for fixture server to be ready
-$fixtureReady = $false
-for ($i = 0; $i -lt 30; $i++) {
-  Start-Sleep -Seconds 1
-  try {
-    $response = Invoke-WebRequest -Uri "$fixtureBaseUrl/models" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
-    if ($response.StatusCode -eq 200) { $fixtureReady = $true; break }
-  } catch { }
-}
-if (-not $fixtureReady) {
-  Write-Host "--- fixture log tail ---"
-  Get-Content $fixtureLog -Tail 20 -ErrorAction SilentlyContinue
-  throw "FIXTURE_NOT_READY: fixture provider did not start within 30s"
-}
-Write-Host "FIXTURE_READY"
-
-# ====================================================================
-# Phase 0: Fresh state — NO provider env vars in parent process
-# ====================================================================
-# This is critical: the journey must prove key is entered via UI, not env.
-# Also clear FIXTURE_API_KEY so the Electron app cannot see the sentinel
-# from the environment — it must be entered through the UI path.
-$env:DEEPSEEK_API_KEY = $null
-$env:PROVIDER_API_KEY = $null
-$env:MING_PROVIDER_KEY = $null
-$env:FIXTURE_API_KEY = $null
-Write-Host "NO_PROVIDER_ENV"
-
-# ====================================================================
-# Helper: Close installed tree (same pattern as consumer-human-first-journey-l3.ps1)
+# Helper: Close installed tree
 # ====================================================================
 function Close-InstalledTree([int]$RootPid, [string]$ScratchPath, [string]$InstalledExe, [string]$UserDataDir) {
   $p = Get-Process -Id $RootPid -ErrorAction SilentlyContinue
@@ -214,7 +155,7 @@ function Close-InstalledTree([int]$RootPid, [string]$ScratchPath, [string]$Insta
     }
     Start-Sleep -Milliseconds 500
   }
-  Write-Host "HUMAN_FIRST_GRACEFUL_CLOSE: FAIL (installed tree did not drain within 90s)"
+  Write-Host "CLOSE_FAIL: installed tree did not drain within 90s"
   Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
     $_.CommandLine -and $_.CommandLine.IndexOf($ScratchPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
   } | ForEach-Object { try { taskkill /PID $_.ProcessId /T /F 2>&1 | Out-Null } catch { } }
@@ -224,21 +165,119 @@ function Close-InstalledTree([int]$RootPid, [string]$ScratchPath, [string]$Insta
 }
 
 # ====================================================================
-# Helper: Invoke one journey phase
+# BUILD PHASE
 # ====================================================================
-function Invoke-OwnKeyPhase([string]$Phase, [string]$UserData, [string]$CdpUrl, [string]$Label) {
+Write-Step "BUILD NSIS installer"
+
+if (-not $SkipBuild) {
+  $electronDist = Join-Path $WorkDir "node_modules\electron\dist"
+  if (-not (Test-Path (Join-Path $electronDist "electron.exe"))) {
+    Write-Host 'electron binary missing; running install.js'
+    Push-Location $WorkDir
+    try {
+      & node.exe node_modules/electron/install.js 2>&1 | Out-File (Join-Path $ScratchRoot "electron-install.log") -Encoding utf8
+      if ($LASTEXITCODE -ne 0) { throw "electron install.js failed (exit $LASTEXITCODE)" }
+    } finally { Pop-Location }
+  }
+  Push-Location $WorkDir
+  try {
+    & npm.cmd run desktop:package 2>&1 | Out-File (Join-Path $ScratchRoot "build-nsis.log") -Encoding utf8
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host "--- build log tail ---"
+      Get-Content (Join-Path $ScratchRoot "build-nsis.log") -Tail 40
+      throw "desktop:package failed (exit $LASTEXITCODE)"
+    }
+  } finally { Pop-Location }
+} else {
+  Write-Host "build skipped (-SkipBuild)"
+}
+
+$installer = Get-ChildItem -Path (Join-Path $distRoot "Ming Workbench Setup *.exe") -File -ErrorAction SilentlyContinue | Select-Object -First 1
+Assert-True ($null -ne $installer) "real NSIS installer exists in dist-desktop"
+$installerSha256 = (Get-FileHash -Algorithm SHA256 -Path $installer.FullName).Hash
+Write-Host "INSTALLER=$($installer.Name) sha256=$installerSha256"
+Write-Host "NSIS_BUILD_OK"
+
+# ====================================================================
+# INSTALL PHASE
+# ====================================================================
+Write-Step "INSTALL (silent per-user, isolated dir)"
+$installProc = Start-Process -FilePath $installer.FullName -ArgumentList "/S /D=$installDir" -Wait -PassThru
+if ($installProc.ExitCode -ne 0) { throw "installer exited $($installProc.ExitCode)" }
+$installedExe = Join-Path $installDir "Ming Workbench.exe"
+Assert-True (Test-Path $installedExe) "installed Ming Workbench.exe exists"
+Write-Host "INSTALL_OK"
+
+# ====================================================================
+# FIXTURE PHASE — authenticated probe
+# ====================================================================
+Write-Step "START FIXTURE PROVIDER"
+
+$fixturePort = 8000
+$fixtureBaseUrl = "http://127.0.0.1:$fixturePort/v1"
+
+# Set fixture env vars BEFORE launching the child process
+$env:FIXTURE_PORT = "$fixturePort"
+$env:FIXTURE_API_KEY = $SentinelKey
+$env:FIXTURE_TARGET_DIR = $scratchDir
+
+Write-Host "FIXTURE_URL=$fixtureBaseUrl"
+Write-Host "FIXTURE_FINGERPRINT=$sentinelFingerprint"
+
+$fixtureLog = Join-Path $ScratchRoot "fixture-server.log"
+$fixtureProc = Start-Process -FilePath 'node' `
+  -ArgumentList 'scripts/provider-fixture-server.mjs' `
+  -WorkingDirectory $WorkDir `
+  -WindowStyle Hidden `
+  -RedirectStandardOutput $fixtureLog `
+  -RedirectStandardError (Join-Path $ScratchRoot "fixture-server.err.log") `
+  -PassThru
+
+# Wait for fixture with AUTHENTICATED probe (same sentinel)
+$fixtureReady = $false
+for ($i = 0; $i -lt 30; $i++) {
+  Start-Sleep -Seconds 1
+  try {
+    $headers = @{ Authorization = "Bearer $SentinelKey" }
+    $response = Invoke-WebRequest -Uri "$fixtureBaseUrl/models" -Headers $headers -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
+    if ($response.StatusCode -eq 200) { $fixtureReady = $true; break }
+  } catch { }
+}
+if (-not $fixtureReady) {
+  Write-Host "--- fixture log tail ---"
+  Get-Content $fixtureLog -Tail 20 -ErrorAction SilentlyContinue
+  Collect-Evidence "fixture-not-ready"
+  throw "FIXTURE_NOT_READY: authenticated probe to $fixtureBaseUrl/models failed within 30s"
+}
+Write-Host "FIXTURE_READY"
+
+# ====================================================================
+# CLEAR PROVIDER ENV before Electron launch
+# ====================================================================
+# Critical: the journey must prove key is entered via UI, not env.
+$env:DEEPSEEK_API_KEY = $null
+$env:PROVIDER_API_KEY = $null
+$env:MING_PROVIDER_KEY = $null
+$env:FIXTURE_API_KEY = $null
+Write-Host "NO_PROVIDER_ENV"
+
+# ====================================================================
+# JOURNEY HELPER: run one phase
+# ====================================================================
+function Invoke-OwnKeyPhase([string]$Phase, [string]$UserData, [string]$Label) {
   Write-Step "OWN-KEY PHASE=$Phase label=$Label"
   $startupLog = Join-Path $UserData "startup.log"
   $cdpPort = 9335
 
-  # Launch with remote debugging enabled, NO --project, NO provider env
+  # --- Track root Electron PID before launch ---
   $launchStart = Get-Date
   $proc = Start-Process -FilePath $installedExe `
     -ArgumentList "--remote-debugging-port=$cdpPort", "--user-data-dir `"$UserData`"", "--no-sandbox", "--disable-gpu" `
     -WorkingDirectory $installDir `
     -PassThru -NoNewWindow
 
-  Write-Host "launched pid=$($proc.Id) phase=$Phase"
+  $rootPidBefore = $proc.Id
+  Write-Host "ROOT_PID_BEFORE=$rootPidBefore"
   Write-Host "FIRST_LAUNCH_OK"
   Write-Host "NO_PROJECT"
 
@@ -255,7 +294,6 @@ function Invoke-OwnKeyPhase([string]$Phase, [string]$UserData, [string]$CdpUrl, 
   Write-Host "LAUNCH_DURATION=$($launchDuration)s"
 
   if (-not $backendReady) {
-    # Upload startup.log as artifact before throwing
     if ($ArtifactDir -and (Test-Path $startupLog)) {
       New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
       Copy-Item $startupLog (Join-Path $ArtifactDir "$Label-$Phase-startup.log") -Force
@@ -277,7 +315,10 @@ function Invoke-OwnKeyPhase([string]$Phase, [string]$UserData, [string]$CdpUrl, 
   }
   Assert-True $cdpReady "renderer CDP endpoint reachable"
 
-  # Drive the journey via CDP
+  # --- Store root PID for hot-activation verification ---
+  $global:RootElectronPid = $rootPidBefore
+
+  # Drive the journey via CDP — pass SAME sentinel to driver
   Push-Location $WorkDir
   try {
     $env:MING_CDP_URL = "http://127.0.0.1:$cdpPort"
@@ -286,34 +327,47 @@ function Invoke-OwnKeyPhase([string]$Phase, [string]$UserData, [string]$CdpUrl, 
     $env:MING_WORKSPACE_PATH = $scratchDir
     $env:MING_FIXTURE_BASE_URL = $fixtureBaseUrl
     $env:MING_FIXTURE_MODEL = 'fixture-model'
-    $env:MING_FIXTURE_PROVIDER_KIND = 'custom'
+    $env:MING_SENTINEL_KEY = $SentinelKey
     $env:MING_SENTINEL_FINGERPRINT = $sentinelFingerprint
 
     & node scripts/installed-own-key-journey-driver.mjs 2>&1 | Tee-Object -FilePath (Join-Path $ScratchRoot "$Label-$Phase-driver.log")
     $driverExit = $LASTEXITCODE
 
-    # Upload driver log + startup log
+    # Collect artifacts from this phase
     if ($ArtifactDir) {
       New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
       if (Test-Path $startupLog) { Copy-Item $startupLog (Join-Path $ArtifactDir "$Label-$Phase-startup.log") -Force }
       if (Test-Path (Join-Path $ScratchRoot "$Label-$Phase-driver.log")) { Copy-Item (Join-Path $ScratchRoot "$Label-$Phase-driver.log") (Join-Path $ArtifactDir "$Label-$Phase-driver.log") -Force }
     }
 
+    # --- CRITICAL: clear sentinel from driver env AFTER driver run ---
+    Remove-Item Env:MING_SENTINEL_KEY -ErrorAction SilentlyContinue
+
     if ($driverExit -ne 0) {
       Write-Host "--- driver log tail ---"
       Get-Content (Join-Path $ScratchRoot "$Label-$Phase-driver.log") -Tail 40
       throw "driver exited $driverExit for phase=$Phase"
     }
-  } finally { Pop-Location }
+  } finally {
+    Remove-Item Env:MING_CDP_URL -ErrorAction SilentlyContinue
+    Remove-Item Env:MING_OWN_KEY_PHASE -ErrorAction SilentlyContinue
+    Remove-Item Env:MING_USER_DATA_PATH -ErrorAction SilentlyContinue
+    Remove-Item Env:MING_WORKSPACE_PATH -ErrorAction SilentlyContinue
+    Remove-Item Env:MING_FIXTURE_BASE_URL -ErrorAction SilentlyContinue
+    Remove-Item Env:MING_FIXTURE_MODEL -ErrorAction SilentlyContinue
+    Remove-Item Env:MING_SENTINEL_FINGERPRINT -ErrorAction SilentlyContinue
+    Remove-Item Env:MING_SENTINEL_KEY -ErrorAction SilentlyContinue
+  }
 
-  Remove-Item Env:MING_CDP_URL -ErrorAction SilentlyContinue
-  Remove-Item Env:MING_OWN_KEY_PHASE -ErrorAction SilentlyContinue
-  Remove-Item Env:MING_USER_DATA_PATH -ErrorAction SilentlyContinue
-  Remove-Item Env:MING_WORKSPACE_PATH -ErrorAction SilentlyContinue
-  Remove-Item Env:MING_FIXTURE_BASE_URL -ErrorAction SilentlyContinue
-  Remove-Item Env:MING_FIXTURE_MODEL -ErrorAction SilentlyContinue
-  Remove-Item Env:MING_FIXTURE_PROVIDER_KIND -ErrorAction SilentlyContinue
-  Remove-Item Env:MING_SENTINEL_FINGERPRINT -ErrorAction SilentlyContinue
+  # --- Verify Electron PID unchanged after driver (hot activation) ---
+  # Check if the root Electron process PID is still alive
+  $rootAlive = Get-Process -Id $rootPidBefore -ErrorAction SilentlyContinue
+  if ($rootAlive) {
+    Write-Host "ELECTRON_PID_UNCHANGED: root PID=$rootPidBefore still alive after hot activation"
+  } else {
+    Write-Host "ELECTRON_PID_CHANGED: root PID=$rootPidBefore no longer alive (Electron may have restarted)"
+    throw "ELECTRON_PID_CHANGED: Electron root process PID changed — hot activation not proven"
+  }
 
   # Close the app gracefully
   $closeOk = Close-InstalledTree $proc.Id $scratchDir $installedExe $UserData
@@ -323,54 +377,48 @@ function Invoke-OwnKeyPhase([string]$Phase, [string]$UserData, [string]$CdpUrl, 
 }
 
 # ====================================================================
-# Phase 2: First launch — fresh userData, full own-key journey
+# PHASE 1: FIRST LAUNCH
 # ====================================================================
 Write-Step "PHASE: FIRST LAUNCH (fresh userData, no provider)"
 $firstUserData = Join-Path $ScratchRoot "userdata-first"
 New-Item -ItemType Directory -Force -Path $firstUserData | Out-Null
 
-Invoke-OwnKeyPhase -Phase 'first' -UserData $firstUserData -CdpUrl 'http://127.0.0.1:9335' -Label 'first'
-
-Write-Host "LETTER_OK"
-Write-Host "THREE_ENTRIES_OK"
-Write-Host "PROVIDER_REQUIRED_OK"
-Write-Host "CONNECT_AI_CTA_OK"
-Write-Host "PROVIDER_PANEL_NOT_IN_DOM_BEFORE_CLICK"
-Write-Host "PROVIDER_PANEL_MOUNTED_AFTER_CLICK"
-Write-Host "KEY_ENTERED_THROUGH_UI"
-Write-Host "PREFERENCES_ENTERED_THROUGH_UI"
-Write-Host "SAFESTORAGE_HAS_SECRET"
-Write-Host "BACKEND_HOT_ACTIVATED"
-Write-Host "ELECTRON_PID_UNCHANGED"
-Write-Host "IDEA_SPACE_CONTINUITY_OK"
-Write-Host "PROVIDER_BACKED_CONVERSATION_OK"
-Write-Host "SYNTHESIS_OK"
-Write-Host "AGREEMENT_OK"
-Write-Host "CLEAN_CLOSE_OK"
+Invoke-OwnKeyPhase -Phase 'first' -UserData $firstUserData -Label 'first'
 
 # ====================================================================
-# Phase 3: Reopen — same userData, verify persistence
+# PHASE 2: REOPEN
 # ====================================================================
 Write-Step "PHASE: REOPEN (same userData, verify persistence)"
 
-Invoke-OwnKeyPhase -Phase 'reopen' -UserData $firstUserData -CdpUrl 'http://127.0.0.1:9335' -Label 'reopen'
-
-Write-Host "REOPEN_SAME_USERDATA_OK"
-Write-Host "HAS_SECRET_AFTER_REOPEN_OK"
+Invoke-OwnKeyPhase -Phase 'reopen' -UserData $firstUserData -Label 'reopen'
 
 # ====================================================================
-# Phase 4: Remove key — verify providerRequired re-assertion
+# PHASE 3: REMOVE KEY
 # ====================================================================
 Write-Step "PHASE: REMOVE KEY (verify providerRequired re-assertion)"
 
-Invoke-OwnKeyPhase -Phase 'remove' -UserData $firstUserData -CdpUrl 'http://127.0.0.1:9335' -Label 'remove'
-
-Write-Host "REMOVE_KEY_UI_OK"
-Write-Host "HAS_SECRET_FALSE_OK"
-Write-Host "PROVIDER_REQUIRED_RETURNS_OK"
+Invoke-OwnKeyPhase -Phase 'remove' -UserData $firstUserData -Label 'remove'
 
 # ====================================================================
-# Phase 5: Sentinel adversarial scan
+# HUMAN_FIRST_AUTHENTICATED_REQUEST_OK — verify from fixture log
+# ====================================================================
+Write-Step "VERIFY HUMAN_FIRST_AUTHENTICATED_REQUEST_OK"
+if (Test-Path $fixtureLog) {
+  $fixtureContent = Get-Content $fixtureLog -Raw -ErrorAction SilentlyContinue
+  if ($fixtureContent -and $fixtureContent.Contains('HUMAN_FIRST_AUTHENTICATED_REQUEST_OK')) {
+    Write-Host "HUMAN_FIRST_AUTHENTICATED_REQUEST_OK: fixture confirmed authenticated request"
+  } else {
+    Write-Host "WARNING: fixture log does NOT contain HUMAN_FIRST_AUTHENTICATED_REQUEST_OK"
+    Write-Host "--- fixture log tail ---"
+    Get-Content $fixtureLog -Tail 30 -ErrorAction SilentlyContinue
+    throw "HUMAN_FIRST_AUTHENTICATED_REQUEST_NOT_FOUND: fixture did not log authenticated request"
+  }
+} else {
+  throw "FIXTURE_LOG_MISSING: cannot verify authenticated request"
+}
+
+# ====================================================================
+# SENTINEL ADVERSARIAL SCAN
 # ====================================================================
 Write-Step "SENTINEL ADVERSARIAL SCAN"
 
@@ -393,21 +441,18 @@ try {
     }
   }
 
-  # Check git diff (unstaged)
   $gitDiff = & git diff 2>&1 | Out-String
   if ($gitDiff.Contains($SentinelKey)) {
     Write-Host "SENTINEL_IN_GIT_DIFF"
     $scanTargets += 'git:diff'
   }
 
-  # Check git staged diff
   $gitStaged = & git diff --cached 2>&1 | Out-String
   if ($gitStaged.Contains($SentinelKey)) {
     Write-Host "SENTINEL_IN_GIT_STAGED"
     $scanTargets += 'git:staged'
   }
 
-  # Check git log
   $gitLog = & git log --oneline -20 2>&1 | Out-String
   if ($gitLog.Contains($SentinelKey)) {
     Write-Host "SENTINEL_IN_GIT_LOG"
@@ -416,7 +461,7 @@ try {
 } catch { }
 Pop-Location
 
-# 2. Startup logs (all userData dirs)
+# 2. Startup logs
 Get-ChildItem -Path $ScratchRoot -Recurse -Filter 'startup.log' -ErrorAction SilentlyContinue | ForEach-Object {
   $logContent = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
   if ($logContent -and $logContent.Contains($SentinelKey)) {
@@ -425,14 +470,13 @@ Get-ChildItem -Path $ScratchRoot -Recurse -Filter 'startup.log' -ErrorAction Sil
   }
 }
 
-# 3. User data directory (excluding safeStorage encrypted files — but scan them too!)
+# 3. User data directory
 if (Test-Path $firstUserData) {
   Get-ChildItem -Path $firstUserData -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
     $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
     if ($content -and $content.Contains($SentinelKey)) {
-      # Even safeStorage encrypted files must be plaintext-scanned
       if ($_.Name -match 'safeStorage|encrypted') {
-        Write-Host "SENTINEL_IN_SAFESTORAGE (encrypted payload — EXCEPTIONALLY allowed for runtime path)"
+        Write-Host "SENTINEL_IN_SAFESTORAGE (encrypted — EXCEPTIONALLY allowed for runtime path)"
       } else {
         Write-Host "SENTINEL_IN_USERDATA: $($_.FullName)"
         $scanTargets += "userdata:$($_.Name)"
@@ -507,7 +551,7 @@ if (Test-Path $diagDir) {
   }
 }
 
-# 10. Test reports / artifacts
+# 10. Artifacts
 if ($ArtifactDir -and (Test-Path $ArtifactDir)) {
   Get-ChildItem -Path $ArtifactDir -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
     $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
@@ -536,7 +580,7 @@ Get-ChildItem -Path $ScratchRoot -Filter '*driver*.log' -ErrorAction SilentlyCon
   }
 }
 
-# Report sentinel scan result
+# Final sentinel scan result
 if ($scanTargets.Count -gt 0) {
   Write-Host "SENTINEL_SCAN_FAIL: found in $($scanTargets.Count) locations"
   Write-Host "  Locations: $($scanTargets -join ', ')"
@@ -547,41 +591,7 @@ if ($scanTargets.Count -gt 0) {
 Write-Host "SENTINEL_PLAINTEXT_SCAN_OK"
 
 # ====================================================================
-# Phase 6: Upload artifacts
-# ====================================================================
-if ($ArtifactDir) {
-  New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
-  if (Test-Path $fixtureLog) {
-    Copy-Item $fixtureLog (Join-Path $ArtifactDir "fixture-server.log") -Force
-  }
-  # Copy all startup logs
-  Get-ChildItem -Path $ScratchRoot -Recurse -Filter 'startup.log' -ErrorAction SilentlyContinue | ForEach-Object {
-    $destName = $_.FullName.Replace('\', '_').Replace(':', '_')
-    Copy-Item $_.FullName (Join-Path $ArtifactDir "startup-$destName") -Force
-  }
-  # Copy driver logs
-  Get-ChildItem -Path $ScratchRoot -Filter '*driver*.log' -ErrorAction SilentlyContinue | ForEach-Object {
-    Copy-Item $_.FullName (Join-Path $ArtifactDir $_.Name) -Force
-  }
-  # Copy work unit store
-  $wuFile = Join-Path $firstUserData 'work-units.json'
-  if (Test-Path $wuFile) {
-    Copy-Item $wuFile (Join-Path $ArtifactDir "work-units.json") -Force
-  }
-  # Copy preferences
-  $prefsFile = Join-Path $firstUserData 'provider-preferences.json'
-  if (Test-Path $prefsFile) {
-    Copy-Item $prefsFile (Join-Path $ArtifactDir "provider-preferences.json") -Force
-  }
-  # Copy idea store
-  $ideaStore = Join-Path $firstUserData 'human-first-idea.json'
-  if (Test-Path $ideaStore) {
-    Copy-Item $ideaStore (Join-Path $ArtifactDir "human-first-idea.json") -Force
-  }
-}
-
-# ====================================================================
-# Phase 7: Uninstall
+# UNINSTALL PHASE
 # ====================================================================
 Write-Step "UNINSTALL"
 $uninstaller = Join-Path $installDir "Uninstall Ming Workbench.exe"
@@ -595,16 +605,24 @@ if (Test-Path $uninstaller) {
 }
 
 # ====================================================================
-# Cleanup
+# FINAL ARTIFACT COLLECTION
 # ====================================================================
-if ($fixtureServerProc -and -not $fixtureServerProc.HasExited) {
-  $fixtureServerProc.Kill()
+if ($ArtifactDir) {
+  Collect-Evidence "final"
+}
+
+# ====================================================================
+# CLEANUP
+# ====================================================================
+if ($fixtureProc -and -not $fixtureProc.HasExited) {
+  $fixtureProc.Kill()
   Start-Sleep -Seconds 1
 }
 
 # ====================================================================
-# Final status
+# FINAL STATUS
 # ====================================================================
+Write-Host ""
 Write-Host "STAGE_2_5_INSTALLED_OWN_KEY_OK"
 Write-Host "INSTALLED_OWN_KEY_JOURNEY: PASS"
 exit 0

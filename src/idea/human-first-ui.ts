@@ -115,6 +115,9 @@ h2 { font-size: 22px; line-height: 1.25; letter-spacing: -.02em; }
 .provider-panel .panel-status.ok { color: #19633f; }
 .provider-panel .panel-status.error { color: #963d35; }
 .provider-panel .panel-close { position: absolute; top: 12px; right: 16px; background: none; border: none; font-size: 20px; color: #8a94a8; cursor: pointer; }
+.ai-service-entry { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; padding: 8px 14px; background: #f5f7fb; border: 1px solid #d8deea; border-radius: 10px; color: #43506a; font-size: 13px; cursor: pointer; }
+.ai-service-entry:hover { background: #eaf0f7; border-color: #b9c3d4; }
+.ai-service-entry .dot { width: 8px; height: 8px; border-radius: 50%; background: #19633f; }
 `
 
 export const HUMAN_FIRST_APP_JS = `
@@ -173,11 +176,26 @@ export const HUMAN_FIRST_APP_JS = `
     if (cta) cta.classList.add('hidden');
   }
 
+  function showProviderEntry() {
+    var entry = el('ai-service-entry');
+    if (entry) entry.classList.remove('hidden');
+  }
+
+  function hideProviderEntry() {
+    var entry = el('ai-service-entry');
+    if (entry) entry.classList.add('hidden');
+  }
+
   function updateProviderCta() {
     if (STATE && STATE.providerRequired && PROVIDER_STATE.loaded && !PROVIDER_STATE.hasSecret) {
       showProviderCta();
+      hideProviderEntry();
+    } else if (PROVIDER_STATE.loaded && PROVIDER_STATE.hasSecret) {
+      hideProviderCta();
+      showProviderEntry();
     } else {
       hideProviderCta();
+      hideProviderEntry();
     }
   }
 
@@ -448,6 +466,8 @@ export const HUMAN_FIRST_APP_JS = `
   window.closeProviderPanel = closeProviderPanel;
   window.saveProviderConfig = saveProviderConfig;
   window.clearProviderSecret = clearProviderSecretAction;
+  window.getState = function() { return STATE; };
+  window.getProviderState = function() { return PROVIDER_STATE; };
 
   document.addEventListener('DOMContentLoaded', function () {
     boot().catch(function (e) {
@@ -495,6 +515,9 @@ export function renderHumanFirstHtml(requestToken: string): string {
       <div class="card chat" id="chat-log"></div>
       <div id="provider-cta" class="provider-cta hidden">
         需要连接 AI 服务才能继续。<span class="link" onclick="openProviderPanel()">连接我的 AI 服务</span>
+      </div>
+      <div id="ai-service-entry" class="ai-service-entry hidden" onclick="openProviderPanel()" title="管理你的 AI 服务">
+        <span class="dot"></span>AI 服务
       </div>
       <div class="compose">
         <textarea id="message-input" rows="2" placeholder="用你自己的话说就行，想到哪里说到哪里"></textarea>
