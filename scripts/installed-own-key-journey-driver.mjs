@@ -179,9 +179,18 @@ async function firstLaunch(page) {
 
   // ---- 7. Click CTA → panel dynamically mounts ----
   step('7. click CTA → provider panel dynamically mounted')
-  const ctaLink = page.locator('#provider-cta .link').first()
-  await ctaLink.waitFor({ state: 'visible', timeout: 10_000 })
-  await ctaLink.click()
+
+  // Diagnostic: verify desktop mode is available before clicking
+  const desktopMode = await page.evaluate(() => ({
+    hasMingWorkbench: typeof window.mingWorkbench !== 'undefined' && window.mingWorkbench !== null,
+    isDesktopFn: typeof window.isDesktopMode === 'function' ? window.isDesktopMode() : 'no-fn',
+    hasProviderSecret: typeof window.mingWorkbench !== 'undefined' && window.mingWorkbench?.hasProviderSecret ? true : false,
+  }))
+  console.log(`desktop mode diagnostic: ${JSON.stringify(desktopMode)}`)
+
+  const ctaDiv = page.locator('#provider-cta').first()
+  await ctaDiv.waitFor({ state: 'visible', timeout: 10_000 })
+  await ctaDiv.click()
   await page.waitForSelector('#provider-panel-overlay', { state: 'visible', timeout: 10_000 })
   const panelAfter = await page.locator('#provider-panel-overlay').count()
   assert(panelAfter > 0, 'provider panel DYNAMICALLY mounted after CTA click')

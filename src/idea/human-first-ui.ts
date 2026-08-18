@@ -240,11 +240,15 @@ export const HUMAN_FIRST_APP_JS = `
   }
 
   function openProviderPanel() {
+    mountProviderPanel();
     if (!isDesktopMode()) {
-      alert('连接 AI 服务需要在桌面版 Ming Workbench 中使用。');
+      var status = el('provider-panel-status');
+      if (status) {
+        status.textContent = '连接 AI 服务需要在桌面版 Ming Workbench 中使用。';
+        status.className = 'panel-status error';
+      }
       return;
     }
-    mountProviderPanel();
     prefillProviderPanel();
   }
 
@@ -513,8 +517,8 @@ export function renderHumanFirstHtml(requestToken: string): string {
       <p class="eyebrow">MING WORKBENCH</p>
       <h2>说说你的想法。</h2>
       <div class="card chat" id="chat-log"></div>
-      <div id="provider-cta" class="provider-cta hidden">
-        需要连接 AI 服务才能继续。<span class="link" onclick="openProviderPanel()">连接我的 AI 服务</span>
+      <div id="provider-cta" class="provider-cta hidden" onclick="openProviderPanel()">
+        需要连接 AI 服务才能继续。<span class="link">连接我的 AI 服务</span>
       </div>
       <div id="ai-service-entry" class="ai-service-entry hidden" onclick="openProviderPanel()" title="管理你的 AI 服务">
         <span class="dot"></span>AI 服务
