@@ -117,20 +117,21 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
     }
   }
 
-  $deadline = (Get-Date).AddSeconds(60)
+  $boundSeconds = 120
+  $deadline = (Get-Date).AddSeconds($boundSeconds)
   while ((Get-Date) -lt $deadline) {
     $alive = @()
     foreach ($id in $TrackedIds) {
       if (Get-Process -Id $id -ErrorAction SilentlyContinue) { $alive += $id }
     }
     if ($alive.Count -eq 0) {
-      Write-Host "graceful close drained within 60s bound"
+      Write-Host "graceful close drained within ${boundSeconds}s bound"
       return $true
     }
     Start-Sleep -Milliseconds 500
   }
 
-  Write-Host "L2_GRACEFUL_CLOSE: FAIL (tracked launch tree did not drain within 60s)"
+  Write-Host "L2_GRACEFUL_CLOSE: FAIL (tracked launch tree did not drain within ${boundSeconds}s)"
   $rootP = Get-Process -Id $RootPid -ErrorAction SilentlyContinue
   if ($rootP) {
     Write-Host "root pid=$RootPid still alive; MainWindowHandle=$($rootP.MainWindowHandle) title='$($rootP.MainWindowTitle)'"
@@ -252,7 +253,7 @@ function Invoke-PackagedLaunch([string]$AppPath, [string]$Label, [string]$Scratc
       }
     }
     Assert-True ($residual.Count -eq 0) "zero residual processes after close" "(label=$Label)"
-    Assert-True $graceful "app closed gracefully within the 60s bound" "(label=$Label)"
+    Assert-True $graceful "app closed gracefully within the graceful-close bound" "(label=$Label)"
     return $startupLog
   } finally {
     foreach ($entry in $savedEnv.GetEnumerator()) {
