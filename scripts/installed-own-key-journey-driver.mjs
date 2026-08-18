@@ -694,36 +694,21 @@ async function removeKeyFlow(page) {
     throw new Error('remove flow: provider state not loaded after navigation. #ai-service-entry will be hidden.')
   }
 
-  // Send a message to ensure conversation is active and AI service entry appears
-  const textarea = page.locator('#message-input, textarea').first()
-  let textareaReady = false
-  for (let attempt = 0; attempt < 10; attempt++) {
-    if (await textarea.count() > 0 && await textarea.isVisible().catch(() => false)) {
-      textareaReady = true
-      break
-    }
-    if (attempt < 9) {
-      console.log(`remove flow: waiting for textarea (${attempt + 1}/10)...`)
-      await page.waitForTimeout(1500)
-    }
+  // After reloadProviderState, conversation view is active and #ai-service-entry
+  // is visible. We do NOT send a message here — that would trigger synthesis
+  // and potentially change the stage back to review, hiding the conversation view.
+  // Instead, we go straight to the AI service entry click.
+
+  // Verify conversation view is still visible (no stage regression)
+  const convVisible = await page.evaluate(() => {
+    var el = document.getElementById('conversation-view')
+    return el && !el.classList.contains('hidden')
+  })
+  if (!convVisible) {
+    throw new Error('remove flow: conversation view not visible before AI service entry click. Stage may have regressed.')
   }
 
-  if (!textareaReady) {
-    throw new Error('remove flow: textarea not found after navigation')
-  }
-
-  await textarea.fill('写一首关于春天的诗')
-  const sendBtn = page.locator('#send-button').first()
-  if (await sendBtn.count() > 0) {
-    await sendBtn.click()
-  } else {
-    await textarea.press('Enter')
-  }
-
-  // Wait for conversation to settle
-  await page.waitForTimeout(3000)
-
-  // NOW: The AI service visible entry should be in the conversation view
+  // NOW: The AI service visible entry should be visible in the conversation view
   step('click visible AI 服务 entry (human path)')
   const aiEntry = page.locator('#ai-service-entry')
   await aiEntry.waitFor({ state: 'visible', timeout: 10_000 })
