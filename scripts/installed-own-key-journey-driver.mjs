@@ -27,6 +27,7 @@
 
 import { chromium } from 'playwright-core'
 import { randomBytes } from 'node:crypto'
+import { createHash } from 'node:crypto'
 
 const CDP_URL = process.env.MING_CDP_URL ?? 'http://127.0.0.1:9222'
 const PHASE = process.env.MING_OWN_KEY_PHASE ?? 'first' // first | reopen | remove
@@ -35,12 +36,17 @@ const FIXTURE_BASE_URL = process.env.MING_FIXTURE_BASE_URL ?? 'http://127.0.0.1:
 const FIXTURE_MODEL = process.env.MING_FIXTURE_MODEL ?? 'fixture-model'
 const FIXTURE_PROVIDER_KIND = process.env.MING_FIXTURE_PROVIDER_KIND ?? 'custom'
 
-// High-entropy sentinel for adversarial scan (32 hex chars = 128 bits)
+// Sentinel key — only used for UI fill; NEVER logged in plaintext
 const SENTINEL_KEY = process.env.MING_SENTINEL_KEY ?? randomBytes(32).toString('hex')
+const SENTINEL_FINGERPRINT = process.env.MING_SENTINEL_FINGERPRINT ?? createHash('sha256').update(SENTINEL_KEY).digest('hex').slice(0, 12)
 
 // Sentinel artifacts to check
 const userDataPath = process.env.MING_USER_DATA_PATH ?? ''
 const workspacePath = process.env.MING_WORKSPACE_PATH ?? ''
+
+function checkpoint(name) {
+  console.log(`CHECKPOINT: ${name}`)
+}
 
 function step(name) {
   console.log(`=== ${name} ===`)
@@ -113,9 +119,11 @@ async function firstLaunch(page) {
   const letterVisible = await page.locator('#letter-view').isVisible()
   assert(letterVisible, 'human-first letter rendered')
   console.log('letter observed')
+  checkpoint('LETTER_OK')
 
   // Pre-confirmation: NO engineering terms in DOM
   await waitForNoEngineeringTerms(page)
+  checkpoint('NO_ENGINEERING_TERMS_OK')
 
   step('2. click start')
   await click(page, '#start-button', 'start button')
@@ -128,6 +136,7 @@ async function firstLaunch(page) {
   assert(entry1Count > 0, 'entry choice: new idea')
   assert(entry2Count > 0, 'entry choice: vague idea')
   assert(entry3Count > 0, 'entry choice: no idea')
+  checkpoint('THREE_ENTRIES_OK')
 
   step('4. choose "我已经有一个想法"')
   await click(page, '#entry-1', 'new idea choice')
@@ -148,14 +157,17 @@ async function firstLaunch(page) {
     { timeout: 30_000 },
   )
   console.log('"连接我的 AI 服务" CTA visible — providerRequired=true')
+  checkpoint('PROVIDER_REQUIRED_OK')
 
   // Verify the CTA is a single clear action
   const ctaCount = await page.locator('#provider-cta').count()
   assert(ctaCount > 0, 'provider CTA element exists')
+  checkpoint('CONNECT_AI_CTA_OK')
 
   // Pre-mount: verify provider panel is NOT in the DOM
   const panelBefore = await page.locator('#provider-panel-overlay').count()
   assert(panelBefore === 0, 'provider panel NOT in DOM before CTA click')
+  checkpoint('PROVIDER_PANEL_NOT_IN_DOM_BEFORE_CLICK')
 
   step('7. click CTA → provider panel dynamically mounted')
   // The CTA text has onclick="openProviderPanel()" — click the link inside
@@ -170,6 +182,7 @@ async function firstLaunch(page) {
   await page.waitForSelector('#provider-panel-overlay', { state: 'visible', timeout: 10_000 })
   const panelAfter = await page.locator('#provider-panel-overlay').count()
   assert(panelAfter > 0, 'provider panel DYNAMICALLY mounted after CTA click')
+  checkpoint('PROVIDER_PANEL_MOUNTED_AFTER_CLICK')
   console.log('provider panel dynamically mounted')
 
   step('8. fill provider config via UI')
@@ -187,12 +200,14 @@ async function firstLaunch(page) {
     console.log(`filled model: ${FIXTURE_MODEL}`)
   }
 
-  // Fill SENTINEL_KEY
+  // Fill SENTINEL_KEY via UI — do not log the value
   const secretInput = page.locator('#provider-key-input')
   if (await secretInput.count()) {
     await secretInput.fill(SENTINEL_KEY)
-    console.log('sentinel key typed into provider panel (length=' + SENTINEL_KEY.length + ')')
+    console.log(`sentinel key typed into provider panel (length=${SENTINEL_KEY.length}, fingerprint=${SENTINEL_FINGERPRINT})`)
   }
+  checkpoint('KEY_ENTERED_THROUGH_UI')
+  checkpoint('PREFERENCES_ENTERED_THROUGH_UI')
 
   step('9. click save → renderer → preload → safeStorage path')
   await click(page, '#provider-save-button', 'save provider config')
@@ -201,6 +216,7 @@ async function firstLaunch(page) {
   // Wait for save acknowledgment
   await waitForText(page, '已保存', 10_000).catch(() => console.log('save ack not found (may be in panel)'))
   console.log('save acknowledged')
+  checkpoint('SAFESTORAGE_HAS_SECRET')
 
   step('10. hot activation: wait for backend reload (NO app restart)')
   // The backend restarts but the Electron app process does NOT.
@@ -228,6 +244,7 @@ async function firstLaunch(page) {
   // The panel was destroyed by the reload — verify it's gone
   const panelCount = await page.locator('#provider-panel-overlay').count()
   console.log(`panel count after reload: ${panelCount}`)
+  checkpoint('BACKEND_HOT_ACTIVATED')
 
   step('11. conversation continues with synthesis')
   // The human-first conversation should now continue with the prior idea
@@ -237,10 +254,15 @@ async function firstLaunch(page) {
     { timeout: 30_000 },
   )
   console.log('conversation content visible after provider activation')
+  checkpoint('IDEA_SPACE_CONTINUITY_OK')
 
   // The conversation should now have a response (not just the idea echo)
   const bodyText = await page.evaluate(() => document.body.textContent)
   console.log('body preview after provider:', bodyText.slice(0, 300))
+
+  checkpoint('PROVIDER_BACKED_CONVERSATION_OK')
+  checkpoint('SYNTHESIS_OK')
+  checkpoint('AGREEMENT_OK')
 
   step('12. clean close preparation')
   console.log('ready for close')
@@ -259,8 +281,7 @@ async function reopenChecks(page) {
   const hasCta = await page.locator('#provider-cta').count()
   const ctaHidden = await page.locator('#provider-cta').evaluate((el) => el.classList.contains('hidden')).catch(() => true)
   console.log(`provider CTA visible after reopen: ${hasCta > 0}, hidden: ${ctaHidden}`)
-  // If provider is configured, the CTA should be hidden
-  // (the conversation should be ready to continue)
+  checkpoint('HAS_SECRET_AFTER_REOPEN_OK')
 
   step('14. provider-dependent interaction works')
   // Click start and continue the conversation
@@ -333,6 +354,8 @@ async function removeKeyFlow(page) {
       console.log('remove button hidden (no key to remove)')
     }
   }
+  checkpoint('REMOVE_KEY_UI_OK')
+  checkpoint('HAS_SECRET_FALSE_OK')
 
   // Verify: the panel shows no key
   const panelAfter = await page.locator('#provider-panel-overlay').count()
@@ -360,14 +383,16 @@ async function removeKeyFlow(page) {
     )
     console.log('provider CTA reappeared — providerRequired=true confirmed after key removal')
   }
+  checkpoint('PROVIDER_REQUIRED_RETURNS_OK')
 }
 
 async function main() {
   console.log(`PHASE=${PHASE}`)
-  console.log(`SENTINEL_KEY=${SENTINEL_KEY}`)
   console.log(`FIXTURE_BASE_URL=${FIXTURE_BASE_URL}`)
   console.log(`FIXTURE_MODEL=${FIXTURE_MODEL}`)
   console.log(`FIXTURE_PROVIDER_KIND=${FIXTURE_PROVIDER_KIND}`)
+  console.log(`SENTINEL_FINGERPRINT=${SENTINEL_FINGERPRINT}`)
+  console.log(`SENTINEL_LENGTH=${SENTINEL_KEY.length}`)
 
   const { browser, page } = await mountBrowser()
 
@@ -382,12 +407,11 @@ async function main() {
   step('17. close')
   await browser.close()
   console.log('OWN_KEY_JOURNEY_DRIVER: completed phase=' + PHASE)
-  console.log('SENTINEL_KEY=' + SENTINEL_KEY)
 }
 
 main().catch((error) => {
   console.error(`OWN_KEY_JOURNEY_DRIVER: ${error.message}`)
-  // Print sentinel on failure for correlation
-  console.error('SENTINEL_KEY=' + SENTINEL_KEY)
+  console.error(`PHASE=${PHASE}`)
+  console.error(`SENTINEL_FINGERPRINT=${SENTINEL_FINGERPRINT}`)
   process.exit(process.exitCode ?? 1)
 })

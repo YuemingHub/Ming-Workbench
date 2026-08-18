@@ -72,7 +72,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $artifact = Join-Path $env:RUNNER_TEMP 'own-key-artifacts'
-          & pwsh -NoProfile -File scripts/installed-own-key-human-first-journey.ps1 -ArtifactDir $artifact
+          & pwsh -NoProfile -File scripts/installed-own-key-human-first-journey.ps1 -WorkDir $env:GITHUB_WORKSPACE -ArtifactDir $artifact
           if ($LASTEXITCODE -ne 0) {
             Write-Error "installed own-key human-first journey failed (exit $LASTEXITCODE)"
           }

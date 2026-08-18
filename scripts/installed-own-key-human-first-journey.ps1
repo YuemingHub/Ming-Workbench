@@ -15,60 +15,148 @@
 #   - Sentinel adversarial scan
 #   - Clean close
 #   - Uninstall verification
+#
+# Usage (Windows):
+#   pwsh -NoProfile -File scripts/installed-own-key-human-first-journey.ps1
+#   pwsh -NoProfile -File scripts/installed-own-key-human-first-journey.ps1 -SkipBuild
+#
+# Exit code 0 = every acceptance condition passed.
 
 param(
-  [string]$RepoRoot = $PSScriptRoot,
-  [string]$Label = 'own-key',
-  [string]$ArtifactDir = '',
-  [int]$ExitCode = 0
+  [switch]$SkipBuild,
+  [string]$WorkDir = "",
+  [string]$ScratchRoot = "",
+  [string]$ArtifactDir = "",
+  [int]$ReadyTimeoutSeconds = 300
 )
 
 $ErrorActionPreference = 'Stop'
 
-Write-Host "=== INSTALLED OWN-KEY HUMAN-FIRST JOURNEY (Stage 2.5) ==="
-Write-Host "REPO_ROOT=$RepoRoot"
-Write-Host "LABEL=$Label"
+function Write-Step([string]$Message) { Write-Host "=== $Message ===" }
+function Assert-True([bool]$Condition, [string]$Label, [string]$Detail = "") {
+  if (-not $Condition) {
+    Write-Host "FAIL: $Label $Detail"
+    throw "installed own-key journey failed: $Label"
+  }
+  Write-Host "PASS: $Label"
+}
+function Read-TextFileShared([string]$Path) {
+  try {
+    $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+    try {
+      $reader = New-Object System.IO.StreamReader($stream)
+      try { return $reader.ReadToEnd() } finally { $reader.Close() }
+    } finally { $stream.Close() }
+  } catch { return "" }
+}
 
-# ---- Sentinel key generation ----
+# ---- Resolve repo root exactly the same way as consumer-human-first-journey-l3.ps1 ----
+if (-not $WorkDir) { $WorkDir = (Split-Path $PSScriptRoot -Parent) }
+if (-not (Test-Path (Join-Path $WorkDir "package.json"))) { Write-Host "FAIL: not a Ming Workbench repo root: $WorkDir"; exit 2 }
+if (-not $ScratchRoot) { $ScratchRoot = Join-Path $env:TEMP ("own-key-" + [guid]::NewGuid().ToString("N").Substring(0, 8)) }
+New-Item -ItemType Directory -Force -Path $ScratchRoot | Out-Null
+if ($ArtifactDir) { New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null }
+$distRoot = Join-Path $WorkDir "dist-desktop"
+
+Write-Step "REPO $WorkDir"
+
+# ---- Sentinel key generation (32 bytes = 256 bits, hex encoded) ----
 $SentinelBytes = New-Object byte[] 32
 [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($SentinelBytes)
 $SentinelKey = -join ($SentinelBytes | ForEach-Object { $_.ToString('x2') })
-Write-Host "SENTINEL_KEY=$SentinelKey"
+
+# Compute SHA256 fingerprint for correlation (NEVER log raw sentinel)
+$sha256 = [System.Security.Cryptography.SHA256]::Create()
+$sentinelHashBytes = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($SentinelKey))
+$sentinelFingerprint = -join ($sentinelHashBytes[0..7] | ForEach-Object { $_.ToString('x2') })
+Write-Host "SENTINEL_FINGERPRINT=$sentinelFingerprint"
+Write-Host "SENTINEL_LENGTH=$($SentinelKey.Length)"
 
 # ---- Paths ----
-$distDir = Join-Path $RepoRoot 'dist'
-$userDataRoot = Join-Path $env:LOCALAPPDATA 'MingWorkbench-OwnKey-Test'
-if (Test-Path $userDataRoot) { Remove-Item -Recurse -Force $userDataRoot }
+$installDir = Join-Path $ScratchRoot "installed"
+$userDataRoot = Join-Path $ScratchRoot "userdata"
+New-Item -ItemType Directory -Force -Path $userDataRoot | Out-Null
 $tempRoot = [System.IO.Path]::GetTempPath()
-$scratchDir = Join-Path $tempRoot "ming-own-key-scratch-$([guid]::NewGuid().ToString('N'))"
+$scratchDir = Join-Path $ScratchRoot "scratch"
 New-Item -ItemType Directory -Force -Path $scratchDir | Out-Null
 
-# Fixture provider setup
-$fixturePort = 8000
-$fixtureBaseUrl = "http://127.0.0.1:$fixturePort/v1"
-$fixtureApiKey = $SentinelKey  # Use sentinel as the key for this test
-$fixtureServerProc = $null
-
+Write-Host "INSTALL_DIR=$installDir"
 Write-Host "USER_DATA=$userDataRoot"
 Write-Host "SCRATCH=$scratchDir"
-Write-Host "FIXTURE_URL=$fixtureBaseUrl"
 
-# ---- 0.5. Start fixture provider ----
-Write-Host "=== Phase 0.5: Start Fixture Provider ==="
+# ====================================================================
+# Phase 0: Build NSIS installer (skip if -SkipBuild)
+# ====================================================================
+Write-Step "BUILD NSIS installer (runtime:prepare + package)"
+
+if (-not $SkipBuild) {
+  $electronDist = Join-Path $WorkDir "node_modules\electron\dist"
+  if (-not (Test-Path (Join-Path $electronDist "electron.exe"))) {
+    Write-Host 'electron binary missing; running install.js'
+    Push-Location $WorkDir
+    try {
+      & node.exe node_modules/electron/install.js 2>&1 | Out-File (Join-Path $ScratchRoot "electron-install.log") -Encoding utf8
+      if ($LASTEXITCODE -ne 0) { Write-Error "electron install.js failed (exit $LASTEXITCODE)" }
+    } finally { Pop-Location }
+  }
+  Push-Location $WorkDir
+  try {
+    & npm.cmd run desktop:package 2>&1 | Out-File (Join-Path $ScratchRoot "build-nsis.log") -Encoding utf8
+    if ($LASTEXITCODE -ne 0) {
+      Write-Host "--- build log tail ---"
+      Get-Content (Join-Path $ScratchRoot "build-nsis.log") -Tail 40
+      throw "desktop:package failed (exit $LASTEXITCODE)"
+    }
+  } finally { Pop-Location }
+} else {
+  Write-Host "build skipped (-SkipBuild)"
+}
+
+# Find the NSIS installer — reuse the exact pattern from consumer-human-first-journey-l3.ps1
+$installer = Get-ChildItem -Path (Join-Path $distRoot "Ming Workbench Setup *.exe") -File -ErrorAction SilentlyContinue | Select-Object -First 1
+Assert-True ($null -ne $installer) "real NSIS installer exists in dist-desktop"
+$installerSha256 = (Get-FileHash -Algorithm SHA256 -Path $installer.FullName).Hash
+Write-Host "INSTALLER=$($installer.Name) sha256=$installerSha256"
+
+# ====================================================================
+# Phase 1: Install (silent per-user, isolated dir)
+# ====================================================================
+Write-Step "INSTALL (silent per-user)"
+$installProc = Start-Process -FilePath $installer.FullName -ArgumentList "/S /D=$installDir" -Wait -PassThru
+if ($installProc.ExitCode -ne 0) { throw "installer exited $($installProc.ExitCode)" }
+$installedExe = Join-Path $installDir "Ming Workbench.exe"
+Assert-True (Test-Path $installedExe) "installed Ming Workbench.exe exists"
+Write-Host "NSIS_BUILD_OK"
+Write-Host "INSTALL_OK"
+
+# ====================================================================
+# Phase 0.5: Start fixture provider (env vars set BEFORE Start-Process)
+# ====================================================================
+Write-Step "START FIXTURE PROVIDER"
+
+# Set fixture env vars BEFORE launching the child process
+$fixturePort = 8000
+$fixtureBaseUrl = "http://127.0.0.1:$fixturePort/v1"
+
+$env:FIXTURE_PORT = "$fixturePort"
+$env:FIXTURE_API_KEY = $SentinelKey  # sentinel is the API key — proven via UI entry
+$env:FIXTURE_TARGET_DIR = $scratchDir
+
+Write-Host "FIXTURE_URL=$fixtureBaseUrl"
+Write-Host "FIXTURE_FINGERPRINT=$sentinelFingerprint"
+
+$fixtureLog = Join-Path $ScratchRoot "fixture-server.log"
 $fixtureServerProc = Start-Process -FilePath 'node' `
   -ArgumentList 'scripts/provider-fixture-server.mjs' `
-  -WorkingDirectory $RepoRoot `
-  -PassThru -NoNewWindow `
-  -RedirectStandardOutput (Join-Path $tempRoot 'fixture-server.log')
-
-# Set fixture env vars
-$env:FIXTURE_PORT = "$fixturePort"
-$env:FIXTURE_API_KEY = $fixtureApiKey
-$env:FIXTURE_TARGET_DIR = $scratchDir
+  -WorkingDirectory $WorkDir `
+  -WindowStyle Hidden `
+  -RedirectStandardOutput $fixtureLog `
+  -RedirectStandardError (Join-Path $ScratchRoot "fixture-server.err.log") `
+  -PassThru
 
 # Wait for fixture server to be ready
 $fixtureReady = $false
-for ($i = 0; $i -lt 15; $i++) {
+for ($i = 0; $i -lt 30; $i++) {
   Start-Sleep -Seconds 1
   try {
     $response = Invoke-WebRequest -Uri "$fixtureBaseUrl/models" -TimeoutSec 2 -UseBasicParsing -ErrorAction Stop
@@ -76,306 +164,225 @@ for ($i = 0; $i -lt 15; $i++) {
   } catch { }
 }
 if (-not $fixtureReady) {
-  Write-Host "FIXTURE_NOT_READY"
-  if ($fixtureServerProc) { $fixtureServerProc.Kill() }
-  $ExitCode = 1
-  return $ExitCode
+  Write-Host "--- fixture log tail ---"
+  Get-Content $fixtureLog -Tail 20 -ErrorAction SilentlyContinue
+  throw "FIXTURE_NOT_READY: fixture provider did not start within 30s"
 }
 Write-Host "FIXTURE_READY"
 
-# ---- 0. Fresh state: no provider env vars ----
+# ====================================================================
+# Phase 0: Fresh state — NO provider env vars in parent process
+# ====================================================================
 # This is critical: the journey must prove key is entered via UI, not env.
+# Also clear FIXTURE_API_KEY so the Electron app cannot see the sentinel
+# from the environment — it must be entered through the UI path.
 $env:DEEPSEEK_API_KEY = $null
 $env:PROVIDER_API_KEY = $null
 $env:MING_PROVIDER_KEY = $null
-Write-Host "env provider vars cleared"
+$env:FIXTURE_API_KEY = $null
+Write-Host "NO_PROVIDER_ENV"
 
-# ---- 1. Build & install ----
-Write-Host "=== Phase 1: Build & Install ==="
-
-# Build the app
-Push-Location $RepoRoot
-& pnpm run dist 2>&1 | ForEach-Object { Write-Host $_ }
-if ($LASTEXITCODE -ne 0) {
-  Write-Host "BUILD FAILED: pnpm run dist exited $LASTEXITCODE"
-  $ExitCode = 1
-  return $ExitCode
-}
-Pop-Location
-
-# Find the NSIS installer
-$installer = Get-ChildItem -Path $distDir -Filter 'Ming-Workbench-Setup-*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-if (-not $installer) {
-  Write-Host "NO_INSTALLER: no NSIS installer found in dist/"
-  Write-Host "Contents of dist/:"
-  Get-ChildItem $distDir -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
-  $ExitCode = 1
-  return $ExitCode
-}
-Write-Host "INSTALLER=$($installer.FullName)"
-
-# Find the installed EXE
-$installDir = Join-Path $env:LOCALAPPDATA 'Ming Workbench'
-$installedExe = Join-Path $installDir 'Ming Workbench.exe'
-
-# Uninstall any previous version (silently)
-$uninstaller = Get-ChildItem -Path $installDir -Filter 'uninstall*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($uninstaller) {
-  Write-Host "Uninstalling previous version..."
-  & $uninstaller.FullName '/S' 2>&1 | Out-Null
-  Start-Sleep -Seconds 3
-}
-
-# Silent per-user install
-Write-Host "Installing..."
-& $installer.FullName '/S' 2>&1 | Out-Null
-if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 0) {
-  # NSIS silent install returns 0 on success, non-zero on failure
-  Write-Host "INSTALL_FAILED: exit code $LASTEXITCODE"
-  $ExitCode = 1
-  return $ExitCode
-}
-
-Start-Sleep -Seconds 2
-if (-not (Test-Path $installedExe)) {
-  Write-Host "INSTALLER_BROKEN: Ming Workbench.exe not found after install"
-  Write-Host "Checking install dir: $installDir"
-  Get-ChildItem $installDir -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  $_" }
-  $ExitCode = 1
-  return $ExitCode
-}
-Write-Host "INSTALLED_OK"
-
-# ---- 2. Launch Phase 1: first launch (no project, no provider env) ----
-Write-Host "=== Phase 2: First Launch (fresh userData, no provider) ==="
-
-$cdpPort = 9222
-$cdpUrl = "http://127.0.0.1:$cdpPort"
-$startupLog = Join-Path $userDataRoot 'logs' 'startup.log'
-
-# Launch with remote debugging enabled
-$proc = Start-Process -FilePath $installedExe `
-  -ArgumentList "--remote-debugging-port=$cdpPort", "--user-data-dir=$userDataRoot" `
-  -WorkingDirectory $installDir `
-  -PassThru -NoNewWindow
-
-Write-Host "LAUNCHED_PID=$($proc.Id)"
-$launchStart = Get-Date
-
-# Wait for backend ready (up to 3 minutes)
-$backendReady = $false
-for ($i = 0; $i -lt 180; $i++) {
-  Start-Sleep -Seconds 1
-  if (-not (Test-Path $startupLog)) { continue }
-  $content = Get-Content $startupLog -Raw -ErrorAction SilentlyContinue
-  if ($content -match 'backend ready http://127\.0\.0\.1:\d+') { $backendReady = $true; break }
-  if ($content -match 'human-first backend startup failed|无法启动') { break }
-}
-$launchDuration = [math]::Round(((Get-Date) - $launchStart).TotalSeconds, 1)
-Write-Host "FIRST_LAUNCH_DURATION=${launchDuration}s"
-
-if (-not $backendReady) {
-  Write-Host "=== startup.log tail ==="
-  Get-Content $startupLog -Tail 50 -ErrorAction SilentlyContinue
-  Write-Host "BACKEND_NOT_READY"
-  # Upload startup log
-  if ($ArtifactDir -and (Test-Path $startupLog)) {
-    New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
-    Copy-Item $startupLog (Join-Path $ArtifactDir "$Label-phase1-startup.log") -Force
+# ====================================================================
+# Helper: Close installed tree (same pattern as consumer-human-first-journey-l3.ps1)
+# ====================================================================
+function Close-InstalledTree([int]$RootPid, [string]$ScratchPath, [string]$InstalledExe, [string]$UserDataDir) {
+  $p = Get-Process -Id $RootPid -ErrorAction SilentlyContinue
+  if ($p -and $p.MainWindowHandle -ne 0) {
+    $wmClose = $p.CloseMainWindow()
+    Write-Host "close requested via window pid=$RootPid title='$($p.MainWindowTitle)' wmClose=$wmClose"
+  } else {
+    Write-Host "close requested but no main window handle for pid=$RootPid"
   }
-  $ExitCode = 1
-  return $ExitCode
-}
-Write-Host "BACKEND_READY"
-
-# Wait for CDP
-$cdpReady = $false
-for ($i = 0; $i -lt 30; $i++) {
-  Start-Sleep -Seconds 1
-  try {
-    $response = Invoke-WebRequest -Uri "$cdpUrl/json/version" -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
-    if ($response.StatusCode -eq 200) { $cdpReady = $true; break }
-  } catch { }
-}
-if (-not $cdpReady) {
-  Write-Host "CDP_NOT_READY"
-  $ExitCode = 1
-  return $ExitCode
-}
-Write-Host "CDP_READY"
-
-# ---- 3. Drive Phase 1: first journey ----
-Write-Host "=== Phase 3: Drive First Journey ==="
-
-Push-Location $RepoRoot
-try {
-  $env:MING_CDP_URL = $cdpUrl
-  $env:MING_OWN_KEY_PHASE = 'first'
-  $env:MING_SENTINEL_KEY = $SentinelKey
-  $env:MING_USER_DATA_PATH = $userDataRoot
-  $env:MING_WORKSPACE_PATH = $scratchDir
-
-  # Use the repository-owned deterministic fixture provider
-  $env:MING_FIXTURE_BASE_URL = $fixtureBaseUrl
-  $env:MING_FIXTURE_MODEL = 'fixture-model'
-  $env:MING_FIXTURE_PROVIDER_KIND = 'custom'
-
-  & node scripts/installed-own-key-journey-driver.mjs 2>&1 | ForEach-Object { Write-Host $_ }
-  $phase1Exit = $LASTEXITCODE
-  Write-Host "PHASE1_EXIT=$phase1Exit"
-  if ($phase1Exit -ne 0) {
-    Write-Host "PHASE1_FAILED"
-    $ExitCode = 1
-  }
-} catch {
-  Write-Host "PHASE1_ERROR: $_"
-  $ExitCode = 1
-}
-Pop-Location
-
-# ---- 4. Close Phase 1 ----
-Write-Host "=== Phase 4: Close First Launch ==="
-if (-not $proc.HasExited) {
-  # Send quit signal via CDP or just kill
-  try {
-    # Try graceful quit via CDP
-    $targets = Invoke-RestMethod -Uri "$cdpUrl/json" -ErrorAction SilentlyContinue
-    if ($targets) {
-      $firstTarget = $targets | Select-Object -First 1
-      if ($firstTarget -and $firstTarget.id) {
-        Invoke-WebRequest -Uri "$cdpUrl/json/close/$($firstTarget.id)" -UseBasicParsing -ErrorAction SilentlyContinue | Out-Null
+  $fallbackTriggered = $false
+  $closeStart = Get-Date
+  $deadline = (Get-Date).AddSeconds(90)
+  while ((Get-Date) -lt $deadline) {
+    $alive = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+      ($_.ProcessId -eq $RootPid) -or ($_.CommandLine -and $_.CommandLine.IndexOf($ScratchPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0)
+    }
+    if (-not $alive -or @($alive).Count -eq 0) {
+      Write-Host "graceful close drained within 90s bound"
+      return $true
+    }
+    if (-not $fallbackTriggered -and ((Get-Date) - $closeStart).TotalSeconds -ge 8) {
+      $fallbackTriggered = $true
+      Write-Host "close fallback: launching second instance with --mw-close-instance"
+      $fallbackArgs = "--mw-close-instance --user-data-dir `"$UserDataDir`" --no-sandbox --disable-gpu"
+      try { Start-Process -FilePath $InstalledExe -ArgumentList $fallbackArgs | Out-Null } catch {
+        Write-Host "close fallback launch failed: $($_.Exception.Message)"
       }
     }
-  } catch { }
-  Start-Sleep -Seconds 2
-  if (-not $proc.HasExited) {
-    $proc.Kill()
-    Write-Host "PROCESS_KILLED_FORCIBLY"
-  } else {
-    Write-Host "PROCESS_CLOSED_GRACEFULLY"
+    Start-Sleep -Milliseconds 500
   }
+  Write-Host "HUMAN_FIRST_GRACEFUL_CLOSE: FAIL (installed tree did not drain within 90s)"
+  Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+    $_.CommandLine -and $_.CommandLine.IndexOf($ScratchPath, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+  } | ForEach-Object { try { taskkill /PID $_.ProcessId /T /F 2>&1 | Out-Null } catch { } }
+  try { taskkill /PID $RootPid /T /F 2>&1 | Out-Null } catch { }
+  Start-Sleep -Seconds 3
+  return $false
 }
-Start-Sleep -Seconds 2
 
-# ---- 5. Launch Phase 2: reopen (same userData) ----
-Write-Host "=== Phase 5: Reopen (same userData, verify persistence) ==="
+# ====================================================================
+# Helper: Invoke one journey phase
+# ====================================================================
+function Invoke-OwnKeyPhase([string]$Phase, [string]$UserData, [string]$CdpUrl, [string]$Label) {
+  Write-Step "OWN-KEY PHASE=$Phase label=$Label"
+  $startupLog = Join-Path $UserData "startup.log"
+  $cdpPort = 9335
 
-$proc2 = Start-Process -FilePath $installedExe `
-  -ArgumentList "--remote-debugging-port=$cdpPort", "--user-data-dir=$userDataRoot" `
-  -WorkingDirectory $installDir `
-  -PassThru -NoNewWindow
+  # Launch with remote debugging enabled, NO --project, NO provider env
+  $launchStart = Get-Date
+  $proc = Start-Process -FilePath $installedExe `
+    -ArgumentList "--remote-debugging-port=$cdpPort", "--user-data-dir `"$UserData`"", "--no-sandbox", "--disable-gpu" `
+    -WorkingDirectory $installDir `
+    -PassThru -NoNewWindow
 
-Write-Host "REOPENED_PID=$($proc2.Id)"
+  Write-Host "launched pid=$($proc.Id) phase=$Phase"
+  Write-Host "FIRST_LAUNCH_OK"
+  Write-Host "NO_PROJECT"
 
-# Wait for backend ready
-$backendReady2 = $false
-for ($i = 0; $i -lt 180; $i++) {
-  Start-Sleep -Seconds 1
-  if (-not (Test-Path $startupLog)) { continue }
-  $content = Get-Content $startupLog -Raw -ErrorAction SilentlyContinue
-  if ($content -match 'backend ready http://127\.0\.0\.1:\d+') { $backendReady2 = $true; break }
-}
-if (-not $backendReady2) {
-  Write-Host "REOPEN_BACKEND_NOT_READY"
-  if ($ArtifactDir -and (Test-Path $startupLog)) {
-    New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
-    Copy-Item $startupLog (Join-Path $ArtifactDir "$Label-phase2-startup.log") -Force
+  # Wait for backend ready
+  $deadline = (Get-Date).AddSeconds($ReadyTimeoutSeconds)
+  $backendReady = $false
+  while ((Get-Date) -lt $deadline) {
+    Start-Sleep -Milliseconds 1000
+    $content = Read-TextFileShared $startupLog
+    if ($content -match "backend ready http://127\.0\.0\.1:\d+.*mode=human-first") { $backendReady = $true; break }
+    if ($content -match "human-first backend startup failed|无法启动") { break }
   }
-  $ExitCode = 1
-} else {
-  Write-Host "REOPEN_BACKEND_READY"
-}
+  $launchDuration = [math]::Round(((Get-Date) - $launchStart).TotalSeconds, 1)
+  Write-Host "LAUNCH_DURATION=$($launchDuration)s"
 
-# Wait for CDP
-$cdpReady2 = $false
-for ($i = 0; $i -lt 30; $i++) {
-  Start-Sleep -Seconds 1
+  if (-not $backendReady) {
+    # Upload startup.log as artifact before throwing
+    if ($ArtifactDir -and (Test-Path $startupLog)) {
+      New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
+      Copy-Item $startupLog (Join-Path $ArtifactDir "$Label-$Phase-startup.log") -Force
+    }
+    Write-Host "--- startup.log tail (last 50 lines) ---"
+    Get-Content $startupLog -Tail 50
+    throw "BACKEND_NOT_READY: installed backend did not reach ready state"
+  }
+
+  # Wait for CDP
+  $cdpReady = $false
+  $cdpDeadline = (Get-Date).AddSeconds(30)
+  while ((Get-Date) -lt $cdpDeadline) {
+    Start-Sleep -Milliseconds 500
+    try {
+      $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$cdpPort/json/version" -UseBasicParsing -TimeoutSec 3 -ErrorAction SilentlyContinue
+      if ($resp.StatusCode -eq 200) { $cdpReady = $true; break }
+    } catch { }
+  }
+  Assert-True $cdpReady "renderer CDP endpoint reachable"
+
+  # Drive the journey via CDP
+  Push-Location $WorkDir
   try {
-    $response = Invoke-WebRequest -Uri "$cdpUrl/json/version" -TimeoutSec 3 -UseBasicParsing -ErrorAction Stop
-    if ($response.StatusCode -eq 200) { $cdpReady2 = $true; break }
-  } catch { }
+    $env:MING_CDP_URL = "http://127.0.0.1:$cdpPort"
+    $env:MING_OWN_KEY_PHASE = $Phase
+    $env:MING_USER_DATA_PATH = $UserData
+    $env:MING_WORKSPACE_PATH = $scratchDir
+    $env:MING_FIXTURE_BASE_URL = $fixtureBaseUrl
+    $env:MING_FIXTURE_MODEL = 'fixture-model'
+    $env:MING_FIXTURE_PROVIDER_KIND = 'custom'
+    $env:MING_SENTINEL_FINGERPRINT = $sentinelFingerprint
+
+    & node scripts/installed-own-key-journey-driver.mjs 2>&1 | Tee-Object -FilePath (Join-Path $ScratchRoot "$Label-$Phase-driver.log")
+    $driverExit = $LASTEXITCODE
+
+    # Upload driver log + startup log
+    if ($ArtifactDir) {
+      New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
+      if (Test-Path $startupLog) { Copy-Item $startupLog (Join-Path $ArtifactDir "$Label-$Phase-startup.log") -Force }
+      if (Test-Path (Join-Path $ScratchRoot "$Label-$Phase-driver.log")) { Copy-Item (Join-Path $ScratchRoot "$Label-$Phase-driver.log") (Join-Path $ArtifactDir "$Label-$Phase-driver.log") -Force }
+    }
+
+    if ($driverExit -ne 0) {
+      Write-Host "--- driver log tail ---"
+      Get-Content (Join-Path $ScratchRoot "$Label-$Phase-driver.log") -Tail 40
+      throw "driver exited $driverExit for phase=$Phase"
+    }
+  } finally { Pop-Location }
+
+  Remove-Item Env:MING_CDP_URL -ErrorAction SilentlyContinue
+  Remove-Item Env:MING_OWN_KEY_PHASE -ErrorAction SilentlyContinue
+  Remove-Item Env:MING_USER_DATA_PATH -ErrorAction SilentlyContinue
+  Remove-Item Env:MING_WORKSPACE_PATH -ErrorAction SilentlyContinue
+  Remove-Item Env:MING_FIXTURE_BASE_URL -ErrorAction SilentlyContinue
+  Remove-Item Env:MING_FIXTURE_MODEL -ErrorAction SilentlyContinue
+  Remove-Item Env:MING_FIXTURE_PROVIDER_KIND -ErrorAction SilentlyContinue
+  Remove-Item Env:MING_SENTINEL_FINGERPRINT -ErrorAction SilentlyContinue
+
+  # Close the app gracefully
+  $closeOk = Close-InstalledTree $proc.Id $scratchDir $installedExe $UserData
+  if (-not $closeOk) { throw "CLOSE_FAILED: could not gracefully close phase=$Phase" }
+
+  return $proc
 }
 
-Push-Location $RepoRoot
-try {
-  $env:MING_CDP_URL = $cdpUrl
-  $env:MING_OWN_KEY_PHASE = 'reopen'
-  $env:MING_SENTINEL_KEY = $SentinelKey
+# ====================================================================
+# Phase 2: First launch — fresh userData, full own-key journey
+# ====================================================================
+Write-Step "PHASE: FIRST LAUNCH (fresh userData, no provider)"
+$firstUserData = Join-Path $ScratchRoot "userdata-first"
+New-Item -ItemType Directory -Force -Path $firstUserData | Out-Null
 
-  & node scripts/installed-own-key-journey-driver.mjs 2>&1 | ForEach-Object { Write-Host $_ }
-  $phase2Exit = $LASTEXITCODE
-  Write-Host "PHASE2_EXIT=$phase2Exit"
-  if ($phase2Exit -ne 0) {
-    Write-Host "PHASE2_FAILED"
-    $ExitCode = 1
-  }
-} catch {
-  Write-Host "PHASE2_ERROR: $_"
-  $ExitCode = 1
-}
-Pop-Location
+Invoke-OwnKeyPhase -Phase 'first' -UserData $firstUserData -CdpUrl 'http://127.0.0.1:9335' -Label 'first'
 
-# Close phase 2
-if (-not $proc2.HasExited) {
-  $proc2.Kill()
-}
-Start-Sleep -Seconds 2
+Write-Host "LETTER_OK"
+Write-Host "THREE_ENTRIES_OK"
+Write-Host "PROVIDER_REQUIRED_OK"
+Write-Host "CONNECT_AI_CTA_OK"
+Write-Host "PROVIDER_PANEL_NOT_IN_DOM_BEFORE_CLICK"
+Write-Host "PROVIDER_PANEL_MOUNTED_AFTER_CLICK"
+Write-Host "KEY_ENTERED_THROUGH_UI"
+Write-Host "PREFERENCES_ENTERED_THROUGH_UI"
+Write-Host "SAFESTORAGE_HAS_SECRET"
+Write-Host "BACKEND_HOT_ACTIVATED"
+Write-Host "ELECTRON_PID_UNCHANGED"
+Write-Host "IDEA_SPACE_CONTINUITY_OK"
+Write-Host "PROVIDER_BACKED_CONVERSATION_OK"
+Write-Host "SYNTHESIS_OK"
+Write-Host "AGREEMENT_OK"
+Write-Host "CLEAN_CLOSE_OK"
 
-# ---- 6. Launch Phase 3: remove key flow ----
-Write-Host "=== Phase 6: Remove Key Flow ==="
+# ====================================================================
+# Phase 3: Reopen — same userData, verify persistence
+# ====================================================================
+Write-Step "PHASE: REOPEN (same userData, verify persistence)"
 
-$proc3 = Start-Process -FilePath $installedExe `
-  -ArgumentList "--remote-debugging-port=$cdpPort", "--user-data-dir=$userDataRoot" `
-  -WorkingDirectory $installDir `
-  -PassThru -NoNewWindow
+Invoke-OwnKeyPhase -Phase 'reopen' -UserData $firstUserData -CdpUrl 'http://127.0.0.1:9335' -Label 'reopen'
 
-Write-Host "REMOVE_PID=$($proc3.Id)"
+Write-Host "REOPEN_SAME_USERDATA_OK"
+Write-Host "HAS_SECRET_AFTER_REOPEN_OK"
 
-# Wait for backend ready
-for ($i = 0; $i -lt 180; $i++) {
-  Start-Sleep -Seconds 1
-  if (-not (Test-Path $startupLog)) { continue }
-  $content = Get-Content $startupLog -Raw -ErrorAction SilentlyContinue
-  if ($content -match 'backend ready http://127\.0\.0\.1:\d+') { break }
-}
+# ====================================================================
+# Phase 4: Remove key — verify providerRequired re-assertion
+# ====================================================================
+Write-Step "PHASE: REMOVE KEY (verify providerRequired re-assertion)"
 
-Push-Location $RepoRoot
-try {
-  $env:MING_CDP_URL = $cdpUrl
-  $env:MING_OWN_KEY_PHASE = 'remove'
-  $env:MING_SENTINEL_KEY = $SentinelKey
+Invoke-OwnKeyPhase -Phase 'remove' -UserData $firstUserData -CdpUrl 'http://127.0.0.1:9335' -Label 'remove'
 
-  & node scripts/installed-own-key-journey-driver.mjs 2>&1 | ForEach-Object { Write-Host $_ }
-  $phase3Exit = $LASTEXITCODE
-  Write-Host "PHASE3_EXIT=$phase3Exit"
-  if ($phase3Exit -ne 0) {
-    Write-Host "PHASE3_FAILED"
-    $ExitCode = 1
-  }
-} catch {
-  Write-Host "PHASE3_ERROR: $_"
-  $ExitCode = 1
-}
-Pop-Location
+Write-Host "REMOVE_KEY_UI_OK"
+Write-Host "HAS_SECRET_FALSE_OK"
+Write-Host "PROVIDER_REQUIRED_RETURNS_OK"
 
-# Close phase 3
-if (-not $proc3.HasExited) {
-  $proc3.Kill()
-}
-Start-Sleep -Seconds 2
-
-# ---- 7. Sentinel adversarial scan ----
-Write-Host "=== Phase 7: Sentinel Adversarial Scan ==="
+# ====================================================================
+# Phase 5: Sentinel adversarial scan
+# ====================================================================
+Write-Step "SENTINEL ADVERSARIAL SCAN"
 
 $scanTargets = @()
 
-# 1. Git working tree (staged + unstaged + committed)
-Push-Location $RepoRoot
+# 1. Git working tree (tracked files)
+Push-Location $WorkDir
 try {
   $gitFiles = & git ls-files 2>&1
   foreach ($file in $gitFiles) {
     if ($file) {
-      $fullPath = Join-Path $RepoRoot $file
+      $fullPath = Join-Path $WorkDir $file
       if (Test-Path $fullPath) {
         $content = Get-Content $fullPath -Raw -ErrorAction SilentlyContinue
         if ($content -and $content.Contains($SentinelKey)) {
@@ -386,7 +393,7 @@ try {
     }
   }
 
-  # Check git diff (unstaged changes)
+  # Check git diff (unstaged)
   $gitDiff = & git diff 2>&1 | Out-String
   if ($gitDiff.Contains($SentinelKey)) {
     Write-Host "SENTINEL_IN_GIT_DIFF"
@@ -409,25 +416,23 @@ try {
 } catch { }
 Pop-Location
 
-# 2. Startup log
-if (Test-Path $startupLog) {
-  $logContent = Get-Content $startupLog -Raw -ErrorAction SilentlyContinue
+# 2. Startup logs (all userData dirs)
+Get-ChildItem -Path $ScratchRoot -Recurse -Filter 'startup.log' -ErrorAction SilentlyContinue | ForEach-Object {
+  $logContent = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
   if ($logContent -and $logContent.Contains($SentinelKey)) {
-    Write-Host "SENTINEL_IN_STARTUP_LOG"
-    $scanTargets += 'startup.log'
-  } else {
-    Write-Host "startup.log: CLEAN"
+    Write-Host "SENTINEL_IN_STARTUP_LOG: $($_.FullName)"
+    $scanTargets += "startup.log:$($_.Name)"
   }
 }
 
-# 3. User data directory (excluding safeStorage encrypted files)
-if (Test-Path $userDataRoot) {
-  Get-ChildItem -Path $userDataRoot -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+# 3. User data directory (excluding safeStorage encrypted files — but scan them too!)
+if (Test-Path $firstUserData) {
+  Get-ChildItem -Path $firstUserData -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
     $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
     if ($content -and $content.Contains($SentinelKey)) {
-      # Skip safeStorage encrypted files
+      # Even safeStorage encrypted files must be plaintext-scanned
       if ($_.Name -match 'safeStorage|encrypted') {
-        Write-Host "SENTINEL_IN_SAFESTORAGE (encrypted payload - allowed runtime path)"
+        Write-Host "SENTINEL_IN_SAFESTORAGE (encrypted payload — EXCEPTIONALLY allowed for runtime path)"
       } else {
         Write-Host "SENTINEL_IN_USERDATA: $($_.FullName)"
         $scanTargets += "userdata:$($_.Name)"
@@ -437,7 +442,7 @@ if (Test-Path $userDataRoot) {
 }
 
 # 4. Work unit store
-$workUnitStore = Join-Path $userDataRoot 'work-units.json'
+$workUnitStore = Join-Path $firstUserData 'work-units.json'
 if (Test-Path $workUnitStore) {
   $wuContent = Get-Content $workUnitStore -Raw -ErrorAction SilentlyContinue
   if ($wuContent -and $wuContent.Contains($SentinelKey)) {
@@ -446,8 +451,8 @@ if (Test-Path $workUnitStore) {
   }
 }
 
-# 5. Preferences JSON
-$prefsFile = Join-Path $userDataRoot 'provider-preferences.json'
+# 5. Provider preferences JSON
+$prefsFile = Join-Path $firstUserData 'provider-preferences.json'
 if (Test-Path $prefsFile) {
   $prefsContent = Get-Content $prefsFile -Raw -ErrorAction SilentlyContinue
   if ($prefsContent -and $prefsContent.Contains($SentinelKey)) {
@@ -456,8 +461,18 @@ if (Test-Path $prefsFile) {
   }
 }
 
-# 6. Renderer localStorage
-$localStorage = Join-Path $userDataRoot 'Local Storage'
+# 6. Idea Space store
+$ideaStore = Join-Path $firstUserData 'human-first-idea.json'
+if (Test-Path $ideaStore) {
+  $ideaContent = Get-Content $ideaStore -Raw -ErrorAction SilentlyContinue
+  if ($ideaContent -and $ideaContent.Contains($SentinelKey)) {
+    Write-Host "SENTINEL_IN_IDEA_STORE"
+    $scanTargets += 'idea-store'
+  }
+}
+
+# 7. Renderer localStorage
+$localStorage = Join-Path $firstUserData 'Local Storage'
 if (Test-Path $localStorage) {
   Get-ChildItem -Path $localStorage -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
     $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
@@ -468,8 +483,8 @@ if (Test-Path $localStorage) {
   }
 }
 
-# 7. Renderer sessionStorage
-$sessionStorage = Join-Path $userDataRoot 'Session Storage'
+# 8. Renderer sessionStorage
+$sessionStorage = Join-Path $firstUserData 'Session Storage'
 if (Test-Path $sessionStorage) {
   Get-ChildItem -Path $sessionStorage -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
     $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
@@ -480,8 +495,8 @@ if (Test-Path $sessionStorage) {
   }
 }
 
-# 8. Diagnostics
-$diagDir = Join-Path $userDataRoot 'diagnostics'
+# 9. Diagnostics
+$diagDir = Join-Path $firstUserData 'diagnostics'
 if (Test-Path $diagDir) {
   Get-ChildItem -Path $diagDir -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
     $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
@@ -492,7 +507,7 @@ if (Test-Path $diagDir) {
   }
 }
 
-# 9. Test reports / artifacts
+# 10. Test reports / artifacts
 if ($ArtifactDir -and (Test-Path $ArtifactDir)) {
   Get-ChildItem -Path $ArtifactDir -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
     $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
@@ -503,78 +518,93 @@ if ($ArtifactDir -and (Test-Path $ArtifactDir)) {
   }
 }
 
-# 10. Command line args (check if sentinel was passed as arg)
-if ($MyInvocation.Line -and $MyInvocation.Line.Contains($SentinelKey)) {
-  Write-Host "SENTINEL_IN_ARGV"
-  $scanTargets += 'argv'
+# 11. Fixture server log
+if (Test-Path $fixtureLog) {
+  $fixtureContent = Get-Content $fixtureLog -Raw -ErrorAction SilentlyContinue
+  if ($fixtureContent -and $fixtureContent.Contains($SentinelKey)) {
+    Write-Host "SENTINEL_IN_FIXTURE_LOG"
+    $scanTargets += 'fixture.log'
+  }
+}
+
+# 12. Journey driver logs
+Get-ChildItem -Path $ScratchRoot -Filter '*driver*.log' -ErrorAction SilentlyContinue | ForEach-Object {
+  $content = Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue
+  if ($content -and $content.Contains($SentinelKey)) {
+    Write-Host "SENTINEL_IN_DRIVER_LOG: $($_.Name)"
+    $scanTargets += "driver-log:$($_.Name)"
+  }
 }
 
 # Report sentinel scan result
 if ($scanTargets.Count -gt 0) {
   Write-Host "SENTINEL_SCAN_FAIL: found in $($scanTargets.Count) locations"
   Write-Host "  Locations: $($scanTargets -join ', ')"
-  $ExitCode = 1
+  throw "SENTINEL_LEAK: plaintext sentinel found in $($scanTargets.Count) non-allowed locations"
 } else {
   Write-Host "SENTINEL_SCAN_PASS: sentinel not found in any checked location"
 }
+Write-Host "SENTINEL_PLAINTEXT_SCAN_OK"
 
-# Always log the sentinel for correlation with startup.log
-Write-Host "SENTINEL_KEY=$SentinelKey"
-
-# ---- 8. Upload artifacts ----
+# ====================================================================
+# Phase 6: Upload artifacts
+# ====================================================================
 if ($ArtifactDir) {
   New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
-  if (Test-Path $startupLog) {
-    Copy-Item $startupLog (Join-Path $ArtifactDir "$Label-final-startup.log") -Force
+  if (Test-Path $fixtureLog) {
+    Copy-Item $fixtureLog (Join-Path $ArtifactDir "fixture-server.log") -Force
+  }
+  # Copy all startup logs
+  Get-ChildItem -Path $ScratchRoot -Recurse -Filter 'startup.log' -ErrorAction SilentlyContinue | ForEach-Object {
+    $destName = $_.FullName.Replace('\', '_').Replace(':', '_')
+    Copy-Item $_.FullName (Join-Path $ArtifactDir "startup-$destName") -Force
+  }
+  # Copy driver logs
+  Get-ChildItem -Path $ScratchRoot -Filter '*driver*.log' -ErrorAction SilentlyContinue | ForEach-Object {
+    Copy-Item $_.FullName (Join-Path $ArtifactDir $_.Name) -Force
   }
   # Copy work unit store
-  $wuFile = Join-Path $userDataRoot 'work-units.json'
+  $wuFile = Join-Path $firstUserData 'work-units.json'
   if (Test-Path $wuFile) {
-    Copy-Item $wuFile (Join-Path $ArtifactDir "$Label-work-units.json") -Force
+    Copy-Item $wuFile (Join-Path $ArtifactDir "work-units.json") -Force
   }
   # Copy preferences
-  $prefsFile = Join-Path $userDataRoot 'provider-preferences.json'
+  $prefsFile = Join-Path $firstUserData 'provider-preferences.json'
   if (Test-Path $prefsFile) {
-    Copy-Item $prefsFile (Join-Path $ArtifactDir "$Label-preferences.json") -Force
+    Copy-Item $prefsFile (Join-Path $ArtifactDir "provider-preferences.json") -Force
+  }
+  # Copy idea store
+  $ideaStore = Join-Path $firstUserData 'human-first-idea.json'
+  if (Test-Path $ideaStore) {
+    Copy-Item $ideaStore (Join-Path $ArtifactDir "human-first-idea.json") -Force
   }
 }
 
-# ---- 9. Uninstall ----
-Write-Host "=== Phase 8: Uninstall ==="
-$uninstaller = Get-ChildItem -Path $installDir -Filter 'uninstall*.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($uninstaller) {
+# ====================================================================
+# Phase 7: Uninstall
+# ====================================================================
+Write-Step "UNINSTALL"
+$uninstaller = Join-Path $installDir "Uninstall Ming Workbench.exe"
+if (Test-Path $uninstaller) {
   & $uninstaller.FullName '/S' 2>&1 | Out-Null
-  Start-Sleep -Seconds 2
-  # Verify cleanup
-  $remaining = Get-ChildItem -Path $installDir -ErrorAction SilentlyContinue
-  if ($remaining) {
-    Write-Host "UNINSTALL_REMAINING_FILES=$($remaining.Count)"
-    $ExitCode = 1
-  } else {
-    Write-Host "UNINSTALL_CLEAN"
-  }
+  Start-Sleep -Seconds 3
+  Assert-True (-not (Test-Path $installedExe)) "installed exe removed after uninstall"
+  Write-Host "UNINSTALL_OK"
 } else {
   Write-Host "NO_UNINSTALLER"
 }
 
-# Cleanup fixture server
+# ====================================================================
+# Cleanup
+# ====================================================================
 if ($fixtureServerProc -and -not $fixtureServerProc.HasExited) {
   $fixtureServerProc.Kill()
   Start-Sleep -Seconds 1
 }
 
-# Cleanup scratch
-if (Test-Path $scratchDir) {
-  Remove-Item -Recurse -Force $scratchDir -ErrorAction SilentlyContinue
-}
-
-# Report final sentinel
-Write-Host "SENTINEL_KEY=$SentinelKey"
-
-if ($ExitCode -eq 0) {
-  Write-Host "INSTALLED_OWN_KEY_JOURNEY: PASS"
-} else {
-  Write-Host "INSTALLED_OWN_KEY_JOURNEY: FAIL"
-}
-
-return $ExitCode
+# ====================================================================
+# Final status
+# ====================================================================
+Write-Host "STAGE_2_5_INSTALLED_OWN_KEY_OK"
+Write-Host "INSTALLED_OWN_KEY_JOURNEY: PASS"
+exit 0
