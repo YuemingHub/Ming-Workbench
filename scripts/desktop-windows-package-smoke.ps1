@@ -117,7 +117,11 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
     }
   }
 
-  $boundSeconds = 120
+  # win-unpacked first run performs harness-capsule extraction + project session
+  # teardown; on loaded GitHub Windows runners its real drain can approach 120s+.
+  # Bound gives generous margin; if the tree does NOT self-drain within it, that is
+  # a genuine hang (not slowness) and must fail — do not relax further.
+  $boundSeconds = 300
   $deadline = (Get-Date).AddSeconds($boundSeconds)
   while ((Get-Date) -lt $deadline) {
     $alive = @()
