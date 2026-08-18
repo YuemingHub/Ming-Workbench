@@ -407,9 +407,23 @@ async function reopenChecks(page) {
   step('reopen phase: verify persistence')
 
   // After reopen with existing provider, the app may go directly to conversation
-  // OR show the letter. Handle both cases.
-  const letterVisible = await page.locator('#letter-view').isVisible().catch(() => false)
-  const convVisible = await page.locator('#conversation-view').isVisible().catch(() => false)
+  // OR show the letter. Handle both cases with robust retry logic.
+  // The app may take time to render after reopen, especially with backend restart.
+  let letterVisible = false
+  let convVisible = false
+  const maxRetries = 10
+  const retryDelayMs = 2000
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    letterVisible = await page.locator('#letter-view').isVisible().catch(() => false)
+    convVisible = await page.locator('#conversation-view').isVisible().catch(() => false)
+
+    if (letterVisible || convVisible) break
+    if (attempt < maxRetries - 1) {
+      console.log(`reopen retry ${attempt + 1}/${maxRetries}: waiting for letter or conversation view...`)
+      await page.waitForTimeout(retryDelayMs)
+    }
+  }
 
   if (letterVisible) {
     console.log('letter visible after reopen (fresh start)')
@@ -422,17 +436,9 @@ async function reopenChecks(page) {
   } else if (convVisible) {
     console.log('conversation visible after reopen (existing state preserved)')
   } else {
-    // Wait a bit and check again
-    await page.waitForTimeout(3000)
-    const letterNow = await page.locator('#letter-view').isVisible().catch(() => false)
-    const convNow = await page.locator('#conversation-view').isVisible().catch(() => false)
-    if (letterNow) {
-      await click(page, '#start-button', 'start on reopen')
-      await page.waitForSelector('#entry-view', { state: 'visible', timeout: 10_000 })
-      await click(page, '#entry-1', 'new idea choice on reopen')
-    } else if (!convNow) {
-      throw 'reopen: neither letter-view nor conversation-view visible'
-    }
+    // Diagnostic: log what's actually visible on the page
+    const bodyText = await page.evaluate(() => document.body?.textContent?.substring(0, 500) || 'empty')
+    throw new Error(`reopen: neither letter-view nor conversation-view visible after ${maxRetries} retries. Page text: ${bodyText}`)
   }
 
   // Verify hasSecret is still true via observable
