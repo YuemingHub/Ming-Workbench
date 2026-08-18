@@ -101,13 +101,7 @@ function tryLoadAutoUpdater() {
 }
 
 function setupAutoUpdater() {
-  // In CI environments (GitHub Actions), skip auto-updater entirely because
-  // there are no published versions and the check would crash the process.
   const isCI = process.env.GITHUB_ACTIONS || process.env.CI
-  if (isCI) {
-    appendStartupLog('auto-updater: skipped in CI environment')
-    return
-  }
 
   const loaded = tryLoadAutoUpdater()
   if (!loaded) return
@@ -155,6 +149,14 @@ function setupAutoUpdater() {
     isDownloadingUpdate = false
     appendStartupLog(`auto-updater error: ${error?.message ?? String(error)}`)
   })
+
+  // In CI environments, skip checkForUpdates because there are no published
+  // versions and the network check would fail. The module is still loaded and
+  // the event handlers are attached (they won't fire without checkForUpdates).
+  if (isCI) {
+    appendStartupLog('auto-updater: checkForUpdates skipped in CI (module loaded, handlers attached)')
+    return
+  }
 
   // Quietly check for updates shortly after launch.
   setTimeout(() => {
