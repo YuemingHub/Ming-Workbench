@@ -100,12 +100,28 @@ h2 { font-size: 22px; line-height: 1.25; letter-spacing: -.02em; }
 .actions { margin-top: 18px; display: flex; gap: 10px; align-items: center; }
 .muted { color: #8a94a8; font-size: 13px; }
 .status { margin-top: 14px; font-size: 14px; color: #43506a; }
+.provider-cta { margin-top: 14px; padding: 14px 16px; background: #fff7df; border: 1px solid #f1dfaa; border-radius: 12px; color: #6f5111; font-size: 14px; line-height: 1.6; }
+.provider-cta .link { color: #963d35; font-weight: 700; cursor: pointer; text-decoration: underline; }
+.provider-panel-overlay { position: fixed; inset: 0; background: rgba(23, 32, 51, .42); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px 16px; z-index: 50; overflow-y: auto; }
+.provider-panel { width: min(480px, 100%); background: #fff; border-radius: 16px; padding: 24px; box-shadow: 0 24px 64px rgba(23, 32, 51, .18); }
+.provider-panel h3 { margin: 0 0 4px; font-size: 18px; }
+.provider-panel .panel-desc { margin: 0 0 16px; color: #596579; font-size: 14px; line-height: 1.6; }
+.provider-panel .field-label { display: block; margin: 14px 0 6px; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #667085; }
+.provider-panel input { width: 100%; padding: 11px 12px; border: 1px solid #d8deea; border-radius: 10px; background: #fbfcfe; color: #172033; outline: none; font: inherit; }
+.provider-panel input:focus { border-color: #8da2c6; box-shadow: 0 0 0 4px rgba(103, 132, 184, .11); }
+.provider-panel .field-hint { margin: 6px 0 0; font-size: 12px; color: #8a94a8; }
+.provider-panel .panel-actions { display: flex; gap: 10px; align-items: center; margin-top: 18px; flex-wrap: wrap; }
+.provider-panel .panel-status { margin-top: 12px; font-size: 13px; color: #43506a; }
+.provider-panel .panel-status.ok { color: #19633f; }
+.provider-panel .panel-status.error { color: #963d35; }
+.provider-panel .panel-close { position: absolute; top: 12px; right: 16px; background: none; border: none; font-size: 20px; color: #8a94a8; cursor: pointer; }
 `
 
 export const HUMAN_FIRST_APP_JS = `
 (function () {
   var TOKEN = document.querySelector('meta[name="ming-workbench-token"]').getAttribute('content');
   var STATE = null;
+  var PROVIDER_STATE = { hasSecret: false, preferences: null, loaded: false };
 
   function post(path, body) {
     return fetch(path, {
@@ -126,6 +142,144 @@ export const HUMAN_FIRST_APP_JS = `
     var div = document.createElement('div');
     div.textContent = String(value);
     return div.innerHTML;
+  }
+
+  function isDesktopMode() {
+    return typeof window.mingWorkbench !== 'undefined' && window.mingWorkbench !== null;
+  }
+
+  async function loadProviderState() {
+    if (!isDesktopMode()) return { hasSecret: false, preferences: null };
+    try {
+      var hasSecretResult = await window.mingWorkbench.hasProviderSecret();
+      var prefsResult = await window.mingWorkbench.getProviderPreferences();
+      return {
+        hasSecret: hasSecretResult.hasSecret === true,
+        preferences: prefsResult.ok ? prefsResult.preferences : null,
+        loaded: true,
+      };
+    } catch (e) {
+      return { hasSecret: false, preferences: null, loaded: false };
+    }
+  }
+
+  function showProviderCta() {
+    var cta = el('provider-cta');
+    if (cta) cta.classList.remove('hidden');
+  }
+
+  function hideProviderCta() {
+    var cta = el('provider-cta');
+    if (cta) cta.classList.add('hidden');
+  }
+
+  function updateProviderCta() {
+    if (STATE && STATE.providerRequired && PROVIDER_STATE.loaded && !PROVIDER_STATE.hasSecret) {
+      showProviderCta();
+    } else {
+      hideProviderCta();
+    }
+  }
+
+  function openProviderPanel() {
+    if (!isDesktopMode()) {
+      alert('连接 AI 服务需要在桌面版 Ming Workbench 中使用。');
+      return;
+    }
+    var overlay = el('provider-panel-overlay');
+    if (overlay) overlay.classList.remove('hidden');
+    prefillProviderPanel();
+  }
+
+  function closeProviderPanel() {
+    var overlay = el('provider-panel-overlay');
+    if (overlay) overlay.classList.add('hidden');
+  }
+
+  async function prefillProviderPanel() {
+    try {
+      var prefsResult = await window.mingWorkbench.getProviderPreferences();
+      if (prefsResult && prefsResult.ok) {
+        var p = prefsResult.preferences || {};
+        el('provider-base-url').value = p.baseUrl || '';
+        el('provider-model').value = p.model || '';
+        el('provider-key-input').value = '';
+        var hasSecretResult = await window.mingWorkbench.hasProviderSecret();
+        var hasSecret = hasSecretResult.hasSecret === true;
+        var status = el('provider-panel-status');
+        status.textContent = hasSecret ? '✓ 已保存密钥（留空保留）' : '尚未保存密钥';
+        status.className = 'panel-status' + (hasSecret ? ' ok' : '');
+        el('provider-clear-button').classList.toggle('hidden', !hasSecret);
+      }
+    } catch (e) {}
+  }
+
+  async function saveProviderConfig() {
+    var baseUrl = el('provider-base-url').value.trim();
+    var model = el('provider-model').value.trim();
+    var key = el('provider-key-input').value.trim();
+    var status = el('provider-panel-status');
+    var saveBtn = el('provider-save-button');
+
+    if (!model) {
+      status.textContent = '请填写模型名称。';
+      status.className = 'panel-status error';
+      return;
+    }
+    if (baseUrl && !/^https?:\\/\\//i.test(baseUrl)) {
+      status.textContent = '接口地址需要以 http:// 或 https:// 开头。';
+      status.className = 'panel-status error';
+      return;
+    }
+
+    saveBtn.disabled = true;
+    status.textContent = '正在保存并应用…';
+    status.className = 'panel-status';
+
+    try {
+      if (key) {
+        var secretResult = await window.mingWorkbench.setProviderSecret(key);
+        if (!secretResult || !secretResult.ok) {
+          status.textContent = '密钥保存失败，请稍后重试。';
+          status.className = 'panel-status error';
+          return;
+        }
+      }
+      var prefsResult = await window.mingWorkbench.setProviderPreferences({
+        provider: 'deepseek-official',
+        model: model,
+        baseUrl: baseUrl,
+      });
+      if (!prefsResult || !prefsResult.ok) {
+        status.textContent = prefsResult ? prefsResult.message : '配置保存失败，请稍后重试。';
+        status.className = 'panel-status error';
+        return;
+      }
+      status.textContent = '已保存，正在重新连接…';
+      status.className = 'panel-status ok';
+      PROVIDER_STATE.hasSecret = true;
+      PROVIDER_STATE.preferences = { provider: 'deepseek-official', model: model, baseUrl: baseUrl };
+      PROVIDER_STATE.loaded = true;
+      hideProviderCta();
+      setTimeout(function () {
+        closeProviderPanel();
+      }, 800);
+    } catch (e) {
+      status.textContent = '保存失败：' + (e.message || '请稍后重试。');
+      status.className = 'panel-status error';
+    } finally {
+      saveBtn.disabled = false;
+    }
+  }
+
+  async function clearProviderSecretAction() {
+    if (!confirm('确定要移除已保存的密钥吗？')) return;
+    try {
+      await window.mingWorkbench.clearProviderSecret();
+      PROVIDER_STATE.hasSecret = false;
+      closeProviderPanel();
+      updateProviderCta();
+    } catch (e) {}
   }
 
   function renderChat(idea) {
@@ -185,9 +339,11 @@ export const HUMAN_FIRST_APP_JS = `
         el('confirmed-notdoing').textContent = idea.agreement.notDoing;
       }
     }
+    updateProviderCta();
   }
 
-  function boot() {
+  async function boot() {
+    PROVIDER_STATE = await loadProviderState();
     fetch('/api/idea/state', { headers: { 'x-workbench-token': TOKEN } })
       .then(function (r) { return r.json(); })
       .then(function (data) { renderIdea(data.idea); })
@@ -249,7 +405,16 @@ export const HUMAN_FIRST_APP_JS = `
     });
   }
 
-  document.addEventListener('DOMContentLoaded', boot);
+  window.openProviderPanel = openProviderPanel;
+  window.closeProviderPanel = closeProviderPanel;
+  window.saveProviderConfig = saveProviderConfig;
+  window.clearProviderSecret = clearProviderSecretAction;
+
+  document.addEventListener('DOMContentLoaded', function () {
+    boot().catch(function (e) {
+      console.error('boot failed:', e);
+    });
+  });
 })();
 `
 
@@ -289,11 +454,37 @@ export function renderHumanFirstHtml(requestToken: string): string {
       <p class="eyebrow">MING WORKBENCH</p>
       <h2>说说你的想法。</h2>
       <div class="card chat" id="chat-log"></div>
+      <div id="provider-cta" class="provider-cta hidden">
+        需要连接 AI 服务才能继续。<span class="link" onclick="openProviderPanel()">连接我的 AI 服务</span>
+      </div>
       <div class="compose">
         <textarea id="message-input" rows="2" placeholder="用你自己的话说就行，想到哪里说到哪里"></textarea>
         <button id="send-button" class="primary" type="button">发送</button>
       </div>
     </section>
+
+    <div id="provider-panel-overlay" class="provider-panel-overlay hidden">
+      <div class="provider-panel">
+        <button class="panel-close" onclick="closeProviderPanel()" aria-label="关闭">×</button>
+        <h3>连接 AI 服务</h3>
+        <p class="panel-desc">输入你的服务商信息和 API Key，以便 Workbench 帮你处理想法。密钥会加密保存在你的设备上。</p>
+        <div class="field-label">接口地址（可选）</div>
+        <input id="provider-base-url" type="text" placeholder="留空使用默认，或填写自定义 Base URL" />
+        <div class="field-hint">支持任何 OpenAI 兼容的接口地址</div>
+        <div class="field-label">模型名称</div>
+        <input id="provider-model" type="text" placeholder="deepseek-v4-pro" />
+        <div class="field-hint">模型名称需与服务商提供的一致</div>
+        <div class="field-label">API Key</div>
+        <input id="provider-key-input" type="password" placeholder="sk-..." />
+        <div class="field-hint">密钥加密存储在本机，不会上传或写入项目文件</div>
+        <div class="panel-actions">
+          <button id="provider-save-button" class="primary" type="button">保存</button>
+          <button class="secondary" type="button" onclick="closeProviderPanel()">取消</button>
+          <button id="provider-clear-button" class="secondary hidden" type="button" onclick="clearProviderSecret()">移除密钥</button>
+        </div>
+        <div id="provider-panel-status" class="panel-status"></div>
+      </div>
+    </div>
 
     <section id="review-view" class="hidden">
       <p class="eyebrow">MING WORKBENCH</p>
@@ -386,5 +577,5 @@ export function renderHumanFirstHtml(requestToken: string): string {
   </main>
   <script src="/app.js" type="module"></script>
 </body>
-</html>`
+</html>`;
 }

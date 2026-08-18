@@ -565,13 +565,11 @@ function registerIpc() {
     try {
       const saved = saveProviderPreferences(preferences)
       providerPreferences = saved
-      if (currentProjectRoot) {
-        void restartBackendForProviderActivation().catch((error) => {
-          appendStartupLog(
-            `provider preferences activation failed: ${error instanceof Error ? error.message : String(error)}`,
-          )
-        })
-      }
+      void restartBackendForProviderActivation().catch((error) => {
+        appendStartupLog(
+          `provider preferences activation failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      })
       return { ok: true, preferences: saved }
     } catch {
       return { ok: false, message: '配置没有保存成功，请稍后重试。' }
@@ -584,13 +582,11 @@ function registerIpc() {
     }
     clearProviderSecret()
     providerSecret = null
-    if (currentProjectRoot) {
-      void restartBackendForProviderActivation().catch((error) => {
-        appendStartupLog(
-          `provider secret clear failed: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      })
-    }
+    void restartBackendForProviderActivation().catch((error) => {
+      appendStartupLog(
+        `provider secret clear failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    })
     return { ok: true }
   })
 
@@ -685,11 +681,11 @@ function registerIpc() {
  * token and resumes persisted Work Units with a fresh mutable-facts check.
  */
 async function restartBackendForProviderActivation() {
-  if (!currentProjectRoot) return
   // A restart may already be in flight (e.g. saving the secret and the
   // preferences each trigger one). Do not drop the second request: mark it
   // pending and run it once the current restart finishes, so the LAST saved
   // configuration (including a custom base URL) actually reaches the backend.
+  // Works for both project mode and human-first mode (no project).
   if (switching) {
     pendingRestart = true
     return

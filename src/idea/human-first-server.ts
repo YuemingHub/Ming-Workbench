@@ -180,7 +180,8 @@ export async function startHumanFirstServer(
       }
 
       if (method === 'GET' && url.pathname === '/api/idea/state') {
-        sendJson(response, 200, { status: 'ok', idea: loadIdea(storeDir ?? '') })
+        const idea = loadIdea(storeDir ?? '')
+        sendJson(response, 200, { status: 'ok', idea })
         return
       }
 
@@ -233,8 +234,10 @@ export async function startHumanFirstServer(
           const result = await synthesizeTurn(provider, idea)
           if (result.ready && result.synthesis) {
             idea = applySynthesis(idea, result.synthesis, result.reply)
+            idea.providerRequired = false
           } else {
             idea = { ...idea, turns: [...idea.turns, { role: 'workbench' as const, text: result.reply, at: new Date().toISOString() }] }
+            idea.providerRequired = !result.ready
           }
         } catch {
           idea = {
@@ -248,6 +251,7 @@ export async function startHumanFirstServer(
               },
             ],
           }
+          idea.providerRequired = true
         }
         persist(idea)
         sendJson(response, 200, { status: 'ok', idea })
