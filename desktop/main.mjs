@@ -55,6 +55,11 @@ let providerSecret = null
 let providerPreferences = defaultProviderPreferences()
 let workUnitStore = null
 let currentProjectRoot = ''
+// Startup diagnostics: track backend lifecycle for regression diagnosis.
+let backendRunId = 0
+let lastRestartReason = ''
+let backendStartTs = 0
+let backendStarting = false
 
 // ── Auto-update ───────────────────────────────────────────────────────────
 // electron-updater is loaded dynamically so dev mode (no release feed) does not
@@ -257,11 +262,24 @@ function writeLastProject(projectRoot) {
   }
 }
 
-async function startBackend(projectRoot) {
+async function startBackend(projectRoot, reason = 'initial') {
+  backendRunId += 1
+  const runId = backendRunId
+  backendStartTs = Date.now()
+  lastRestartReason = reason
+  const hasProject = Boolean(projectRoot)
+  const hasProvider = Boolean(providerSecret)
+  backendStarting = true
+  appendStartupLog(
+    `[backend-run-${runId}] start reason=${reason} mode=${hasProject ? 'project' : 'human-first'} projectRoot=${hasProject ? 'set' : 'none'} providerConfigured=${hasProvider} prefsModel=${providerPreferences.model || 'none'}`,
+  )
+
   if (backend) {
     const previous = backend
     backend = null
+    appendStartupLog(`[backend-run-${runId}] killing previous backend`)
     await previous.kill()
+    appendStartupLog(`[backend-run-${runId}] previous backend killed`)
   }
 
   // Clear origin atomically before spawning so no stale origin is accepted
@@ -352,12 +370,15 @@ async function startBackend(projectRoot) {
     },
   })
 
+  const readyTs = Date.now()
   backendUrl = await backend.ready
   // The window closed while the backend child was starting; kill the child
   // instead of leaving an orphaned backend behind.
   if (cleanShutdownDone) {
     const spawned = backend
     backend = null
+    backendStarting = false
+    appendStartupLog(`[backend-run-${runId}] window closed during startup; killing spawned backend`)
     await spawned.kill()
     return
   }
@@ -365,8 +386,10 @@ async function startBackend(projectRoot) {
   // IPC can observe it. Only the exact ready URL becomes trusted.
   activeBackendOrigin = urlOrigin(backendUrl) ?? ''
   currentProjectRoot = projectRoot
+  const elapsedMs = readyTs - backendStartTs
+  backendStarting = false
   appendStartupLog(
-    `backend ready ${backendUrl} origin=${activeBackendOrigin} mode=${projectRoot ? 'project' : 'human-first'}`,
+    `backend ready ${backendUrl} origin=${activeBackendOrigin} mode=${projectRoot ? 'project' : 'human-first'} runId=${runId} startupMs=${elapsedMs}`,
   )
   if (projectRoot) writeLastProject(projectRoot)
   return backendUrl
@@ -493,7 +516,8 @@ async function pickProjectViaDialog() {
 
 async function switchBackend(projectRoot) {
   // startBackend sets activeBackendOrigin atomically after backend.ready.
-  const url = await startBackend(projectRoot)
+  appendStartupLog(`switchBackend called projectRoot=${projectRoot || 'none'}`)
+  const url = await startBackend(projectRoot, 'project-switch')
   if (win && !win.isDestroyed()) {
     void win.loadURL(url)
   }
@@ -565,7 +589,8 @@ function registerIpc() {
     try {
       const saved = saveProviderPreferences(preferences)
       providerPreferences = saved
-      void restartBackendForProviderActivation().catch((error) => {
+      appendStartupLog(`IPC set-provider-preferences: model=${saved.model || 'none'} baseUrl=${saved.baseUrl || 'none'}`)
+      void restartBackendForProviderActivation('set-preferences').catch((error) => {
         appendStartupLog(
           `provider preferences activation failed: ${error instanceof Error ? error.message : String(error)}`,
         )
@@ -582,7 +607,8 @@ function registerIpc() {
     }
     clearProviderSecret()
     providerSecret = null
-    void restartBackendForProviderActivation().catch((error) => {
+    appendStartupLog(`IPC clear-provider-secret: secret cleared`)
+    void restartBackendForProviderActivation('clear-secret').catch((error) => {
       appendStartupLog(
         `provider secret clear failed: ${error instanceof Error ? error.message : String(error)}`,
       )
@@ -607,11 +633,12 @@ function registerIpc() {
     try {
       saveProviderSecret(secret)
       providerSecret = secret
+      appendStartupLog(`IPC set-provider-secret: secret saved (len=${secret.length})`)
       // Hot activation: restart the backend for the same fixed project so the
       // new secret reaches the Harness child env without an app restart. The
       // restart is fire-and-forget so the IPC response is not blocked; when the
       // new backend is ready the window reloads and resumes persisted state.
-      void restartBackendForProviderActivation().catch((error) => {
+      void restartBackendForProviderActivation('set-secret').catch((error) => {
         appendStartupLog(
           `provider activation failed: ${error instanceof Error ? error.message : String(error)}`,
         )
@@ -680,32 +707,37 @@ function registerIpc() {
  * ready, the renderer reloads so it picks up the fresh per-process request
  * token and resumes persisted Work Units with a fresh mutable-facts check.
  */
-async function restartBackendForProviderActivation() {
+async function restartBackendForProviderActivation(reason = 'provider-change') {
   // A restart may already be in flight (e.g. saving the secret and the
   // preferences each trigger one). Do not drop the second request: mark it
   // pending and run it once the current restart finishes, so the LAST saved
   // configuration (including a custom base URL) actually reaches the backend.
   // Works for both project mode and human-first mode (no project).
+  appendStartupLog(
+    `restartBackendForProviderActivation called reason=${reason} switching=${switching} currentProjectRoot=${currentProjectRoot || 'none'}`,
+  )
   if (switching) {
     pendingRestart = true
+    appendStartupLog(`restart queued (pendingRestart=true)`)
     return
   }
   switching = true
   try {
-    const url = await startBackend(currentProjectRoot)
+    const url = await startBackend(currentProjectRoot, reason)
     if (win && !win.isDestroyed()) {
       // The backend restart binds a NEW loopback port; reloading the stale
       // URL would land on a connection-refused error page. Navigate to the
       // fresh origin instead.
       void win.loadURL(url)
     }
-    appendStartupLog('provider activation complete; backend restarted with updated provider secret')
+    appendStartupLog(`provider activation complete reason=${reason}; backend restarted with updated provider secret`)
     return url
   } finally {
     switching = false
     if (pendingRestart) {
       pendingRestart = false
-      void restartBackendForProviderActivation()
+      appendStartupLog(`pending restart executing after previous completion`)
+      void restartBackendForProviderActivation('pending-provider-change')
     }
   }
 }
@@ -736,13 +768,41 @@ if (!gotLock) {
 
   app.on('before-quit', (event) => {
     if (cleanShutdownDone) return
-    if (!backend) {
-      cleanShutdownDone = true
+    // If a backend restart is in progress, wait for it to complete so we
+    // don't quit with a null backend (which would skip cleanup).
+    if (backendStarting || switching) {
+      appendStartupLog('close requested during backend restart; waiting for completion')
+      event.preventDefault()
+      const waitStart = Date.now()
+      const waitGuard = setTimeout(() => {
+        appendStartupLog('backend restart did not complete within 5s during close; proceeding')
+        backendStarting = false
+        switching = false
+        // After timeout, fall through to the normal close path
+        performClose()
+      }, 5000)
+      const waitTick = setInterval(() => {
+        if (!backendStarting && !switching) {
+          clearInterval(waitTick)
+          clearTimeout(waitGuard)
+          performClose()
+        }
+      }, 100)
       return
     }
-    event.preventDefault()
+    performClose()
+  })
+
+  function performClose() {
+    if (cleanShutdownDone) return
+    if (!backend) {
+      cleanShutdownDone = true
+      appendStartupLog('close: no backend to clean up')
+      return
+    }
     const current = backend
     backend = null
+    appendStartupLog('close: killing backend tree')
     // Bounded clean close: a backend tree kill must never block the window
     // close. Work Units are persisted on every state change, so a forced exit
     // loses nothing; if the kill stalls, exit anyway within the bound.
@@ -757,9 +817,10 @@ if (!gotLock) {
       .finally(() => {
         clearTimeout(killGuard)
         cleanShutdownDone = true
+        appendStartupLog('close: backend killed; quitting')
         app.quit()
       })
-  })
+  }
 
   app.whenReady().then(async () => {
     app.setName('Ming Workbench')
@@ -776,7 +837,7 @@ if (!gotLock) {
     // Load non-secret provider preferences (provider/model/base URL).
     providerPreferences = loadProviderPreferences()
 
-    appendStartupLog(`app ready packaged=${app.isPackaged} node=${process.version} execPath=${process.execPath}`)
+    appendStartupLog(`app ready packaged=${app.isPackaged} node=${process.version} execPath=${process.execPath} providerSecretLoaded=${Boolean(providerSecret)} prefsModel=${providerPreferences.model || 'none'}`)
 
     let projectRoot = cliArgValue('--project')
     if (projectRoot && !existsSync(projectRoot)) {
@@ -799,7 +860,7 @@ if (!gotLock) {
       // human-first backend needs no repository and no Harness runtime.
       appendStartupLog('no project; entering human-first V1 entry')
       try {
-        const url = await startBackend(undefined)
+        const url = await startBackend(undefined, 'human-first-entry')
         if (win && !win.isDestroyed()) {
           void win.loadURL(url)
         }
@@ -819,7 +880,7 @@ if (!gotLock) {
     appendStartupLog(`project fixed ${projectRoot}`)
 
     try {
-      const url = await startBackend(projectRoot)
+      const url = await startBackend(projectRoot, 'project-entry')
       if (win && !win.isDestroyed()) {
         void win.loadURL(url)
       }

@@ -154,6 +154,15 @@ function Invoke-L3UiJourney([string]$Label, [string]$UserData) {
   }
   $script:launchDurations[$Label] = ((Get-Date) - $launchStart).TotalSeconds
   Write-Host "L3_LAUNCH_DURATION $Label=$([math]::Round($script:launchDurations[$Label],1))s"
+  if (-not $backendReady) {
+    # Upload startup.log as artifact before throwing so failure is diagnosable.
+    if ($ArtifactDir -and (Test-Path $startupLog)) {
+      New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
+      Copy-Item $startupLog (Join-Path $ArtifactDir "$Label-startup.log") -Force
+    }
+    Write-Host "--- startup.log tail (last 40 lines) ---"
+    Get-Content $startupLog -Tail 40
+  }
   Assert-True $backendReady "installed backend became ready (archive extraction + harness runtime)" "(see $startupLog)"
 
   # CDP must be reachable for the UI driver.

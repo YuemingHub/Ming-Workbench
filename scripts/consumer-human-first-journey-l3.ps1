@@ -159,6 +159,15 @@ function Invoke-HumanFirstUiJourney([string]$Label, [string]$UserData, [string]$
   }
   $script:launchDurations[$Label] = ((Get-Date) - $launchStart).TotalSeconds
   Write-Host "HUMAN_FIRST_LAUNCH_DURATION $Label=$([math]::Round($script:launchDurations[$Label],1))s"
+  if (-not $backendReady) {
+    # Upload startup.log as artifact before throwing so failure is diagnosable.
+    if ($ArtifactDir -and (Test-Path $startupLog)) {
+      New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
+      Copy-Item $startupLog (Join-Path $ArtifactDir "$Label-startup.log") -Force
+    }
+    Write-Host "--- startup.log tail (last 40 lines) ---"
+    Get-Content $startupLog -Tail 40
+  }
   Assert-True $backendReady "installed backend ready in human-first mode (no --project)" "(see $startupLog)"
 
   $deadline = (Get-Date).AddSeconds(30)

@@ -114,7 +114,7 @@ test('provider activation restart path is wired in the desktop main process', ()
   // origin (a plain reload would hit the dead old port) so the renderer
   // picks up the fresh request token and resumes persisted state.
   assert.match(source, /async function restartBackendForProviderActivation/)
-  assert.match(source, /const url = await startBackend\(currentProjectRoot\)/)
+  assert.match(source, /const url = await startBackend\(currentProjectRoot/)
   assert.match(source, /win\.loadURL\(url\)/)
   // No secret may ever enter argv: every line mentioning the key must be the
   // child-env injection or a comment, never an argument-list write.

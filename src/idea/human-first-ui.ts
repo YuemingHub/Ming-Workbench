@@ -103,7 +103,7 @@ h2 { font-size: 22px; line-height: 1.25; letter-spacing: -.02em; }
 .provider-cta { margin-top: 14px; padding: 14px 16px; background: #fff7df; border: 1px solid #f1dfaa; border-radius: 12px; color: #6f5111; font-size: 14px; line-height: 1.6; }
 .provider-cta .link { color: #963d35; font-weight: 700; cursor: pointer; text-decoration: underline; }
 .provider-panel-overlay { position: fixed; inset: 0; background: rgba(23, 32, 51, .42); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px 16px; z-index: 50; overflow-y: auto; }
-.provider-panel { width: min(480px, 100%); background: #fff; border-radius: 16px; padding: 24px; box-shadow: 0 24px 64px rgba(23, 32, 51, .18); }
+.provider-panel { position: relative; width: min(480px, 100%); background: #fff; border-radius: 16px; padding: 24px; box-shadow: 0 24px 64px rgba(23, 32, 51, .18); }
 .provider-panel h3 { margin: 0 0 4px; font-size: 18px; }
 .provider-panel .panel-desc { margin: 0 0 16px; color: #596579; font-size: 14px; line-height: 1.6; }
 .provider-panel .field-label { display: block; margin: 14px 0 6px; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #667085; }
@@ -149,7 +149,7 @@ export const HUMAN_FIRST_APP_JS = `
   }
 
   async function loadProviderState() {
-    if (!isDesktopMode()) return { hasSecret: false, preferences: null };
+    if (!isDesktopMode()) return { hasSecret: false, preferences: null, loaded: true };
     try {
       var hasSecretResult = await window.mingWorkbench.hasProviderSecret();
       var prefsResult = await window.mingWorkbench.getProviderPreferences();
@@ -181,19 +181,57 @@ export const HUMAN_FIRST_APP_JS = `
     }
   }
 
+  var PROVIDER_PANEL_TEMPLATE = '<div id="provider-panel-overlay" class="provider-panel-overlay">' +
+    '<div class="provider-panel">' +
+    '<button class="panel-close" onclick="closeProviderPanel()" aria-label="关闭">×</button>' +
+    '<h3>连接 AI 服务</h3>' +
+    '<p class="panel-desc">输入你的服务商信息和密钥，以便 Workbench 帮你处理想法。密钥会加密保存在你的设备上。</p>' +
+    '<div class="field-label">接口地址（可选）</div>' +
+    '<input id="provider-base-url" type="text" placeholder="留空使用默认，或填写自定义接口地址" />' +
+    '<div class="field-hint">支持任何 OpenAI 兼容的接口地址</div>' +
+    '<div class="field-label">模型名称</div>' +
+    '<input id="provider-model" type="text" placeholder="deepseek-v4-pro" />' +
+    '<div class="field-hint">模型名称需与服务商提供的一致</div>' +
+    '<div class="field-label">密钥</div>' +
+    '<input id="provider-key-input" type="password" placeholder="sk-..." />' +
+    '<div class="field-hint">密钥加密存储在本机，不会上传或写入项目文件</div>' +
+    '<div class="panel-actions">' +
+    '<button id="provider-save-button" class="primary" type="button" onclick="saveProviderConfig()">保存</button>' +
+    '<button class="secondary" type="button" onclick="closeProviderPanel()">取消</button>' +
+    '<button id="provider-clear-button" class="secondary hidden" type="button" onclick="clearProviderSecret()">移除密钥</button>' +
+    '</div>' +
+    '<div id="provider-panel-status" class="panel-status"></div>' +
+    '</div>' +
+    '</div>';
+
+  function mountProviderPanel() {
+    var existing = el('provider-panel-overlay');
+    if (existing) return existing;
+    var wrapper = document.createElement('div');
+    wrapper.innerHTML = PROVIDER_PANEL_TEMPLATE;
+    var panel = wrapper.firstChild;
+    document.body.appendChild(panel);
+    return panel;
+  }
+
+  function unmountProviderPanel() {
+    var overlay = el('provider-panel-overlay');
+    if (overlay && overlay.parentNode) {
+      overlay.parentNode.removeChild(overlay);
+    }
+  }
+
   function openProviderPanel() {
     if (!isDesktopMode()) {
       alert('连接 AI 服务需要在桌面版 Ming Workbench 中使用。');
       return;
     }
-    var overlay = el('provider-panel-overlay');
-    if (overlay) overlay.classList.remove('hidden');
+    mountProviderPanel();
     prefillProviderPanel();
   }
 
   function closeProviderPanel() {
-    var overlay = el('provider-panel-overlay');
-    if (overlay) overlay.classList.add('hidden');
+    unmountProviderPanel();
   }
 
   async function prefillProviderPanel() {
@@ -242,6 +280,7 @@ export const HUMAN_FIRST_APP_JS = `
         if (!secretResult || !secretResult.ok) {
           status.textContent = '密钥保存失败，请稍后重试。';
           status.className = 'panel-status error';
+          saveBtn.disabled = false;
           return;
         }
       }
@@ -253,6 +292,7 @@ export const HUMAN_FIRST_APP_JS = `
       if (!prefsResult || !prefsResult.ok) {
         status.textContent = prefsResult ? prefsResult.message : '配置保存失败，请稍后重试。';
         status.className = 'panel-status error';
+        saveBtn.disabled = false;
         return;
       }
       status.textContent = '已保存，正在重新连接…';
@@ -267,7 +307,6 @@ export const HUMAN_FIRST_APP_JS = `
     } catch (e) {
       status.textContent = '保存失败：' + (e.message || '请稍后重试。');
       status.className = 'panel-status error';
-    } finally {
       saveBtn.disabled = false;
     }
   }
@@ -462,29 +501,6 @@ export function renderHumanFirstHtml(requestToken: string): string {
         <button id="send-button" class="primary" type="button">发送</button>
       </div>
     </section>
-
-    <div id="provider-panel-overlay" class="provider-panel-overlay hidden">
-      <div class="provider-panel">
-        <button class="panel-close" onclick="closeProviderPanel()" aria-label="关闭">×</button>
-        <h3>连接 AI 服务</h3>
-        <p class="panel-desc">输入你的服务商信息和 API Key，以便 Workbench 帮你处理想法。密钥会加密保存在你的设备上。</p>
-        <div class="field-label">接口地址（可选）</div>
-        <input id="provider-base-url" type="text" placeholder="留空使用默认，或填写自定义 Base URL" />
-        <div class="field-hint">支持任何 OpenAI 兼容的接口地址</div>
-        <div class="field-label">模型名称</div>
-        <input id="provider-model" type="text" placeholder="deepseek-v4-pro" />
-        <div class="field-hint">模型名称需与服务商提供的一致</div>
-        <div class="field-label">API Key</div>
-        <input id="provider-key-input" type="password" placeholder="sk-..." />
-        <div class="field-hint">密钥加密存储在本机，不会上传或写入项目文件</div>
-        <div class="panel-actions">
-          <button id="provider-save-button" class="primary" type="button">保存</button>
-          <button class="secondary" type="button" onclick="closeProviderPanel()">取消</button>
-          <button id="provider-clear-button" class="secondary hidden" type="button" onclick="clearProviderSecret()">移除密钥</button>
-        </div>
-        <div id="provider-panel-status" class="panel-status"></div>
-      </div>
-    </div>
 
     <section id="review-view" class="hidden">
       <p class="eyebrow">MING WORKBENCH</p>
