@@ -380,6 +380,13 @@ async function startBackend(projectRoot, reason = 'initial') {
             MING_HARNESS_MAX_TOKENS: '16384',
           }
         : {}),
+      // Repository-owned deterministic installed journeys may opt into the
+      // fixture executor through a process-level marker. The renderer still
+      // has to reach the normal confirmation/cost-gate UI; the marker is not
+      // user-configurable and is never accepted from a request body alone.
+      ...(process.env.MING_EXECUTION_FIXTURE === '1'
+        ? { MING_EXECUTION_FIXTURE: '1' }
+        : {}),
     },
   })
 

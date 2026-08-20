@@ -184,6 +184,30 @@ export async function startHumanFirstServer(
         return
       }
 
+      if (method === 'GET' && url.pathname === '/result') {
+        // Browser navigation is not an /api/* request. Keep the artifact
+        // path restricted to this Workbench-owned results root.
+        const idea = loadIdea(storeDir ?? '')
+        const artifact = idea.execution?.artifactPath
+        if (!artifact) {
+          sendJson(response, 404, { status: 'no-result' })
+          return
+        }
+        const resolvedRoot = resolve(resultsRoot)
+        const resolvedArtifact = resolve(artifact)
+        if (resolvedRoot === '' || !resolvedArtifact.startsWith(resolvedRoot + sep) || !existsSync(resolvedArtifact)) {
+          sendJson(response, 404, { status: 'result-not-found' })
+          return
+        }
+        try {
+          const html = readFileSync(resolvedArtifact, 'utf8')
+          sendText(response, 200, 'text/html; charset=utf-8', html)
+        } catch {
+          sendJson(response, 404, { status: 'result-unreadable' })
+        }
+        return
+      }
+
       if (!url.pathname.startsWith('/api/')) {
         sendJson(response, 404, { status: 'not-found' })
         return
@@ -316,8 +340,12 @@ export async function startHumanFirstServer(
         const fixtureRequested = (body as { fixture?: unknown } | undefined)?.fixture === true
         // A browser/body flag can never self-authorize deterministic evidence.
         // Fixture mode is only available to the repository-owned automation
-        // environment, which sets the process-level marker.
-        const fixture = fixtureRequested && process.env.MING_EXECUTION_FIXTURE === '1'
+        // environment, which sets the process-level marker. The first click
+        // still reaches the normal cost gate; the authorized confirmation is
+        // what allows the installed fixture journey to enter deterministic
+        // mode without exposing a fixture control in the human UI.
+        const fixtureMarker = process.env.MING_EXECUTION_FIXTURE === '1'
+        const fixture = fixtureMarker && (fixtureRequested || authorizeRealExecution)
         const executionMode = fixture ? 'fixture' : 'real'
         const now = new Date()
         // Human Cost Gate: the FIRST real execution may incur API fees. It is
@@ -327,7 +355,7 @@ export async function startHumanFirstServer(
           sendJson(response, 409, {
             status: 'cost-gate-required',
             message:
-              '接下来会调用你连接的 AI 服务来实际制作这个结果，可能产生 API 费用。你确认后我才会开始。',
+              '接下来会调用你连接的 AI 服务来实际制作这个结果，可能产生额外费用。你确认后我才会开始。',
           })
           return
         }
@@ -391,30 +419,6 @@ export async function startHumanFirstServer(
         const next = clearExecution(idea)
         persist(next)
         sendJson(response, 200, { status: 'ok', idea: next })
-        return
-      }
-
-      if (method === 'GET' && url.pathname === '/result') {
-        // Restrict "open result" to the recorded artifact inside a Workbench-owned
-        // workspace — never an arbitrary path.
-        const idea = loadIdea(storeDir ?? '')
-        const artifact = idea.execution?.artifactPath
-        if (!artifact) {
-          sendJson(response, 404, { status: 'no-result' })
-          return
-        }
-        const resolvedRoot = resolve(resultsRoot)
-        const resolvedArtifact = resolve(artifact)
-        if (resolvedRoot === '' || !resolvedArtifact.startsWith(resolvedRoot + sep) || !existsSync(resolvedArtifact)) {
-          sendJson(response, 404, { status: 'result-not-found' })
-          return
-        }
-        try {
-          const html = readFileSync(resolvedArtifact, 'utf8')
-          sendText(response, 200, 'text/html; charset=utf-8', html)
-        } catch {
-          sendJson(response, 404, { status: 'result-unreadable' })
-        }
         return
       }
 

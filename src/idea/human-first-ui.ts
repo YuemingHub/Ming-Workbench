@@ -776,7 +776,7 @@ export function renderHumanFirstHtml(requestToken: string): string {
       </div>
       <div id="execution-gate" class="hidden">
         <div id="cost-gate" class="provider-cta hidden">
-          <p>接下来会调用你连接的 AI 服务来实际制作这个结果，可能产生 API 费用。</p>
+          <p>接下来会调用你连接的 AI 服务来实际制作这个结果，可能产生额外费用。</p>
           <div class="actions">
             <button id="confirm-execution-button" class="primary" type="button">我同意，会产生费用，开始</button>
             <button id="cancel-cost-button" class="secondary" type="button">先不放</button>

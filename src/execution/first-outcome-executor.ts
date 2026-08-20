@@ -127,6 +127,19 @@ function ideaSlug(id: string): string {
   return clean || 'idea'
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => {
+    switch (character) {
+      case '&': return '&amp;'
+      case '<': return '&lt;'
+      case '>': return '&gt;'
+      case '"': return '&quot;'
+      case "'": return '&#39;'
+      default: return character
+    }
+  })
+}
+
 export async function executeFirstOutcome(
   options: FirstOutcomeExecutorOptions,
 ): Promise<FirstOutcomeResult> {
@@ -177,9 +190,34 @@ export async function executeFirstOutcome(
     join(workspacePath, 'README.md'),
     `# ${goal.goalStatement}\n\n## 这一轮\n\n${goal.acceptanceCriteria.join('\n')}\n\nWorkbench-owned first outcome workspace. 由 Ming Workbench 自动创建。\n`,
   )
-  writeFileSync(join(workspacePath, 'index.html'), '<!-- workbench first outcome placeholder -->\n')
+  writeFileSync(
+    join(workspacePath, 'index.html'),
+    `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ming Workbench 这一轮结果</title>
+  <style>body{font:16px/1.6 system-ui,sans-serif;max-width:720px;margin:48px auto;padding:0 20px;color:#172033}h1{font-size:28px}li{margin:8px 0}</style>
+</head>
+<body>
+  <main>
+    <p>这一轮结果</p>
+    <h1>${escapeHtml(goal.goalStatement)}</h1>
+    <h2>这一轮先确认这些</h2>
+    <ul>${goal.acceptanceCriteria.map((criterion) => `<li>${escapeHtml(criterion)}</li>`).join('')}</ul>
+    <p>这是 Workbench 为你准备的第一版结果。你可以打开它、试用它，再决定下一轮怎么调整。</p>
+  </main>
+</body>
+</html>
+`,
+  )
   runGit(workspacePath, ['add', '.'])
-  runGit(workspacePath, ['commit', '-qm', 'init: workbench first-outcome baseline'])
+  // Iterations intentionally reuse the same Workbench-owned workspace. If a
+  // prior bounded run produced no authorized delta, re-initializing the same
+  // baseline is a clean tree; an empty commit keeps the new Work Unit
+  // independent instead of surfacing a false execution failure.
+  runGit(workspacePath, ['commit', '--allow-empty', '-qm', 'init: workbench first-outcome baseline'])
 
   // 2. bridge -> Work Unit (reuses the existing intake factory).
   const bridged = bridgeConfirmedIdeaToExecution(idea, {

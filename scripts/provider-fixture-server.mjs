@@ -37,6 +37,7 @@ const TARGET = process.env.FIXTURE_TARGET_DIR ?? process.cwd()
 // Every Harness request advances or holds the phase based on what the agent
 // needs; the phases are chosen so a fresh scratch repo reaches NEW exactly once.
 let phase = 0
+let executionWorkUnitId = ''
 
 function readReadme() {
   try {
@@ -74,6 +75,8 @@ const server = createServer((req, res) => {
     // Harness prompt, so probe must be tested first; only genuine execution
     // requests advance the phase machine.
     const isExecution = !isProbe && promptText.includes('AAOP Provider Execution Grant')
+    const workUnitMatch = promptText.match(/work-unit:(WU-[A-Za-z0-9-]+)/)
+    const workUnitId = workUnitMatch ? workUnitMatch[1] : ''
     // Human-first V1 entry synthesis reuses the same provider endpoint with
     // deterministic JSON responses (no Harness agent loop involved).
     const isHumanFirstTurn = promptText.includes('MING_HUMAN_FIRST_TURN')
@@ -127,8 +130,18 @@ const server = createServer((req, res) => {
     // The execution phase machine advances ONLY on execution requests; probe
     // and intake requests never consume a phase, so a fresh journey always
     // reaches read -> write -> conclude exactly once.
-    const thisPhase = isExecution ? phase : -1
-    if (isExecution) phase += 1
+    let thisPhase = -1
+    if (isExecution) {
+      // Each confirmed iteration owns a fresh Work Unit. Reset the
+      // deterministic read -> write -> conclude sequence for that new unit.
+      if (workUnitId && workUnitId !== executionWorkUnitId) {
+        executionWorkUnitId = workUnitId
+        phase = 0
+        console.log(`fixture execution reset workUnit=${workUnitId}`)
+      }
+      thisPhase = phase
+      phase += 1
+    }
     if (isExecution) console.log(`fixture execution phase=${thisPhase} readmeNew=${content.includes(NEW_MARK)}`)
 
     const sseChunk = (payload) => {
