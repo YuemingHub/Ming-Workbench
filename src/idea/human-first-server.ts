@@ -2,9 +2,10 @@
  * Human-first V1 entry — thin loopback server.
  *
  * Serves the human-first letter/conversation UI and the Idea Space API for a
- * person with no project. No Harness, AAOP, repository, or execution runtime is
- * started here: conversation synthesis reuses the provider endpoint passed
- * through the backend env, and state persists to the store directory.
+ * person with no project. Conversation synthesis reuses the provider endpoint
+ * passed through the backend env, and state persists to the store directory.
+ * Execution-side Harness preparation is deferred until after confirmation and
+ * an explicit execution request.
  */
 
 import { randomBytes } from 'node:crypto'
@@ -20,6 +21,7 @@ import {
   beginIdea,
   chooseEntry,
   confirmIdea,
+  clearExecution,
   type HumanFirstIdea,
   type IdeaExecution,
 } from './idea-space.js'
@@ -30,6 +32,7 @@ import {
   type ProviderEndpoint,
 } from './synthesis.js'
 import { executeFirstOutcome } from '../execution/first-outcome-executor.js'
+import { prepareHarnessRuntime } from '../hosts/harness-runtime.js'
 import {
   HUMAN_FIRST_APP_JS,
   HUMAN_FIRST_CSS,
@@ -308,13 +311,13 @@ export async function startHumanFirstServer(
           sendJson(response, 409, { status: 'provider-required' })
           return
         }
-        if (!options.harnessCheckout || !existsSync(options.harnessCheckout)) {
-          sendJson(response, 409, { status: 'harness-required' })
-          return
-        }
         const authorizeRealExecution = (body as { authorizeRealExecution?: unknown } | undefined)
           ?.authorizeRealExecution === true
-        const fixture = (body as { fixture?: unknown } | undefined)?.fixture === true
+        const fixtureRequested = (body as { fixture?: unknown } | undefined)?.fixture === true
+        // A browser/body flag can never self-authorize deterministic evidence.
+        // Fixture mode is only available to the repository-owned automation
+        // environment, which sets the process-level marker.
+        const fixture = fixtureRequested && process.env.MING_EXECUTION_FIXTURE === '1'
         const executionMode = fixture ? 'fixture' : 'real'
         const now = new Date()
         // Human Cost Gate: the FIRST real execution may incur API fees. It is
@@ -328,12 +331,22 @@ export async function startHumanFirstServer(
           })
           return
         }
+        let harnessCheckout = options.harnessCheckout
+        if (!harnessCheckout || !existsSync(harnessCheckout)) {
+          try {
+            const runtime = await prepareHarnessRuntime({ workbenchRoot: options.workbenchRoot })
+            harnessCheckout = runtime.checkout
+          } catch {
+            sendJson(response, 409, { status: 'harness-required' })
+            return
+          }
+        }
         try {
           const execResult = await executeFirstOutcome({
             idea,
             workbenchRoot: options.workbenchRoot,
             workspaceRoot: resultsRoot,
-            harnessCheckout: options.harnessCheckout,
+            harnessCheckout,
             provider: process.env.MING_HARNESS_PROVIDER ?? 'deepseek-official',
             model: process.env.MING_HARNESS_MODEL ?? provider.model ?? 'deepseek-chat',
             sessionRoot: process.env.MING_WORKBENCH_SESSION_ROOT,
@@ -353,6 +366,7 @@ export async function startHumanFirstServer(
             verifiedFacts: execResult.verifiedFacts,
             notProvenFacts: execResult.notProvenFacts,
             producedFiles: execResult.producedFiles,
+            capabilityDecision: execResult.capabilityDecision,
             artifactPath: execResult.artifactPath,
             workspacePath: execResult.workspacePath,
             workUnitId: execResult.workUnitId,
@@ -369,6 +383,14 @@ export async function startHumanFirstServer(
             message,
           })
         }
+        return
+      }
+
+      if (method === 'POST' && url.pathname === '/api/idea/iterate') {
+        const idea = loadIdea(storeDir ?? '')
+        const next = clearExecution(idea)
+        persist(next)
+        sendJson(response, 200, { status: 'ok', idea: next })
         return
       }
 

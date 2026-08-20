@@ -305,10 +305,10 @@ async function startBackend(projectRoot, reason = 'initial') {
   const nodeBin = resolveNodeBin()
   const script = resolveBackendScriptPath(workbenchRoot)
 
-  // Both routes need the reviewed Harness runtime once the founder confirms a
-  // round and starts execution: human-first embeds the same Confirm->Execute
-  // bridge. Preference is the ACP child env (honoured by the backend), so the
-  // checkout is resolved here for every mode, not only project mode.
+  // Project mode needs the reviewed Harness runtime for its read-only intake.
+  // Human-first deliberately defers runtime verification/extraction until
+  // after the person confirms a round and asks to execute; startup itself must
+  // not perform execution-side preparation or external work.
   let resolvedHarnessCheckout
   const harnessCheckout = process.env.MING_HARNESS_CHECKOUT
     ? resolve(process.env.MING_HARNESS_CHECKOUT)
@@ -316,20 +316,20 @@ async function startBackend(projectRoot, reason = 'initial') {
   appendStartupLog(
     `backend spawn nodeBin=${nodeBin} script=${script} project=${projectRoot ?? 'none'} harnessCheckout=${harnessCheckout ?? 'auto-bundled'}`,
   )
-  try {
-    const runtime = await prepareHarnessRuntime({
-      workbenchRoot,
-      harnessCheckout,
-    })
-    resolvedHarnessCheckout = runtime.checkout
-    appendStartupLog(
-      `harness runtime ready source=${runtime.source} commit=${runtime.identity.commit}`,
-    )
-  } catch (error) {
-    appendStartupLog(
-      `harness runtime preparation failed: ${error instanceof Error ? error.message : String(error)}`,
-    )
-    if (hasProject) {
+  if (hasProject) {
+    try {
+      const runtime = await prepareHarnessRuntime({
+        workbenchRoot,
+        harnessCheckout,
+      })
+      resolvedHarnessCheckout = runtime.checkout
+      appendStartupLog(
+        `harness runtime ready source=${runtime.source} commit=${runtime.identity.commit}`,
+      )
+    } catch (error) {
+      appendStartupLog(
+        `harness runtime preparation failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
       // B4: packaged error messages must never show npm/node/terminal commands.
       const userMessage = app.isPackaged
         ? 'Ming Workbench 需要准备运行环境，但未能完成。\n\n请检查安装是否完整后重新启动。'
@@ -341,9 +341,8 @@ async function startBackend(projectRoot, reason = 'initial') {
       app.quit()
       return
     }
-    // Human-first conversation can still proceed without execution; a real
-    // round will honestly report "harness not ready" instead of pretending.
-    appendStartupLog('human-first V1 entry: continuing without Harness runtime (execution unavailable)')
+  } else {
+    appendStartupLog('human-first V1 entry: deferring Harness runtime preparation until confirmed execution')
   }
 
   // The window may have been closed (app quitting) while the runtime was

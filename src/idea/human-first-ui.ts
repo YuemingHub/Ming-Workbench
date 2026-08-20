@@ -427,6 +427,7 @@ export const HUMAN_FIRST_APP_JS = `
     switch (execution.status) {
       case 'unsupported': return '这一类结果，我现在还不能真正替你完成';
       case 'failed': return '这一步没有做出来';
+      case 'rejected': return '你拒绝了这次结果';
       case 'not_proven': return '还没有被证明';
       case 'partial': return '已经有了结果（只验证了一部分）';
       case 'completed': return '已经有了结果';
@@ -518,8 +519,14 @@ export const HUMAN_FIRST_APP_JS = `
   }
 
   function iterateResult() {
-    setView('conversation');
-    updateProviderCta();
+    post('/api/idea/iterate').then(function (data) {
+      renderIdea(data.idea);
+      setView('conversation');
+      updateProviderCta();
+    }).catch(function (err) {
+      el('execution-error').textContent = '暂时不能继续这一轮：' + (err.message || '请稍后再试');
+      show('execution-error');
+    });
   }
 
   async function boot() {

@@ -157,7 +157,7 @@ function noFalseCompleted() {
     record(
       'E12-no-false-completed',
       'PASS',
-      'projection returns completed only when verification passed AND acceptance === accepted; otherwise partial/not_proven/failed',
+      'projection returns completed only when verification passed AND acceptance === accepted; rejection is explicit and other states stay non-completed',
     )
   } else {
     record('E12-no-false-completed', 'PARTIAL', 'projection human gate not fully pinned in source')
@@ -172,21 +172,18 @@ function rejectionPreserved() {
     return
   }
   const finalBranch = /if\s*\(outcome\.acceptance\s*===\s*['"]accepted['"]\)/.test(p)
-  const elsePartial = /return\s*\{\s*status:\s*['"]partial['"]/.test(p)
   const explicitRejected = /acceptance\s*===\s*['"]rejected['"]/.test(p)
-  // deriveRunOutcome only emits rejected paired with verification failed, so
-  // today reject->partial is unreachable; independently the pure projection
-  // maps passed+rejected to partial (overwrites the rejection).
-  if (finalBranch && elsePartial && !explicitRejected) {
+  const rejectedStatus = /status:\s*['"]rejected['"]/.test(p)
+  if (finalBranch && explicitRejected && rejectedStatus) {
     record(
       'E13-rejection-preserved',
-      'PARTIAL',
-      'projectOutcomeFromRun maps passed+rejected to partial (rejection overwritten); latent — unreachable via deriveRunOutcome today',
+      'PASS',
+      'projectOutcomeFromRun preserves acceptance=rejected as an explicit rejected outcome',
     )
   } else {
     record(
       'E13-rejection-preserved',
-      'PARTIAL',
+      'NOT PROVEN',
       'rejection is not explicitly surfaced in the projection mapping',
     )
   }

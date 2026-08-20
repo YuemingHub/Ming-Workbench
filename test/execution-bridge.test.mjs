@@ -8,6 +8,7 @@ import {
   projectOutcomeFromRun,
 } from '../.tmp/bridge/index.js'
 import { canMarkCompleted } from '../.tmp/core/model.js'
+import { resolveSoftwareExecutionCapability } from '../.tmp/capability/capability-resolution.js'
 
 /**
  * Stage 3 — Confirmed-agreement -> Execution bridge.
@@ -136,7 +137,11 @@ test('bridgeConfirmedIdeaToExecution creates a Work Unit through the existing fa
   assert.equal(result.workUnit.owner, 'development-aaop')
   assert.equal(result.workUnit.outcome, result.goal.goalStatement)
   assert.ok(result.workUnit.title.length > 0)
-  assert.equal(result.workUnit.acceptance.length, 0)
+  assert.equal(result.workUnit.acceptance.length, result.goal.acceptanceCriteria.length)
+  assert.deepEqual(
+    result.workUnit.acceptance.map((criterion) => criterion.statement),
+    result.goal.acceptanceCriteria,
+  )
   assert.equal(result.workUnit.evidence.length, 0)
 })
 
@@ -192,6 +197,16 @@ test('projectOutcomeFromRun maps the four axes to a fact-derived projection', ()
   })
   assert.equal(failed.status, 'failed')
 
+  const rejected = projectOutcomeFromRun({
+    runStatus: 'completed',
+    effect: 'mutation-observed',
+    verification: 'passed',
+    acceptance: 'rejected',
+    reason: 'Human rejected the result after opening it.',
+  })
+  assert.equal(rejected.status, 'rejected')
+  assert.match(rejected.summary, /拒绝/)
+
   const notProven = projectOutcomeFromRun({
     runStatus: 'completed',
     effect: 'no-mutation',
@@ -221,6 +236,42 @@ test('a passed run outcome never completes the Work Unit by itself', () => {
   // The bridge Work Unit has no acceptance evidence yet; the completion
   // invariant must hold regardless of how well an execution run went.
   assert.equal(canMarkCompleted(result.workUnit), false)
+})
+
+test('Capability Resolution V0 reuses the qualified chain and stays honest about portability', () => {
+  const result = bridgeConfirmedIdeaToExecution(baseIdea(), {
+    spaceId: 'SPACE-capability-test',
+    idFactory: () => 'capability-id',
+  })
+  if (result.status !== 'software-execution') throw new Error('expected software route')
+
+  const decision = resolveSoftwareExecutionCapability({
+    workUnit: result.workUnit,
+    harnessCheckout: process.cwd(),
+  })
+  assert.equal(decision.workUnitId, result.workUnit.id)
+  assert.equal(decision.capabilityNeed, 'bounded software execution with independently verifiable mutation')
+  assert.equal(decision.assessment.sufficient, true)
+  assert.equal(decision.discoveryStatus, 'NOT_REQUIRED')
+  assert.equal(decision.resolution?.implementation, 'Harness ACP adapter')
+  assert.equal(decision.executorPortability, 'NOT_PROVEN')
+  assert.match(decision.resolution?.reason ?? '', /Existing qualified capabilities were sufficient/)
+})
+
+test('Capability Resolution V0 does not fabricate discovery when Harness is unavailable', () => {
+  const result = bridgeConfirmedIdeaToExecution(baseIdea(), {
+    spaceId: 'SPACE-capability-test',
+    idFactory: () => 'capability-missing',
+  })
+  if (result.status !== 'software-execution') throw new Error('expected software route')
+
+  const decision = resolveSoftwareExecutionCapability({
+    workUnit: result.workUnit,
+    harnessCheckout: 'C:/path/that/does/not/exist',
+  })
+  assert.equal(decision.assessment.sufficient, false)
+  assert.equal(decision.discoveryStatus, 'NOT_PROVEN')
+  assert.equal(decision.resolution, undefined)
 })
 
 test('routeForConfirmedIdea never routes on a software word that appears only in notDoing', () => {

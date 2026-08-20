@@ -61,6 +61,15 @@ export function bridgeConfirmedIdeaToExecution(
     options.now,
     options.idFactory,
   )
+  // Preserve the human-agreed criteria on the real Work Unit. The criteria are
+  // still unsatisfied and carry no evidence until a later verification/acceptance
+  // step; omitting them would make the completion invariant unreachable.
+  workUnit.acceptance = goal.acceptanceCriteria.map((statement, index) => ({
+    id: `AC-${workUnit.id}-${index + 1}`,
+    statement,
+    satisfied: false,
+    evidenceIds: [],
+  }))
 
   return {
     status: 'software-execution',

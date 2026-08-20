@@ -113,17 +113,22 @@ journey must **fail** if the old project-first welcome page returns.
 
 ## 8. Non-goals for this round
 
-No Stage 3 execution; no Family Space proving run; no multi-agent; no
-workflow/graph engine; no MCP platform; no general memory/personality platform;
-no cloud/team/billing; no LoopX/PTC expansion; no second runtime, Harness, AAOP,
-or Git layer; no tag/release/signing work.
+No general Stage 3 platform; the only post-confirmation execution surface is the
+thin first-outcome bridge over the existing AAOP/Harness path, and it remains
+behind the confirmation, provider, cost, and bounded-mutation gates. No Family
+Space proving run; no multi-agent; no workflow/graph engine; no MCP platform; no
+general memory/personality platform; no cloud/team/billing; no LoopX/PTC
+expansion; no second runtime, Harness, AAOP, or Git layer; no tag/release/signing
+work.
 
 ## 9. Reuse Before Build
 
-Human-first V1 reuses existing provider and storage primitives. It adds only the
-thin pre-repo **Idea Space** needed to persist conversation, desired reality,
-larger direction, one recommended outcome, round agreement, and confirmation. It
-does not build a new workflow, runtime, or state-machine platform.
+Human-first V1 reuses existing provider and storage primitives. It adds the thin
+pre-repo **Idea Space** needed to persist conversation, desired reality, larger
+direction, one recommended outcome, round agreement, and confirmation, plus a
+thin confirmed-to-first-outcome bridge that reuses AAOP, Harness, Git isolation,
+and verification. It does not build a new workflow, runtime, or state-machine
+platform.
 
 ## 10. First later real proving ground
 

@@ -4,7 +4,7 @@
  *
  * Proves the missing bridge end-to-end with the REAL reviewed-Harness ACP
  * transport (not a harness double), a REAL git-baselined scratch workspace,
- * the AAOP intake + grant + bounded-execution chain, and REAL browser
+ * the AAOP intake + grant + bounded-execution chain, and optional browser
  * verification. The only non-real component is the provider: a deterministic
  * repository-owned fixture drives the real agent loop.
  *
@@ -16,11 +16,11 @@
  *   -> Provider Execution Grant (AAOP canonical)
  *   -> bounded execution (real ACP write inside isolation, delta verified,
  *      applied back to the real workspace)
- *   -> real browser acceptance of the produced index.html (Electron/Chromium)
+ *   -> optional browser exercise of the produced index.html (Electron/Chromium)
  *
- * Evidence level: this is a deterministic L3-installed-consumer-journey
- * rehearsal on a real low-risk artifact with REAL verification. It is NOT
- * evidence that a real paid provider produced the outcome.
+ * Evidence level: deterministic E0/E1 transport + scratch-repository readback
+ * rehearsal. Browser exercise, when available, is still fixture-backed and is
+ * NOT L3/L4 evidence or proof that a real paid provider produced the outcome.
  *
  *   REAL PAID PROVIDER: NOT RUN
  *
@@ -51,6 +51,7 @@ import { buildExactSlice } from '../.tmp/execution/mutation-slice.js'
 import { issueProviderExecutionGrant } from '../.tmp/execution/grant-issuance.js'
 import { runBoundedExecution } from '../.tmp/execution/bounded-execution.js'
 import { canMarkCompleted } from '../.tmp/core/model.js'
+import { resolveSoftwareExecutionCapability } from '../.tmp/capability/capability-resolution.js'
 
 const root = resolve(fileURLToPath(new URL('..', import.meta.url)))
 const harnessCheckout = resolve(
@@ -246,6 +247,7 @@ async function main() {
     projectRoot: FIXTURE_TARGET,
     snapshot,
     slice,
+    scopeBoundary: bridged.goal.scopeBoundary,
     now: () => new Date(now),
   })
   check(grant.authorization.mutation_boundary === 'write-authorized', 'grant is write-authorized')
@@ -277,8 +279,8 @@ async function main() {
     'execution produced the index.html change',
   )
   check(result.repositoryReadback.scopeViolations.length === 0, 'no scope violations')
-  check(after.includes('每日记录'), 'the real workspace index.html now contains the daily-notes page')
-  check(after.includes('localStorage'), 'the page persists via localStorage')
+  check(after.includes('每日记录'), 'fixture-scripted index.html content is present in the real workspace readback')
+  check(after.includes('localStorage'), 'fixture-scripted page content includes localStorage persistence')
   check(
     result.workUnit.evidence.some((e) => e.kind === 'repository'),
     'execution evidence recorded',
@@ -294,7 +296,8 @@ async function main() {
   check(projected.status === 'partial', 'outcome projection is partial (verified, awaiting human acceptance)', projected.status)
   console.log(`outcome projection: ${JSON.stringify(projected)}`)
 
-  // ---- 9. real browser acceptance of the produced artifact ----
+  // ---- 9. optional browser exercise (never promoted to real-provider/L3 truth) ----
+  let browserVerification = 'NOT_PROVEN'
   if (process.platform === 'linux' && existsSync('/usr/bin/xvfb-run')) {
     execFileSync('xvfb-run', ['-a', 'node', join(root, 'scripts', 'stage3-browser-verify.mjs'), join(FIXTURE_TARGET, 'index.html')], {
       cwd: root,
@@ -302,8 +305,9 @@ async function main() {
       stdio: ['inherit', 'pipe', 'pipe'],
       timeout: 180_000,
     })
+    browserVerification = 'PASS_FIXTURE_BACKED'
   } else {
-    console.log('SKIP: real-browser verification requires a Linux host with xvfb-run (browser acceptance not run)')
+    console.log('SKIP: browser exercise requires a Linux host with xvfb-run (fixture-backed browser evidence not proven)')
     failures += 1
   }
 
@@ -318,9 +322,15 @@ async function main() {
     verification: result.runOutcome.verification,
     acceptance: result.runOutcome.acceptance,
     projection: projected.status,
+    capabilityDecision: resolveSoftwareExecutionCapability({
+      workUnit: result.workUnit,
+      harnessCheckout,
+    }),
+    browserVerification,
     producedFiles: result.repositoryReadback.executionProducedChanges,
     evidenceCount: result.workUnit.evidence.length,
     completionLocked: true,
+    contentTruth: 'SCRIPTED_FIXTURE_READBACK_ONLY',
     realPaidProvider: 'NOT RUN',
     artifact: join(FIXTURE_TARGET, 'index.html'),
   }, null, 2))

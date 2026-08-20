@@ -36,6 +36,8 @@ export interface IssueGrantOptions {
    * explicitly, never as `[projectRoot]` pretending to be one file.
    */
   slice: MutationSlice
+  /** Human-agreed exclusions carried into the model-visible grant action. */
+  scopeBoundary?: string[]
   idFactory?: () => string
   now?: () => Date
 }
@@ -79,7 +81,12 @@ export function issueProviderExecutionGrant(options: IssueGrantOptions): IssuedG
     tasks: [
       {
         id: 'T1',
-        action: `Apply the human-authorized mutation for: ${options.workUnit.outcome}`,
+        action: [
+          `Apply the human-authorized mutation for: ${options.workUnit.outcome}`,
+          ...(options.scopeBoundary?.length
+            ? [`Do not do anything explicitly excluded by the human: ${options.scopeBoundary.join(' ')}`]
+            : []),
+        ].join(' '),
         failure_path: 'report-conflict',
         verification: ['repository changes stay within the granted scope', 'project tests pass'],
       },
@@ -108,6 +115,9 @@ export function issueProviderExecutionGrant(options: IssueGrantOptions): IssuedG
     acceptance_evidence: [
       `repository delta within granted scope (${sliceScopeLabel(options.slice)})`,
       'project tests pass',
+      ...(options.scopeBoundary?.length
+        ? [`human exclusions preserved: ${options.scopeBoundary.join(' ')}`]
+        : []),
     ],
     human_open_questions: [],
     references: [`work-unit:${options.workUnit.id}`],

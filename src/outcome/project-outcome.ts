@@ -11,6 +11,7 @@
  *
  *   completed  — outcome produced, verified, and accepted by the human
  *   partial    — outcome produced and verified, awaiting human acceptance
+ *   rejected   — outcome was explicitly rejected by the human
  *   failed     — execution produced nothing usable or verification failed
  *   not_proven — no independent evidence that the outcome is true
  */
@@ -20,6 +21,7 @@ import type { RunOutcome } from '../execution/run-outcome.js'
 export type ProjectOutcomeStatus =
   | 'completed'
   | 'partial'
+  | 'rejected'
   | 'failed'
   | 'not_proven'
   | 'unsupported'
@@ -72,6 +74,13 @@ export function projectOutcomeFromRun(outcome: RunOutcome): ProjectOutcome {
 
   // Mutation observed + verification passed. Acceptance is human-owned.
   if (outcome.effect === 'mutation-observed') {
+    if (outcome.acceptance === 'rejected') {
+      return {
+        status: 'rejected',
+        summary: '成果已经产生，但你明确拒绝了这次结果；它不能被当作完成。',
+        detail: outcome.reason,
+      }
+    }
     if (outcome.acceptance === 'accepted') {
       return {
         status: 'completed',

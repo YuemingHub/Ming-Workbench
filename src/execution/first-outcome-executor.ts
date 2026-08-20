@@ -27,6 +27,10 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type { HumanFirstIdea } from '../idea/idea-space.js'
+import {
+  resolveSoftwareExecutionCapability,
+  type CapabilityDecision,
+} from '../capability/capability-resolution.js'
 import { bridgeConfirmedIdeaToExecution } from '../bridge/confirmed-to-execution.js'
 import { compileExecutableGoal, type ExecutableGoal } from '../execution/executable-goal.js'
 import { routeForConfirmedIdea, type RouteDecision } from '../execution/execution-route.js'
@@ -51,7 +55,7 @@ export interface FirstOutcomeExecutorOptions {
   /** Parent directory that will hold the Workbench-owned idea workspace. */
   workspaceRoot: string
   /** Absolute reviewed DeepSeek Harness checkout. */
-  harnessCheckout: string
+  harnessCheckout?: string
   /** Provider transport selected (e.g. `deepseek-official`). */
   provider: string
   /** Model name for execution (from preferences). */
@@ -88,6 +92,8 @@ export interface FirstOutcomeResult {
   notProvenFacts: string[]
   /** Internal reason / detail (for the collapsed technical detail). */
   detail: string
+  /** Capability selection facts bound to the Work Unit for this round. */
+  capabilityDecision?: CapabilityDecision
 }
 
 function runGit(cwd: string, args: string[]): string {
@@ -133,6 +139,9 @@ export async function executeFirstOutcome(
   }
   if (options.mode === 'real' && options.authorizeRealExecution !== true) {
     throw new Error('Real execution requires explicit human authorization (cost gate).')
+  }
+  if (options.mode === 'fixture' && process.env.MING_EXECUTION_FIXTURE !== '1') {
+    throw new Error('Fixture execution is reserved for the repository-owned automated fixture environment.')
   }
 
   const route = routeForConfirmedIdea(idea)
@@ -183,6 +192,36 @@ export async function executeFirstOutcome(
   }
   let workUnit = bridged.workUnit
 
+  // Capability Resolution V0 happens before selecting the executor. It records
+  // reuse of the existing qualified chain and refuses to invent a discovery
+  // result when the reviewed Harness implementation is unavailable.
+  let capabilityDecision = resolveSoftwareExecutionCapability({
+    workUnit,
+    harnessCheckout,
+  })
+  if (!capabilityDecision.assessment.sufficient || !harnessCheckout) {
+    return {
+      mode: options.mode,
+      route,
+      goal,
+      outcome: {
+        status: 'not_proven',
+        summary: '执行能力还没有准备好，成果还没有被证明。',
+        detail: capabilityDecision.evidence.join(' '),
+      },
+      producedFiles: [],
+      workspacePath: '',
+      summary: '执行能力还没有准备好，成果还没有被证明。',
+      verifiedFacts: [],
+      notProvenFacts: [
+        '当前没有可验证的已审查执行能力，因此没有开始写入。',
+        ...capabilityDecision.evidence,
+      ],
+      detail: capabilityDecision.evidence.join(' '),
+      capabilityDecision,
+    }
+  }
+
   // 3. AAOP Developer Intake (real read-only ACP session).
   const manifest = aaopManifest(process.execPath)
   const prepared = prepareProjectDevelopmentIntake({
@@ -208,6 +247,39 @@ export async function executeFirstOutcome(
     now,
   })
   workUnit = intake.workUnit
+  // The AAOP coordinator returns the canonical Work Unit that owns execution;
+  // rebind the same V0 decision to that exact id before issuing the grant.
+  capabilityDecision = resolveSoftwareExecutionCapability({
+    workUnit,
+    harnessCheckout,
+  })
+  if (!capabilityDecision.assessment.sufficient) {
+    return {
+      mode: options.mode,
+      route,
+      goal,
+      outcome: {
+        status: 'not_proven',
+        summary: '执行能力还没有准备好，成果还没有被证明。',
+        detail: capabilityDecision.evidence.join(' '),
+      },
+      producedFiles: [],
+      workspacePath,
+      summary: '执行能力还没有准备好，成果还没有被证明。',
+      verifiedFacts: [],
+      notProvenFacts: capabilityDecision.evidence,
+      detail: capabilityDecision.evidence.join(' '),
+      workUnitId: workUnit.id,
+      workUnitState: workUnit.state,
+      capabilityDecision,
+    }
+  }
+  workUnit.acceptance = bridged.goal.acceptanceCriteria.map((statement, index) => ({
+    id: `AC-${workUnit.id}-${index + 1}`,
+    statement,
+    satisfied: false,
+    evidenceIds: [],
+  }))
 
   // 4. mutation scope proposal -> frozen exact slice.
   const snapshot = readRepositorySnapshot(workspacePath)
@@ -227,6 +299,7 @@ export async function executeFirstOutcome(
     projectRoot: workspacePath,
     snapshot,
     slice,
+    scopeBoundary: goal.scopeBoundary,
     now,
   })
 
@@ -288,5 +361,6 @@ export async function executeFirstOutcome(
     verifiedFacts,
     notProvenFacts,
     detail: projected.detail,
+    capabilityDecision,
   }
 }

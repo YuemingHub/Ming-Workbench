@@ -8,6 +8,8 @@
  * agreement, and the human confirmation, then STOPS.
  */
 
+import type { CapabilityDecision } from '../capability/capability-resolution.js'
+
 export type HumanFirstStage =
   | 'letter'
   | 'entry'
@@ -67,6 +69,7 @@ export interface IdeaExecution {
     | 'unsupported'
     | 'completed'
     | 'partial'
+    | 'rejected'
     | 'failed'
     | 'not_proven'
   /** honored execution mode (never presented as real when fixture) */
@@ -76,6 +79,8 @@ export interface IdeaExecution {
   verifiedFacts: string[]
   notProvenFacts: string[]
   producedFiles: string[]
+  /** Capability selection facts for this Work Unit; never a secret. */
+  capabilityDecision?: CapabilityDecision
   artifactPath?: string
   workspacePath?: string
   workUnitId?: string
