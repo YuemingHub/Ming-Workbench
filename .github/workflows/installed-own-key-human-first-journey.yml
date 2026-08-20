@@ -69,6 +69,7 @@ jobs:
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MING_EXECUTION_FIXTURE: '1'
         run: |
           $ErrorActionPreference = 'Stop'
           $artifact = Join-Path $env:RUNNER_TEMP 'own-key-artifacts'
@@ -85,3 +86,4 @@ jobs:
           path: |
             ${{ runner.temp }}/own-key-artifacts/**
           if-no-files-found: ignore
+
