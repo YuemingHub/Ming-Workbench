@@ -305,33 +305,31 @@ async function startBackend(projectRoot, reason = 'initial') {
   const nodeBin = resolveNodeBin()
   const script = resolveBackendScriptPath(workbenchRoot)
 
-  // The human-first V1 entry needs no project and no Harness runtime: it is a
-  // thin letter/conversation surface over the provider + idea store.
+  // Both routes need the reviewed Harness runtime once the founder confirms a
+  // round and starts execution: human-first embeds the same Confirm->Execute
+  // bridge. Preference is the ACP child env (honoured by the backend), so the
+  // checkout is resolved here for every mode, not only project mode.
   let resolvedHarnessCheckout
-  if (projectRoot) {
-    const harnessCheckout = process.env.MING_HARNESS_CHECKOUT
-      ? resolve(process.env.MING_HARNESS_CHECKOUT)
-      : undefined
+  const harnessCheckout = process.env.MING_HARNESS_CHECKOUT
+    ? resolve(process.env.MING_HARNESS_CHECKOUT)
+    : undefined
+  appendStartupLog(
+    `backend spawn nodeBin=${nodeBin} script=${script} project=${projectRoot ?? 'none'} harnessCheckout=${harnessCheckout ?? 'auto-bundled'}`,
+  )
+  try {
+    const runtime = await prepareHarnessRuntime({
+      workbenchRoot,
+      harnessCheckout,
+    })
+    resolvedHarnessCheckout = runtime.checkout
     appendStartupLog(
-      `backend spawn nodeBin=${nodeBin} script=${script} project=${projectRoot} harnessCheckout=${harnessCheckout ?? 'auto-bundled'}`,
+      `harness runtime ready source=${runtime.source} commit=${runtime.identity.commit}`,
     )
-
-    // Resolve the exact reviewed Harness checkout automatically:
-    // 1) env var (backward compat)
-    // 2) bundled git bundle extraction + identity verification + deps install
-    try {
-      const runtime = await prepareHarnessRuntime({
-        workbenchRoot,
-        harnessCheckout,
-      })
-      resolvedHarnessCheckout = runtime.checkout
-      appendStartupLog(
-        `harness runtime ready source=${runtime.source} commit=${runtime.identity.commit}`,
-      )
-    } catch (error) {
-      appendStartupLog(
-        `harness runtime preparation failed: ${error instanceof Error ? error.message : String(error)}`,
-      )
+  } catch (error) {
+    appendStartupLog(
+      `harness runtime preparation failed: ${error instanceof Error ? error.message : String(error)}`,
+    )
+    if (hasProject) {
       // B4: packaged error messages must never show npm/node/terminal commands.
       const userMessage = app.isPackaged
         ? 'Ming Workbench 需要准备运行环境，但未能完成。\n\n请检查安装是否完整后重新启动。'
@@ -343,13 +341,14 @@ async function startBackend(projectRoot, reason = 'initial') {
       app.quit()
       return
     }
-
-    // The window may have been closed (app quitting) while the runtime was
-    // preparing; never spawn a backend for a quitting app.
-    if (cleanShutdownDone) return
-  } else {
-    appendStartupLog('human-first V1 entry: no project; starting without Harness runtime')
+    // Human-first conversation can still proceed without execution; a real
+    // round will honestly report "harness not ready" instead of pretending.
+    appendStartupLog('human-first V1 entry: continuing without Harness runtime (execution unavailable)')
   }
+
+  // The window may have been closed (app quitting) while the runtime was
+  // preparing; never spawn a backend for a quitting app.
+  if (cleanShutdownDone) return
 
   backend = spawnBackend({
     nodeBin,

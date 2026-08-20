@@ -124,7 +124,26 @@ export const HUMAN_FIRST_APP_JS = `
 (function () {
   var TOKEN = document.querySelector('meta[name="ming-workbench-token"]').getAttribute('content');
   var STATE = null;
+  var EXECUTION = null;
   var PROVIDER_STATE = { hasSecret: false, preferences: null, loaded: false };
+
+  function postExecute(body) {
+    return fetch('/api/idea/execute', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-workbench-token': TOKEN },
+      body: JSON.stringify(body || {}),
+    }).then(function (response) {
+      return response.json().catch(function () { return {}; }).then(function (json) {
+        if (!response.ok) {
+          var err = new Error(json.message || 'request failed');
+          err.status = response.status;
+          err.data = json;
+          throw err;
+        }
+        return json;
+      });
+    });
+  }
 
   function post(path, body) {
     return fetch(path, {
@@ -399,7 +418,107 @@ export const HUMAN_FIRST_APP_JS = `
         el('confirmed-wheresee').textContent = idea.agreement.whereSee;
         el('confirmed-notdoing').textContent = idea.agreement.notDoing;
       }
+      renderExecutionSurface(idea.execution);
     }
+    updateProviderCta();
+  }
+
+  function executionTitle(execution) {
+    switch (execution.status) {
+      case 'unsupported': return '这一类结果，我现在还不能真正替你完成';
+      case 'failed': return '这一步没有做出来';
+      case 'not_proven': return '还没有被证明';
+      case 'partial': return '已经有了结果（只验证了一部分）';
+      case 'completed': return '已经有了结果';
+      default: return '已经有了结果';
+    }
+  }
+
+  function renderExecutionSurface(execution) {
+    hide('execution-error');
+    hide('execution-running');
+    if (!execution) {
+      hide('execution-gate');
+      hide('execution-result');
+      return;
+    }
+    if (execution.status === 'running') {
+      show('execution-gate');
+      hide('cost-gate');
+      show('execution-running');
+      return;
+    }
+    if (execution.status === 'cost-gate-required') {
+      show('execution-gate');
+      show('cost-gate');
+      return;
+    }
+    EXECUTION = execution;
+    hide('execution-gate');
+    show('execution-result');
+    el('result-title').textContent = executionTitle(execution);
+    el('result-summary').textContent = execution.summary || '';
+    fillList('result-verified', execution.verifiedFacts);
+    fillList('result-notproven', execution.notProvenFacts);
+    el('result-honesty').textContent = execution.honesty === 'DETERMINISTIC'
+      ? '当前是确定性演示模式：没有调用真实 AI 服务。这只用于自动化自检，不是真实成果。'
+      : '这一轮使用了你连接的真实 AI 服务来制作结果。';
+    el('result-detail').textContent = execution.detail || '';
+    el('open-result-button').classList.toggle('hidden', !execution.artifactPath);
+  }
+
+  function startExecution() {
+    hide('execution-error');
+    hide('execution-result');
+    show('execution-gate');
+    hide('cost-gate');
+    show('execution-running');
+    var startButton = el('start-execution-button');
+    startButton.disabled = true;
+    postExecute({}).then(function (data) {
+      renderIdea(data.idea);
+      renderExecutionSurface(data.idea.execution);
+    }).catch(function (err) {
+      startButton.disabled = false;
+      hide('execution-running');
+      if (err.status === 409 && err.data && err.data.status === 'cost-gate-required') {
+        show('cost-gate');
+        return;
+      }
+      var msg = '开始失败：' + (err.data && err.data.message ? err.data.message : (err.message || '请稍后再试'));
+      if (err.status === 409 && err.data && err.data.status === 'provider-required') {
+        msg = '需要先连接 AI 服务（左上角「AI 服务」），才能开始制作这一轮成果。';
+      } else if (err.status === 409 && err.data && err.data.status === 'harness-required') {
+        msg = '这台机器还没有准备好执行环境，暂时还做不了。';
+      } else if (err.status === 409 && err.data && err.data.status === 'not-confirmed') {
+        msg = '这一轮还没有确认，回到上面确认以后再来。';
+      }
+      el('execution-error').textContent = msg;
+      show('execution-error');
+    });
+  }
+
+  function confirmExecution() {
+    hide('execution-error');
+    show('execution-gate');
+    hide('cost-gate');
+    show('execution-running');
+    postExecute({ authorizeRealExecution: true }).then(function (data) {
+      renderIdea(data.idea);
+      renderExecutionSurface(data.idea.execution);
+    }).catch(function (err) {
+      hide('execution-running');
+      el('execution-error').textContent = '执行失败：' + (err.data && err.data.message ? err.data.message : (err.message || '请稍后再试'));
+      show('execution-error');
+    });
+  }
+
+  function openResult() {
+    window.location.href = '/result';
+  }
+
+  function iterateResult() {
+    setView('conversation');
     updateProviderCta();
   }
 
@@ -484,6 +603,19 @@ export const HUMAN_FIRST_APP_JS = `
       setView('conversation');
       updateProviderCta();
     });
+
+    el('start-execution-button').addEventListener('click', startExecution);
+    el('confirm-execution-button').addEventListener('click', confirmExecution);
+    el('cancel-cost-button').addEventListener('click', function () {
+      hide('cost-gate');
+      hide('execution-running');
+      hide('execution-error');
+      hide('execution-gate');
+      var s = el('start-execution-button');
+      if (s) s.disabled = false;
+    });
+    el('open-result-button').addEventListener('click', openResult);
+    el('iterate-result-button').addEventListener('click', iterateResult);
   }
 
   window.openProviderPanel = openProviderPanel;
@@ -635,9 +767,41 @@ export function renderHumanFirstHtml(requestToken: string): string {
           <p id="confirmed-notdoing"></p>
         </div>
       </div>
+      <div id="execution-gate" class="hidden">
+        <div id="cost-gate" class="provider-cta hidden">
+          <p>接下来会调用你连接的 AI 服务来实际制作这个结果，可能产生 API 费用。</p>
+          <div class="actions">
+            <button id="confirm-execution-button" class="primary" type="button">我同意，会产生费用，开始</button>
+            <button id="cancel-cost-button" class="secondary" type="button">先不放</button>
+          </div>
+        </div>
+        <p id="execution-running" class="status hidden">正在理解，然后实现，最后验证……这一步可能花一点时间。</p>
+        <p id="execution-error" class="status hidden"></p>
+      </div>
+      <div id="execution-result" class="hidden">
+        <div class="card">
+          <h3 id="result-title">已经有了结果</h3>
+          <p class="lede" id="result-summary"></p>
+          <div class="review-block">
+            <h3>我已经验证过</h3>
+            <ul id="result-verified"></ul>
+          </div>
+          <div class="review-block">
+            <h3>还没有证明</h3>
+            <ul id="result-notproven"></ul>
+          </div>
+          <p class="muted" id="result-honesty"></p>
+          <p class="muted" id="result-detail"></p>
+        </div>
+        <div class="actions">
+          <button id="open-result-button" class="primary hidden" type="button">打开结果</button>
+          <button id="iterate-result-button" class="secondary" type="button">继续调整</button>
+        </div>
+      </div>
       <p class="status">这件事已经说好并记下了。真正开始的时候，我们会先告诉你每一步。</p>
       <div class="actions">
-        <button id="continue-conversation-button" class="primary" type="button">继续对话</button>
+        <button id="start-execution-button" class="primary" type="button">开始制作这一轮成果</button>
+        <button id="continue-conversation-button" class="secondary" type="button">继续对话</button>
       </div>
     </section>
 
