@@ -65,3 +65,60 @@ Head: 见 CI 记录（exact SHA 在下方每项标注）
 - L1: bundled Python onboarding 优先 PASS
 - L2+ execution: `smoke-reality-loop-execution` PASS（真实 Harness ACP write 隔离执行）
 - L2/L2+/L3: 见 GitHub Actions（exact SHA）
+
+## 2026-08-20 canonical Windows packaging repair
+
+This addendum records the current local delivery truth without creating a new
+packet. Before the repair, the repository's declared packaging path was not
+green:
+
+```text
+LOCAL ENGINEERING: PARTIAL — canonical desktop packaging command fails
+```
+
+The exact call chain was `npm run desktop:package` → `build:test` →
+`packaged:runtime:prepare` → `python:prepare` → `harness:prepare` →
+`build-harness-capsule.mjs` → `npx.cmd pnpm@11.7.0 ... deploy --legacy --prod`
+→ source-tree copy → archive → `electron-builder --win --publish never`.
+The `pnpm deploy` child returned zero. The failure was the following
+unfiltered `fs.cpSync` source-tree copy on a pnpm checkout containing Windows
+junctions; Node 24.19.0 terminated with `3221226505` (`0xC0000409`, Windows
+fail-fast / stack-buffer-overrun status). The script now filters nested
+`node_modules`, `.git`, and symlink/reparse entries while retaining the
+existing hoisted production closure and single-file archive carrier.
+
+Harness remains required for the confirmed execution path. The repaired
+canonical installer carried the archive and passed the installed own-key
+journey with `MING_EXECUTION_FIXTURE=1`: fresh install and userData,
+human-first entry, UI provider configuration, deterministic provider-backed
+conversation, confirmation and cost gate, one terminal outcome, artifact
+opened, clean close, same-userData reopen, key removal/provider-required
+reassertion, sentinel scan, and uninstall.
+
+Current local delivery status after the repair:
+
+```text
+LOCAL ENGINEERING: PASS
+INSTALLED REALITY: PASS
+CAPABILITY ASSESSMENT: PASS
+EXTERNAL DISCOVERY: NOT REQUIRED
+EXECUTOR PORTABILITY: NOT PROVEN
+REAL PROVIDER: NOT RUN — HUMAN COST GATE
+REAL HUMAN L5: NOT PROVEN
+WINDOWS SYMLINK ADVERSARIAL: NOT RUN — ENVIRONMENT PRIVILEGE
+REMOTE CI: STALE / PENDING PUSH AUTHORIZATION
+```
+
+Canonical installer evidence (local only; not a release):
+
+- command: `npm run desktop:package` (exit code 0)
+- local commit: `6ea65b84ca72584fc89c9cdcf6f4e0264a59cc51`
+- installer: `dist-desktop/Ming Workbench Setup 0.1.0.exe`
+- SHA-256: `83E6404A7488645D480809A267E4391E70541AB755FCC520526511E249342E7B`
+- size: `200722981` bytes
+- timestamp (UTC): `2026-08-20T14:49:53.6862547Z`
+- installed smoke evidence: `D:\Oh-my-AI\Ming-workbench-packaging-smoke-evidence-20260820-retry`
+
+Verification: `npm run check` PASS; `npm test` PASS (226 passed, 3 skipped,
+0 failed); `npm run credential-scan` PASS. No push, merge, tag, or release was
+performed.
