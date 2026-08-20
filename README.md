@@ -1,16 +1,30 @@
 # Ming Workbench
 
+> **Mandatory first read for every agent and contributor: [`MING_WORKBENCH_NORTH_STAR.md`](./MING_WORKBENCH_NORTH_STAR.md).** It defines the highest product direction: humans own reality, goals, values, and final responsibility; Ming Workbench owns understanding the goal, identifying required capabilities, finding and composing the best existing technology, controlling execution, and independently verifying that reality actually changed as intended.
+>
 > **V1 product authority is [`docs/V1_PRODUCT_CONTRACT.md`](./docs/V1_PRODUCT_CONTRACT.md)** — the human-first entry (letter → 开始 → three entries → conversation → one smallest complete real outcome → round agreement → confirmation).
 >
-> **Agents: start with [`AGENTS.md`](./AGENTS.md), then read [`docs/WORKBENCH_CONSTITUTION.md`](./docs/WORKBENCH_CONSTITUTION.md) before changing the repository.**
+> **Agents: read [`MING_WORKBENCH_NORTH_STAR.md`](./MING_WORKBENCH_NORTH_STAR.md) first, then [`AGENTS.md`](./AGENTS.md), then [`docs/WORKBENCH_CONSTITUTION.md`](./docs/WORKBENCH_CONSTITUTION.md) before changing the repository.**
 >
-> The durable rule is **Reuse Before Build**: Ming Workbench owns the Reality → Intent → Evidence → Outcome loop and should reuse or thinly adapt existing execution infrastructure rather than rebuild it.
+> The durable rule is **Reuse Before Build**: Ming Workbench owns the Reality → Intent → Capability Resolution → Evidence → Outcome loop and should reuse or thinly adapt existing execution infrastructure rather than rebuild it.
 
 Ming Workbench is an intent-to-evidence AI workbench. It uses existing agent runtimes instead of rebuilding them.
+
+Its durable product role is not to own more tools. It is to take responsibility for technical complexity on behalf of a non-technical Reality Owner:
+
+```text
+human intent
+→ understand the required capability
+→ discover / qualify / compose existing best-fit capabilities
+→ bounded execution through replaceable runtimes
+→ independent reality readback
+→ evidence-backed outcome
+```
 
 The first development profile is:
 
 - Workbench: human-facing `Space / Work Unit / Gate / Evidence / Asset / Outcome`
+- capability selection: `Capability Resolution` (start small; no marketplace/platform build)
 - software control protocol: AAOP
 - execution chassis: DeepSeek Harness
 - durable execution: LoopX only after a proven continuity gap
@@ -145,10 +159,13 @@ of this slice.
 - a duplicate workflow engine;
 - a duplicate MCP/Skill protocol;
 - a duplicate scheduler/ledger;
+- a plugin marketplace or universal capability registry;
 - Creator/Research/Family Service Packs;
 - a replacement Harness UI.
 
-The next milestone is the first real product-development Work Unit:
+The next product-direction proof is **Capability Resolution V0**: on one real low-risk Work Unit, identify a missing capability, search and qualify an existing trusted capability, use it in a bounded way, and verify the original real-world outcome instead of reflexively rebuilding the capability.
+
+The existing execution milestone remains:
 
 ```text
 ordinary-language goal
