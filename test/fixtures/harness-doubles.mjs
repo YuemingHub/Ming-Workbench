@@ -27,11 +27,16 @@ import { parseAaopIntakeEnvelope } from '../../.tmp/intake/aaop-envelope.js'
 import { reconcileAaopCoordinatorWorkUnit } from '../../.tmp/intake/coordinator.js'
 
 /**
- * Build a coordinator double that returns a grounded AAOP Intake Envelope for a
- * feature-change on a README version bump. The envelope is validated and the
- * Work Unit reconciled by the real intake machinery.
+ * Build a coordinator double that returns a grounded AAOP Intake Envelope.
+ *
+ * Defaults describe the README version-bump scenario used by the architecture
+ * tests. `overrides` lets a corpus case describe a different real goal's
+ * situation/route/next_action without rewriting the double — the double is the
+ * LLM stand-in, and different goals legitimately need different "what a
+ * correct AAOP coordinator would return". `raw_request` is always forced to the
+ * prepared request so the envelope stays consistent with the Work Unit.
  */
-export function createCoordinatorDouble() {
+export function createCoordinatorDouble(overrides = {}) {
   return async (options) => {
     const rawRequest = options.prepared.aaopRequest.rawRequest
     const envelope = {
@@ -45,6 +50,8 @@ export function createCoordinatorDouble() {
       question_needed: null,
       project_evidence_summary: ['README.md — 当前版本占位，授权内一次写入'],
       next_action: 'Authorize a bounded write to README.md to set Version: NEW.',
+      ...overrides,
+      raw_request: rawRequest,
     }
     const json = JSON.stringify(envelope)
     const parsed = parseAaopIntakeEnvelope(json)

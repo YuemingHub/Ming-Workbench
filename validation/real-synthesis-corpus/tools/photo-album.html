@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>照片相册</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 720px; margin: 0 auto; padding: 16px; line-height: 1.6; }
+    h1 { font-size: 1.4rem; }
+    section { margin-bottom: 16px; }
+    input, select, button { font: inherit; box-sizing: border-box; padding: 8px; }
+    button { cursor: pointer; background: #2563eb; color: #fff; border: 0; border-radius: 6px; }
+    button:hover { background: #1d4ed8; }
+    #album { display: flex; flex-wrap: wrap; gap: 8px; }
+    #album figure { margin: 0; border: 1px solid #8884; border-radius: 8px; padding: 6px; width: 180px; }
+    #album img { width: 100%; height: 120px; object-fit: cover; border-radius: 4px; }
+    #album figcaption { font-size: 0.8rem; color: #666; margin-top: 4px; word-break: break-all; }
+    #album figure.picked { border-color: #16a34a; }
+    .empty { color: #888; }
+    @media print { body * { visibility: hidden; } #album, #album * { visibility: visible; } #album { position: absolute; inset: 0; } }
+  </style>
+</head>
+<body>
+  <h1>照片相册</h1>
+  <section>
+    <p class="empty">挑一整个文件夹的照片进来，按拍摄时间筛出候选，挑中的留在相册里，可以直接打印。</p>
+    <input id="picker" type="file" accept="image/*" webkitdirectory multiple />
+  </section>
+  <section>
+    <label>从 <input id="from" type="month" /> 到 <input id="to" type="month" /></label>
+    <button id="filter">按时间筛选</button>
+  </section>
+  <section id="album"></section>
+  <script>
+    const album = document.getElementById('album')
+    const all = []
+    function esc(s) { return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) }
+    function render(list) {
+      album.innerHTML = ''
+      for (const p of list) {
+        const fig = document.createElement('figure')
+        fig.innerHTML = `<img src="${esc(p.url)}" alt="" /><figcaption>${esc(p.name)}<br />${p.taken ? p.taken.toISOString().slice(0, 10) : ''}</figcaption>`
+        if (p.picked) fig.classList.add('picked')
+        fig.addEventListener('click', () => { p.picked = !p.picked; fig.classList.toggle('picked') })
+        album.appendChild(fig)
+      }
+    }
+    document.getElementById('picker').addEventListener('change', async (e) => {
+      all.length = 0
+      for (const f of e.target.files) {
+        const m = f.name.match(/(\d{4})(\d{2})(\d{2})/)
+        all.push({ name: f.name, url: URL.createObjectURL(f), taken: m ? new Date(+m[1], +m[2] - 1, +m[3]) : null, picked: false })
+      }
+      render(all)
+    })
+    document.getElementById('filter').addEventListener('click', () => {
+      const from = document.getElementById('from').value
+      const to = document.getElementById('to').value
+      const inRange = (p) => p.taken && (!from || p.taken >= new Date(from + '-01')) && (!to || p.taken <= new Date(to + '-01'))
+      const picked = all.filter((p) => p.picked)
+      render((from || to) ? all.filter(inRange) : picked.length ? picked : all)
+    })
+  </script>
+</body>
+</html>

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>小区团购</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; max-width: 640px; margin: 0 auto; padding: 16px; line-height: 1.6; }
+    h1 { font-size: 1.4rem; }
+    form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+    input, button { font: inherit; box-sizing: border-box; width: 100%; padding: 8px; }
+    button { cursor: pointer; background: #2563eb; color: #fff; border: 0; border-radius: 6px; }
+    button:hover { background: #1d4ed8; }
+    .order { border: 1px solid #8884; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; }
+    .order h3 { margin: 0 0 4px; font-size: 1rem; }
+    .order time { color: #888; font-size: 0.8rem; }
+    .order button { width: auto; background: #16a34a; padding: 2px 10px; font-size: 0.8rem; }
+    .empty { color: #888; }
+  </style>
+</head>
+<body>
+  <h1>小区团购</h1>
+  <p class="empty" id="hint">谁要买啥记在这里，单子不乱、不刷屏、不遗漏。钱各付各的，这里不管钱。</p>
+  <form id="form">
+    <input id="who" name="who" placeholder="谁要买（名字）" maxlength="20" required />
+    <input id="what" name="what" placeholder="买啥（物品）" maxlength="40" required />
+    <input id="qty" name="qty" type="number" min="1" step="0.5" value="1" placeholder="几份" />
+    <button type="submit">记一笔</button>
+  </form>
+  <div id="list"></div>
+  <script>
+    const KEY = 'community-order-items'
+    const items = JSON.parse(localStorage.getItem(KEY) ?? '[]')
+    const form = document.getElementById('form')
+    const list = document.getElementById('list')
+    const hint = document.getElementById('hint')
+    function render() {
+      list.innerHTML = ''
+      hint.hidden = items.length > 0
+      for (let i = items.length - 1; i >= 0; i--) {
+        const el = document.createElement('div')
+        el.className = 'order'
+        el.innerHTML = `<h3>${escapeHtml(items[i].who)} 要买 ${escapeHtml(items[i].what)} × ${items[i].qty}</h3><time>${items[i].at}${items[i].got ? '，已拿到' : ''}</time>`
+        const btn = document.createElement('button')
+        btn.textContent = items[i].got ? '恢复' : '拿到货了'
+        btn.onclick = () => { items[i].got = !items[i].got; save(); render() }
+        el.appendChild(btn)
+        list.appendChild(el)
+      }
+    }
+    function save() { localStorage.setItem(KEY, JSON.stringify(items)) }
+    function escapeHtml(s) { return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])) }
+    form.addEventListener('submit', (e) => {
+      e.preventDefault()
+      items.push({ who: form.who.value.trim(), what: form.what.value.trim(), qty: form.qty.value, got: false, at: new Date().toLocaleString('zh-CN') })
+      form.reset()
+      form.qty.value = 1
+      save()
+      render()
+    })
+    render()
+  </script>
+</body>
+</html>
