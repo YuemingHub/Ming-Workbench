@@ -45,6 +45,7 @@ if (resolvedUserDataDir) {
 const LOOPBACK_ORIGIN_RE = /^http:\/\/127\.0\.0\.1:\d+$/
 
 let win = null
+let artifactWin = null
 let backend = null
 let backendUrl = ''
 let activeBackendOrigin = ''
@@ -305,20 +306,18 @@ async function startBackend(projectRoot, reason = 'initial') {
   const nodeBin = resolveNodeBin()
   const script = resolveBackendScriptPath(workbenchRoot)
 
-  // The human-first V1 entry needs no project and no Harness runtime: it is a
-  // thin letter/conversation surface over the provider + idea store.
+  // Project mode needs the reviewed Harness runtime for its read-only intake.
+  // Human-first deliberately defers runtime verification/extraction until
+  // after the person confirms a round and asks to execute; startup itself must
+  // not perform execution-side preparation or external work.
   let resolvedHarnessCheckout
-  if (projectRoot) {
-    const harnessCheckout = process.env.MING_HARNESS_CHECKOUT
-      ? resolve(process.env.MING_HARNESS_CHECKOUT)
-      : undefined
-    appendStartupLog(
-      `backend spawn nodeBin=${nodeBin} script=${script} project=${projectRoot} harnessCheckout=${harnessCheckout ?? 'auto-bundled'}`,
-    )
-
-    // Resolve the exact reviewed Harness checkout automatically:
-    // 1) env var (backward compat)
-    // 2) bundled git bundle extraction + identity verification + deps install
+  const harnessCheckout = process.env.MING_HARNESS_CHECKOUT
+    ? resolve(process.env.MING_HARNESS_CHECKOUT)
+    : undefined
+  appendStartupLog(
+    `backend spawn nodeBin=${nodeBin} script=${script} project=${projectRoot ?? 'none'} harnessCheckout=${harnessCheckout ?? 'auto-bundled'}`,
+  )
+  if (hasProject) {
     try {
       const runtime = await prepareHarnessRuntime({
         workbenchRoot,
@@ -343,13 +342,13 @@ async function startBackend(projectRoot, reason = 'initial') {
       app.quit()
       return
     }
-
-    // The window may have been closed (app quitting) while the runtime was
-    // preparing; never spawn a backend for a quitting app.
-    if (cleanShutdownDone) return
   } else {
-    appendStartupLog('human-first V1 entry: no project; starting without Harness runtime')
+    appendStartupLog('human-first V1 entry: deferring Harness runtime preparation until confirmed execution')
   }
+
+  // The window may have been closed (app quitting) while the runtime was
+  // preparing; never spawn a backend for a quitting app.
+  if (cleanShutdownDone) return
 
   backend = spawnBackend({
     nodeBin,
@@ -381,6 +380,13 @@ async function startBackend(projectRoot, reason = 'initial') {
             // OpenAI-compatible providers.
             MING_HARNESS_MAX_TOKENS: '16384',
           }
+        : {}),
+      // Repository-owned deterministic installed journeys may opt into the
+      // fixture executor through a process-level marker. The renderer still
+      // has to reach the normal confirmation/cost-gate UI; the marker is not
+      // user-configurable and is never accepted from a request body alone.
+      ...(process.env.MING_EXECUTION_FIXTURE === '1'
+        ? { MING_EXECUTION_FIXTURE: '1' }
         : {}),
     },
   })
@@ -431,6 +437,59 @@ function hardenWindow(targetWin) {
   // No browser permission (geolocation, media, notifications, etc.).
   targetWin.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
   targetWin.webContents.session.setPermissionCheckHandler(() => false)
+}
+
+function artifactPathIsOwned(candidate) {
+  if (typeof candidate !== 'string' || candidate.length === 0) return false
+  const root = resolve(app.getPath('userData'), 'results')
+  const artifact = resolve(candidate)
+  return artifact.startsWith(`${root}${process.platform === 'win32' ? '\\' : '/'}`) && existsSync(artifact)
+}
+
+function openArtifactWindow(candidate) {
+  if (!artifactPathIsOwned(candidate)) return { ok: false }
+  const artifactPath = resolve(candidate)
+  if (artifactWin && !artifactWin.isDestroyed()) {
+    artifactWin.focus()
+    void artifactWin.loadFile(artifactPath)
+    return { ok: true }
+  }
+
+  artifactWin = new BrowserWindow({
+    width: 960,
+    height: 720,
+    minWidth: 560,
+    minHeight: 420,
+    title: 'Ming Workbench 结果',
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      // Deliberately no Workbench preload: the generated artifact is an
+      // ordinary file runtime, not a control-plane renderer.
+      preload: undefined,
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+    },
+  })
+  artifactWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  artifactWin.webContents.on('will-attach-webview', (event) => event.preventDefault())
+  artifactWin.webContents.on('will-navigate', (event, targetUrl) => {
+    try {
+      if (targetUrl.startsWith('file://') && resolve(fileURLToPath(targetUrl)) === artifactPath) return
+    } catch {
+      // Fall through to the fail-closed navigation denial.
+    }
+    event.preventDefault()
+  })
+  artifactWin.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
+  artifactWin.webContents.session.setPermissionCheckHandler(() => false)
+  artifactWin.on('closed', () => {
+    artifactWin = null
+  })
+  void artifactWin.loadFile(artifactPath)
+  appendStartupLog(`artifact window opened isolated file runtime path=${artifactPath}`)
+  return { ok: true }
 }
 
 function createWindow() {
@@ -585,6 +644,13 @@ function registerIpc() {
     } finally {
       switching = false
     }
+  })
+
+  ipcMain.handle('desktop:open-artifact', async (event, artifactPath) => {
+    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) {
+      return { ok: false }
+    }
+    return openArtifactWindow(artifactPath)
   })
 
   ipcMain.handle('desktop:get-provider-preferences', async (event) => {
@@ -810,6 +876,10 @@ if (!gotLock) {
 
   function performClose() {
     if (cleanShutdownDone) return
+    if (artifactWin && !artifactWin.isDestroyed()) {
+      artifactWin.close()
+      artifactWin = null
+    }
     if (!backend) {
       cleanShutdownDone = true
       appendStartupLog('close: no backend to clean up')

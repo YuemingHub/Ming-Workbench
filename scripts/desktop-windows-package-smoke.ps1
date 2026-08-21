@@ -98,22 +98,35 @@ function Wait-ForBackendReady([int]$RootPid, [string]$StartupLog, [string]$Scrat
   return $url
 }
 
-function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collections.ArrayList]$TrackedIds) {
-  $closed = $false
-  foreach ($id in $TrackedIds) {
-    $p = Get-Process -Id $id -ErrorAction SilentlyContinue
-    if ($p -and $p.MainWindowHandle -ne 0) {
-      $wmClose = $p.CloseMainWindow()
-      $closed = $true
-      Write-Host "close requested via window of pid=$id title='$($p.MainWindowTitle)' wmClose=$wmClose"
-      break
-    }
+function Close-LaunchTree([string]$AppPath, [string]$IsolatedUserData, [int]$RootPid, [string]$ScratchPath, [System.Collections.ArrayList]$TrackedIds) {
+  # Request a graceful close through Electron's single-instance channel. This
+  # launches the exact same executable in the exact same user-data domain, so
+  # the already-running instance receives --mw-close-instance via
+  # app.on('second-instance'). WM_CLOSE is deliberately not the acceptance
+  # mechanism: on installed Windows builds it can report success without
+  # reaching the Electron window.
+  $requestProc = $null
+  $requestExited = $false
+  try {
+    $requestArgs = "--user-data-dir `"$IsolatedUserData`" --mw-close-instance"
+    $requestProc = Start-Process -FilePath $AppPath -ArgumentList $requestArgs -PassThru
+    Write-Host "close requested via --mw-close-instance requestPid=$($requestProc.Id) app=$AppPath userData=$IsolatedUserData"
+  } catch {
+    Write-Host "L2_GRACEFUL_CLOSE: failed to launch --mw-close-instance request: $($_.Exception.Message)"
   }
-  if (-not $closed -and $RootPid -and (Get-Process -Id $RootPid -ErrorAction SilentlyContinue)) {
-    $root = Get-Process -Id $RootPid -ErrorAction SilentlyContinue
-    if ($root -and $root.MainWindowHandle -ne 0) {
-      $wmClose = $root.CloseMainWindow()
-      Write-Host "close requested via root window pid=$RootPid title='$($root.MainWindowTitle)' wmClose=$wmClose"
+
+  if ($requestProc) {
+    $requestDeadline = (Get-Date).AddSeconds(30)
+    while ((Get-Date) -lt $requestDeadline) {
+      if (-not (Get-Process -Id $requestProc.Id -ErrorAction SilentlyContinue)) {
+        $requestExited = $true
+        Write-Host "close request process exited pid=$($requestProc.Id)"
+        break
+      }
+      Start-Sleep -Milliseconds 200
+    }
+    if (-not $requestExited) {
+      Write-Host "L2_GRACEFUL_CLOSE: close request process did not exit within 30s pid=$($requestProc.Id)"
     }
   }
 
@@ -127,15 +140,32 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
   $boundSeconds = 300
   $deadline = (Get-Date).AddSeconds($boundSeconds)
   $lastAlive = $null
+  $rootSelfExited = $false
+  $trackedChildrenSelfExited = ($TrackedIds | Where-Object { $_ -ne $RootPid }).Count -eq 0
   while ((Get-Date) -lt $deadline) {
     $alive = @()
     foreach ($id in $TrackedIds) {
       if (Get-Process -Id $id -ErrorAction SilentlyContinue) { $alive += $id }
     }
+    if (-not $rootSelfExited -and -not (Get-Process -Id $RootPid -ErrorAction SilentlyContinue)) {
+      $rootSelfExited = $true
+      Write-Host "root app self-exited pid=$RootPid"
+    }
+    if (-not $trackedChildrenSelfExited) {
+      $aliveChildren = @($alive | Where-Object { $_ -ne $RootPid })
+      if ($aliveChildren.Count -eq 0) {
+        $trackedChildrenSelfExited = $true
+        Write-Host "tracked backend child tree self-exited"
+      }
+    }
     $lastAlive = $alive
     if ($alive.Count -eq 0) {
-      Write-Host "graceful close drained within ${boundSeconds}s bound"
-      return $true
+      if ($requestExited -and $rootSelfExited -and $trackedChildrenSelfExited) {
+        Write-Host "graceful close drained within ${boundSeconds}s bound (request delivered; root and backend self-exited)"
+        return $true
+      }
+      Write-Host "L2_GRACEFUL_CLOSE: FAIL (tree drained without complete deterministic close protocol; requestExited=$requestExited rootSelfExited=$rootSelfExited trackedChildrenSelfExited=$trackedChildrenSelfExited)"
+      break
     }
     Start-Sleep -Milliseconds 500
   }
@@ -161,11 +191,27 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
         if (Get-Process -Id $id -ErrorAction SilentlyContinue) { $poll += $id }
       }
       $rescueAlive = $poll
+      if (-not $rootSelfExited -and -not (Get-Process -Id $RootPid -ErrorAction SilentlyContinue)) {
+        $rootSelfExited = $true
+        Write-Host "root app self-exited pid=$RootPid"
+      }
+      if (-not $trackedChildrenSelfExited) {
+        $aliveChildren = @($poll | Where-Object { $_ -ne $RootPid })
+        if ($aliveChildren.Count -eq 0) {
+          $trackedChildrenSelfExited = $true
+          Write-Host "tracked backend child tree self-exited"
+        }
+      }
       if ($poll.Count -eq 0) {
-        $took = [math]::Round(((Get-Date) - $rescueStart).TotalSeconds, 1)
-        Write-Host ("graceful close drained in POST_BOUNDARY_RESCUE (tick-misalignment/teardown-lag rescue; " +
-                    "primary bound=${boundSeconds}s; rescue window=${rescueWindowSeconds}s; rescue-poll took ${took}s)")
-        return $true
+        if ($requestExited -and $rootSelfExited -and $trackedChildrenSelfExited) {
+          $took = [math]::Round(((Get-Date) - $rescueStart).TotalSeconds, 1)
+          Write-Host ("graceful close drained in POST_BOUNDARY_RESCUE (tick-misalignment/teardown-lag rescue; " +
+                      "primary bound=${boundSeconds}s; rescue window=${rescueWindowSeconds}s; rescue-poll took ${took}s; " +
+                      "request delivered; root and backend self-exited)")
+          return $true
+        }
+        Write-Host "L2_GRACEFUL_CLOSE: FAIL (rescue drained without complete deterministic close protocol; requestExited=$requestExited rootSelfExited=$rootSelfExited trackedChildrenSelfExited=$trackedChildrenSelfExited)"
+        break
       }
       Start-Sleep -Milliseconds 500
     }
@@ -194,6 +240,9 @@ function Close-LaunchTree([int]$RootPid, [string]$ScratchPath, [System.Collectio
   }
   foreach ($p in $nowScratch) {
     try { taskkill /PID $p.ProcessId /T /F 2>&1 | Out-Null } catch { }
+  }
+  if ($requestProc -and (Get-Process -Id $requestProc.Id -ErrorAction SilentlyContinue)) {
+    try { taskkill /PID $requestProc.Id /T /F 2>&1 | Out-Null } catch { }
   }
   foreach ($id in $TrackedIds) {
     if (-not (Get-Process -Id $id -ErrorAction SilentlyContinue)) { continue }
@@ -279,7 +328,7 @@ function Invoke-PackagedLaunch([string]$AppPath, [string]$Label, [string]$Scratc
       Assert-True ($content.IndexOf($sentinel, [System.StringComparison]::OrdinalIgnoreCase) -lt 0) "no plaintext sentinel in project file $(Split-Path $file.FullName -Leaf)"
     }
 
-    $graceful = Close-LaunchTree $proc.Id $ScratchPath $tracked
+    $graceful = Close-LaunchTree $AppPath $isolatedUserData $proc.Id $ScratchPath $tracked
 
     Start-Sleep -Seconds 3
     $residual = Get-ScratchMatchingProcesses $ScratchPath
@@ -354,16 +403,34 @@ if (-not $SkipBuild) {
   Write-Step "BUILD win-unpacked (desktop:package:dir)"
   Push-Location $WorkDir
   try {
-    & npm.cmd run desktop:package:dir 2>&1 | Out-File (Join-Path $ScratchRoot "build-dir.log") -Encoding utf8
-    if ($LASTEXITCODE -ne 0) {
-      Write-Host "FAIL: desktop:package:dir exited $LASTEXITCODE"
+    # npm/pnpm warnings are written to stderr on Windows. PowerShell 7 can
+    # promote that native stderr stream to a terminating NativeCommandError
+    # under ErrorActionPreference=Stop even when npm exits 0; capture the real
+    # process exit code instead of treating a warning as a packaging failure.
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+      & npm.cmd run desktop:package:dir 2>&1 | Out-File (Join-Path $ScratchRoot "build-dir.log") -Encoding utf8
+      $buildDirExit = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $previousErrorAction
+    }
+    if ($buildDirExit -ne 0) {
+      Write-Host "FAIL: desktop:package:dir exited $buildDirExit"
       Write-BuildLog "build-dir.log"
       exit 1
     }
     Write-Step "BUILD NSIS installer (desktop:package)"
-    & npm.cmd run desktop:package 2>&1 | Out-File (Join-Path $ScratchRoot "build-nsis.log") -Encoding utf8
-    if ($LASTEXITCODE -ne 0) {
-      Write-Host "FAIL: desktop:package exited $LASTEXITCODE"
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+      & npm.cmd run desktop:package 2>&1 | Out-File (Join-Path $ScratchRoot "build-nsis.log") -Encoding utf8
+      $buildNsisExit = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $previousErrorAction
+    }
+    if ($buildNsisExit -ne 0) {
+      Write-Host "FAIL: desktop:package exited $buildNsisExit"
       Write-BuildLog "build-nsis.log"
       exit 1
     }

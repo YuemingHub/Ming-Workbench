@@ -146,9 +146,10 @@ The packaged app prefers the system `node` runtime for the backend sidecar and
 falls back to Electron-as-node. A real read-only Intake needs the reviewed
 Harness checkout, which is a runtime environment dependency: pass
 `MING_HARNESS_CHECKOUT` (and the provider credentials the transport already
-inherits, e.g. `DEEPSEEK_API_KEY`). Harness/session completion remains execution
-evidence, never Work Unit completion. The first slice deliberately exposes no
-write/execution UI.
+inherits, e.g. `DEEPSEEK_API_KEY`). In the human-first path, Harness preparation
+is deferred until after confirmation and an explicit execution request.
+Harness/session completion remains execution evidence, never Work Unit
+completion. The UI keeps execution behind the confirmation and cost gates.
 
 See `docs/DESKTOP_V0_1_VERIFICATION.md` for the machine-level verification record
 of this slice.

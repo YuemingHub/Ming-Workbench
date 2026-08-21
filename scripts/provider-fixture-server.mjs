@@ -7,11 +7,10 @@
  * real provider secret. This is a deterministic local model server, NOT a
  * product path and NOT L4 evidence.
  *
- * Behavior is driven by the REAL scratch file state (the fixture reads the
- * project README), so it is stable across retries and CI runs:
- *   - while README.md still contains "Version: OLD", emit a read tool call
- *     then a write tool call that replaces it with "Version: NEW";
- *   - once README.md contains "Version: NEW", emit a completion text.
+ * Behavior is driven by a per-process phase machine and an explicit scenario.
+ * The legacy `readme` scenario remains available for the older project journey;
+ * the installed own-key human-first journey opts into `daily-notes`, whose
+ * execution target is the same `index.html` artifact that the person opens.
  *
  * The real Harness agent loop therefore performs a genuine read -> write ->
  * conclude sequence against the real filesystem, and Workbench's isolation +
@@ -28,20 +27,78 @@ const OLD_MARK = 'Version: OLD'
 const NEW_MARK = 'Version: NEW'
 /** Absolute path to the scratch project root the fixture observes. */
 const TARGET = process.env.FIXTURE_TARGET_DIR ?? process.cwd()
+const SCENARIO = process.env.FIXTURE_SCENARIO ?? 'readme'
+const TARGET_FILE = SCENARIO === 'daily-notes' ? 'index.html' : 'README.md'
+const DAILY_NOTES_HTML = `<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>每日记录</title>
+  <style>
+    body { font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; color: #1f2937; }
+    h1 { font-size: 1.5rem; }
+    .row { display: flex; gap: 0.5rem; }
+    input { flex: 1; padding: 0.5rem; font-size: 1rem; border: 1px solid #d1d5db; border-radius: 0.375rem; }
+    button { padding: 0.5rem 1rem; font-size: 1rem; border: 0; border-radius: 0.375rem; background: #2563eb; color: #fff; cursor: pointer; }
+    ul { list-style: none; padding: 0; }
+    li { padding: 0.5rem 0; border-bottom: 1px solid #e5e7eb; }
+  </style>
+</head>
+<body>
+  <h1>每日记录</h1>
+  <div class="row">
+    <input id="entry" type="text" placeholder="今天发生了什么？" autocomplete="off">
+    <button id="save" type="button">保存</button>
+  </div>
+  <ul id="list"></ul>
+  <script>
+    (function () {
+      var KEY = 'daily-notes-installed'
+      function load() {
+        try { return JSON.parse(localStorage.getItem(KEY) || '[]') } catch (e) { return [] }
+      }
+      function persist(notes) { localStorage.setItem(KEY, JSON.stringify(notes)) }
+      function render() {
+        var list = document.getElementById('list')
+        list.innerHTML = ''
+        load().forEach(function (text) {
+          var li = document.createElement('li')
+          li.textContent = text
+          list.appendChild(li)
+        })
+      }
+      document.getElementById('save').addEventListener('click', function () {
+        var input = document.getElementById('entry')
+        var text = input.value.trim()
+        if (!text) return
+        var notes = load()
+        notes.push(text)
+        persist(notes)
+        input.value = ''
+        render()
+      })
+      render()
+    })()
+  </script>
+</body>
+</html>
+`
 
 // The fixture cannot observe the disposable execution worktree directly, so it
 // uses a per-process phase machine aligned to the real Harness agent loop:
-//   phase 0: emit a read tool call (so fs-observation-policy observes README)
-//   phase 1: emit a write tool call that replaces README with the NEW content
+//   phase 0: emit a read tool call for the scenario's exact target
+//   phase 1: emit a write tool call for that same exact target
 //   phase >=2: emit the completion text
 // Every Harness request advances or holds the phase based on what the agent
 // needs; the phases are chosen so a fresh scratch repo reaches NEW exactly once.
 let phase = 0
+let executionWorkUnitId = ''
 
-function readReadme() {
+function readTarget() {
   try {
-    if (existsSync(join(TARGET, 'README.md'))) {
-      return readFileSync(join(TARGET, 'README.md'), 'utf8')
+    if (existsSync(join(TARGET, TARGET_FILE))) {
+      return readFileSync(join(TARGET, TARGET_FILE), 'utf8')
     }
   } catch {
     // ignore
@@ -60,7 +117,7 @@ const server = createServer((req, res) => {
       return
     }
 
-    const content = readReadme()
+    const content = readTarget()
 
     // Distinguish request kinds by their prompt text so the same fixture serves
     // the whole journey: provider probe, AAOP intake, and bounded execution.
@@ -74,6 +131,8 @@ const server = createServer((req, res) => {
     // Harness prompt, so probe must be tested first; only genuine execution
     // requests advance the phase machine.
     const isExecution = !isProbe && promptText.includes('AAOP Provider Execution Grant')
+    const workUnitMatch = promptText.match(/work-unit:(WU-[A-Za-z0-9-]+)/)
+    const workUnitId = workUnitMatch ? workUnitMatch[1] : ''
     // Human-first V1 entry synthesis reuses the same provider endpoint with
     // deterministic JSON responses (no Harness agent loop involved).
     const isHumanFirstTurn = promptText.includes('MING_HUMAN_FIRST_TURN')
@@ -127,9 +186,19 @@ const server = createServer((req, res) => {
     // The execution phase machine advances ONLY on execution requests; probe
     // and intake requests never consume a phase, so a fresh journey always
     // reaches read -> write -> conclude exactly once.
-    const thisPhase = isExecution ? phase : -1
-    if (isExecution) phase += 1
-    if (isExecution) console.log(`fixture execution phase=${thisPhase} readmeNew=${content.includes(NEW_MARK)}`)
+    let thisPhase = -1
+    if (isExecution) {
+      // Each confirmed iteration owns a fresh Work Unit. Reset the
+      // deterministic read -> write -> conclude sequence for that new unit.
+      if (workUnitId && workUnitId !== executionWorkUnitId) {
+        executionWorkUnitId = workUnitId
+        phase = 0
+        console.log(`fixture execution reset workUnit=${workUnitId}`)
+      }
+      thisPhase = phase
+      phase += 1
+    }
+    if (isExecution) console.log(`fixture execution phase=${thisPhase} scenario=${SCENARIO} target=${TARGET_FILE}`)
 
     const sseChunk = (payload) => {
       res.write(`data: ${JSON.stringify(payload)}\n\n`)
@@ -146,15 +215,18 @@ const server = createServer((req, res) => {
       sseChunk({ choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 1 } })
     } else if (isExecution) {
       if (thisPhase === 0) {
-        // Read tool call so fs-observation-policy observes README.md.
-        const readArgs = JSON.stringify({ file_path: 'README.md' })
+        // Read tool call so fs-observation-policy observes the exact write target.
+        const readArgs = JSON.stringify({ file_path: TARGET_FILE })
         const rmid = Math.floor(readArgs.length / 2)
         sseChunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'fixture-read', type: 'function', function: { name: 'read', arguments: readArgs.slice(0, rmid) } }] }, finish_reason: null }] })
         sseChunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: readArgs.slice(rmid) } }] }, finish_reason: null }] })
         sseChunk({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] })
       } else if (thisPhase === 1) {
-        // Write tool call replacing README.md with the NEW content.
-        const writeArgs = JSON.stringify({ file_path: 'README.md', content: `# Workbench Reality Test\n\n${NEW_MARK}\n` })
+        // Write tool call replacing the exact target with the deterministic page.
+        const writeArgs = JSON.stringify({
+          file_path: TARGET_FILE,
+          content: SCENARIO === 'daily-notes' ? DAILY_NOTES_HTML : `# Workbench Reality Test\n\n${NEW_MARK}\n`,
+        })
         const wmid = Math.floor(writeArgs.length / 2)
         sseChunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 'fixture-write', type: 'function', function: { name: 'write', arguments: writeArgs.slice(0, wmid) } }] }, finish_reason: null }] })
         sseChunk({ choices: [{ index: 0, delta: { tool_calls: [{ index: 0, function: { arguments: writeArgs.slice(wmid) } }] }, finish_reason: null }] })
@@ -181,13 +253,17 @@ const server = createServer((req, res) => {
         route_confidence: 0.9,
         ambiguities: [],
         question_needed: null,
-        // Ground the canonical task: the request is to change Version in
-        // README.md, which is a real tracked file. Workbench's scope proposal
-        // derives candidate paths from this evidence.
-        project_evidence_summary: [
-          'README.md — repository README containing "Version: OLD" (the request asks to change it to "Version: NEW").',
-        ],
-        next_action: 'Change the Version line in README.md from OLD to NEW.',
+        // Ground the canonical task on the same artifact that the product opens.
+        project_evidence_summary: SCENARIO === 'daily-notes'
+          ? [
+              'index.html — the Workbench result page target for this round (make it a daily-notes page with input, save, render, and reload persistence).',
+            ]
+          : [
+              'README.md — repository README containing "Version: OLD" (the request asks to change it to "Version: NEW").',
+            ],
+        next_action: SCENARIO === 'daily-notes'
+          ? 'Implement the daily-notes page in index.html.'
+          : 'Change the Version line in README.md from OLD to NEW.',
       })
       sseChunk({ choices: [{ index: 0, delta: { content: envelope }, finish_reason: null }] })
       sseChunk({ choices: [{ index: 0, delta: { content: '' }, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 10 } })

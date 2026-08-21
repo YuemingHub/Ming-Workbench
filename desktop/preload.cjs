@@ -9,6 +9,9 @@ contextBridge.exposeInMainWorld('mingWorkbench', {
   selectProject: () => ipcRenderer.invoke('desktop:select-project'),
   // Ask the main process to shut the desktop app down cleanly.
   quit: () => ipcRenderer.send('desktop:quit'),
+  // Open a Workbench-owned result in a separate, no-preload artifact window.
+  // The main process validates that the path stays under userData/results.
+  openArtifact: (artifactPath) => ipcRenderer.invoke('desktop:open-artifact', artifactPath),
   // Provider secret management. The renderer never sees the plaintext key.
   hasProviderSecret: () => ipcRenderer.invoke('desktop:has-provider-secret'),
   setProviderSecret: (secret) => ipcRenderer.invoke('desktop:set-provider-secret', secret),

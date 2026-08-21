@@ -287,7 +287,7 @@ test('A: git metadata mutation inside the isolation never touches the real repos
  * isolation that points at the real repo or an external sentinel must be
  * detected as a scope violation and must never be applied back.
  */
-test('B: symlink escape inside the isolation is detected and never applied back', () => {
+test('B: symlink escape inside the isolation is detected and never applied back', (t) => {
   const dir = makeScratchRepo()
   const sentinel = mkdtempSync(join(tmpdir(), 'mw-iso-sentinel-'))
   try {
@@ -298,9 +298,18 @@ test('B: symlink escape inside the isolation is detected and never applied back'
     const baseline = readIsolationBaseline(iso)
 
     // Harness plants a symlink pointing at the external sentinel AND one at the
-    // real repo's working tree.
-    symlinkSync(join(sentinel, 'target.txt'), join(iso.worktree, 'link-external'))
-    symlinkSync(join(dir, 'answer.mjs'), join(iso.worktree, 'link-repo'))
+    // real repo's working tree. On hosts without the privilege to create
+    // symlinks (Windows without admin/Developer Mode), symlinkSync throws EPERM
+    // before any detection code can run — that is an OS capability limit, not a
+    // product regression, so we skip with an explicit reason instead of failing.
+    try {
+      symlinkSync(join(sentinel, 'target.txt'), join(iso.worktree, 'link-external'))
+      symlinkSync(join(dir, 'answer.mjs'), join(iso.worktree, 'link-repo'))
+    } catch (error) {
+      discardExecutionIsolation(iso)
+      t.skip(`host cannot create symlinks (${error.code}); symlink-escape detection gate not exercisable here`)
+      return
+    }
 
     // The delta verification must flag both as scope violations (fail-closed),
     // regardless of slice membership.

@@ -29,7 +29,7 @@
 
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -179,13 +179,29 @@ if (!existsSync(join(staging, 'node_modules', 'tsx', 'dist', 'cli.mjs'))) {
   fail('prod closure did not include the tsx runner required by the launcher.')
 }
 
-// 3. Copy the full source tree (everything except the source checkout's own
-//    node_modules and .git) so app-boot can load the reviewed TS source.
+// 3. Copy the full source tree (everything except node_modules/.git) so
+//    app-boot can load the reviewed TS source. The reviewed checkout is a pnpm
+//    workspace, so package-local node_modules contain thousands of Windows
+//    junctions. Recursively copying those junctions with Node's fs.cpSync can
+//    enter the native Windows symlink path and fail-fast with 0xC0000409.
+//    The deployed staging directory already owns the one hoisted, symlink-free
+//    production dependency closure; source-tree copies must never carry the
+//    checkout's nested dependency forests.
+const sourceFilter = (source) => {
+  const rel = relative(checkout, source)
+  if (rel.split(/[\\/]/).some((segment) => segment === 'node_modules' || segment === '.git')) return false
+  try {
+    if (lstatSync(source).isSymbolicLink()) return false
+  } catch {
+    return false
+  }
+  return true
+}
 const COPY_TOP = ['packages', 'apps', 'vendor', 'native', 'scripts', 'examples']
 for (const name of COPY_TOP) {
   const src = join(checkout, name)
   if (!existsSync(src)) continue
-  cpSync(src, join(staging, name), { recursive: true })
+  cpSync(src, join(staging, name), { recursive: true, filter: sourceFilter })
 }
 for (const file of [
   'package.json',

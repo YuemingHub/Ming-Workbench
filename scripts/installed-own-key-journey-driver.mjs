@@ -48,6 +48,18 @@ async function click(page, selector, label) {
   console.log(`clicked ${label} (${selector})`)
 }
 
+async function clickWhenEnabled(page, selector, label) {
+  await page.waitForFunction(
+    (s) => {
+      const el = document.querySelector(s)
+      return el && !el.disabled
+    },
+    selector,
+    { timeout: 30_000 },
+  )
+  await click(page, selector, label)
+}
+
 async function fill(page, selector, value, label) {
   const el = page.locator(selector).first()
   await el.waitFor({ state: 'attached', timeout: 10_000 })
@@ -134,10 +146,10 @@ async function mountBrowser() {
   }
   await page.bringToFront().catch(() => {})
   console.log(`mountBrowser: connected to page: ${page.url()}`)
-  return { browser, page }
+  return { browser, context, page }
 }
 
-async function firstLaunch(page) {
+async function firstLaunch(page, context) {
   // ---- 1. Human-first letter appears ----
   step('1. human-first V1 entry letter')
   await page.waitForSelector('#letter-view', { timeout: 30_000 })
@@ -169,7 +181,7 @@ async function firstLaunch(page) {
 
   // ---- 5. Enter idea ----
   step('5. enter ordinary-language idea')
-  const ideaText = '我想写一首关于秋天的诗'
+  const ideaText = '我想做一个给家里人整理菜谱的简单网页工具'
   await fill(page, '#message-input', ideaText, 'idea textarea')
   await click(page, '#send-button', 'submit idea')
 
@@ -249,17 +261,37 @@ async function firstLaunch(page) {
 
   // The panel was destroyed by the reload. Wait for the conversation view to reappear.
   // We verify: URL changed (backend port rotated) AND conversation content is back
+  const preActivationUrl = page.url()
   let conversationBack = false
   for (let i = 0; i < 30; i++) {
     await new Promise((r) => setTimeout(r, 1000))
     const msgVisible = await page.locator('#message-input').isVisible().catch(() => false)
-    if (msgVisible) {
+    const backendRotated = page.url() !== preActivationUrl && /^http:\/\/127\.0\.0\.1:\d+\/$/.test(page.url())
+    if (msgVisible && backendRotated) {
       conversationBack = true
       console.log('conversation view visible after backend hot activation')
+      console.log(`backend origin rotated: ${preActivationUrl} -> ${page.url()}`)
       break
     }
   }
   assert(conversationBack, 'conversation view reappeared after backend hot activation')
+  // Saving the secret and preferences can queue two restarts. Wait until the
+  // renderer origin stays unchanged for a short quiet window before sending
+  // the first authenticated message; otherwise it can race a drained backend.
+  let stableOrigin = page.url()
+  let stableSeconds = 0
+  while (stableSeconds < 3) {
+    await new Promise((r) => setTimeout(r, 1000))
+    const observed = page.url()
+    if (observed !== stableOrigin) {
+      stableOrigin = observed
+      stableSeconds = 0
+      console.log(`backend origin changed again while settling: ${stableOrigin}`)
+    } else {
+      stableSeconds += 1
+    }
+  }
+  console.log(`backend origin stable: ${stableOrigin}`)
   checkpoint('BACKEND_HOT_ACTIVATED')
   // ELECTRON_PID_UNCHANGED is verified by the PowerShell harness (same root PID tracked there)
 
@@ -269,13 +301,24 @@ async function firstLaunch(page) {
   assert(ideaAfterReload !== null, 'idea state exists after reload')
   // Verify the original idea is still present in the conversation
   const bodyAfterReload = await page.evaluate(() => document.body.textContent || '')
-  assert(bodyAfterReload.includes('秋天'), 'idea text "秋天" still present after reload')
+  assert(bodyAfterReload.includes('菜谱'), 'idea text "菜谱" still present after reload')
   console.log('idea space continuity verified')
   checkpoint('IDEA_SPACE_CONTINUITY_OK')
 
   // ---- 12. Provider-backed conversation ----
   step('12. provider-backed conversation')
-  // The human-first turn should now get a response from the fixture
+  // Send a fresh message only after the renderer has followed the restarted
+  // backend origin. This makes the authenticated request observable instead
+  // of accidentally submitting to the drained pre-activation server.
+  const authenticatedText = '我还想让家里老人打开后马上看懂第一步'
+  await fill(page, '#message-input', authenticatedText, 'authenticated follow-up')
+  await click(page, '#send-button', 'send authenticated follow-up')
+  await page.waitForFunction(
+    (t) => [...document.querySelectorAll('.bubble.human')].some((b) => b.textContent.includes(t)),
+    authenticatedText,
+    { timeout: 30_000 },
+  )
+  await page.waitForTimeout(1500)
   // Verify the conversation has a workbench response (not just the idea echo)
   const chatBubbles = page.locator('#chat-log .bubble')
   const bubbleCount = await chatBubbles.count()
@@ -295,39 +338,45 @@ async function firstLaunch(page) {
   // Send a follow-up message to trigger the review synthesis with the now-configured provider.
   console.log('sending follow-up message to trigger synthesis...')
 
-  // Navigate back to conversation view if needed
-  const convView = page.locator('#conversation-view')
-  if (await convView.count() > 0) {
-    const convVisible = await convView.isVisible()
-    if (!convVisible) {
-      console.log('conversation view hidden, looking for way back...')
-      // Try clicking the back-to-conversation button if it exists
-      const backBtn = page.locator('#back-to-conversation')
-      if (await backBtn.count() > 0) {
-        await backBtn.click()
-        await page.waitForSelector('#conversation-view', { state: 'visible', timeout: 5_000 })
+  let synthesisState = await getState(page)
+  if (synthesisState?.stage === 'review') {
+    console.log('review already visible after authenticated follow-up; no extra message needed')
+  } else {
+
+    // Navigate back to conversation view if needed
+    const convView = page.locator('#conversation-view')
+    if (await convView.count() > 0) {
+      const convVisible = await convView.isVisible()
+      if (!convVisible) {
+        console.log('conversation view hidden, looking for way back...')
+        // Try clicking the back-to-conversation button if it exists
+        const backBtn = page.locator('#back-to-conversation')
+        if (await backBtn.count() > 0) {
+          await backBtn.click()
+          await page.waitForSelector('#conversation-view', { state: 'visible', timeout: 5_000 })
+        }
       }
     }
-  }
 
-  // Send a follow-up message to trigger synthesis
-  const textarea = page.locator('#message-input, textarea[placeholder*="idea"], textarea[placeholder*="想法"]').first()
-  if (await textarea.count() > 0) {
-    await textarea.fill('继续')
-    const sendBtn = page.locator('#send-button, button:has-text("Send"), button:has-text("发送")').first()
-    if (await sendBtn.count() > 0) {
-      await sendBtn.click()
-      console.log('sent follow-up message: "继续"')
+    // Send a follow-up message to trigger synthesis
+    const textarea = page.locator('#message-input, textarea[placeholder*="idea"], textarea[placeholder*="想法"]').first()
+    if (await textarea.count() > 0) {
+      await textarea.fill('继续')
+      const sendBtn = page.locator('#send-button, button:has-text("Send"), button:has-text("发送")').first()
+      if (await sendBtn.count() > 0) {
+        await sendBtn.click()
+        console.log('sent follow-up message: "继续"')
+      } else {
+        console.log('send button not found, pressing Enter')
+        await textarea.press('Enter')
+      }
     } else {
-      console.log('send button not found, pressing Enter')
-      await textarea.press('Enter')
-    }
-  } else {
-    console.log('no textarea found, trying to trigger synthesis via auto-send')
-    // Try the auto-synthesis button if conversation is visible
-    const autoSynthBtn = page.locator('#auto-synthesis-button, .continue-button')
-    if (await autoSynthBtn.count() > 0) {
-      await autoSynthBtn.first().click()
+      console.log('no textarea found, trying to trigger synthesis via auto-send')
+      // Try the auto-synthesis button if conversation is visible
+      const autoSynthBtn = page.locator('#auto-synthesis-button, .continue-button')
+      if (await autoSynthBtn.count() > 0) {
+        await autoSynthBtn.first().click()
+      }
     }
   }
 
@@ -363,7 +412,7 @@ async function firstLaunch(page) {
     assert(recommendationText && recommendationText.length > 0, `review-recommendation non-empty: "${recommendationText}"`)
 
     // Verify content relates to the actual idea
-    assert(desiredText.includes('诗') || desiredText.includes('秋天'), `synthesis content relates to idea: "${desiredText}"`)
+    assert(desiredText.includes('菜谱') || desiredText.includes('网页'), `synthesis content relates to idea: "${desiredText}"`)
     checkpoint('SYNTHESIS_OK')
 
     // ---- 14. AGREEMENT verification ----
@@ -402,9 +451,136 @@ async function firstLaunch(page) {
     checkpoint('AGREEMENT_OK')
 
     // Click confirm
-    await click(page, '#agreement-confirm-button', 'agreement confirm button')
+    await clickWhenEnabled(page, '#agreement-confirm-button', 'agreement confirm button')
     await waitForStage(page, 'confirmed', 15_000)
     console.log('confirmed view visible — agreement fully confirmed')
+
+    // ---- 15. FIRST OUTCOME: consequence authorization -> result ----
+    // The installed journey runs with the repository-owned deterministic
+    // provider marker, but it must still use the normal human-facing cost
+    // gate before the backend is allowed to execute.
+    step('15. first outcome execution through confirmed UI')
+    const firstStateBeforeExecution = await getState(page)
+    await click(page, '#start-execution-button', 'start first outcome')
+    await page.locator('#cost-gate').waitFor({ state: 'visible', timeout: 30_000 })
+    const costGateText = await page.locator('#cost-gate').textContent()
+    assert(costGateText.includes('可能产生额外费用'), 'cost gate states the user-facing consequence')
+    assert(!/API|Git|repo|Harness|Work Unit|terminal/i.test(costGateText), 'cost gate hides engineering concepts')
+    checkpoint('COST_GATE_VISIBLE')
+
+    await click(page, '#confirm-execution-button', 'authorize execution after cost gate')
+    await page.locator('#execution-result').waitFor({ state: 'visible', timeout: 180_000 })
+    const firstExecutionState = await getState(page)
+    const firstExecution = firstExecutionState?.execution
+    assert(firstExecution && firstExecution.status !== 'running', 'first execution reaches a terminal result')
+    assert(firstExecution.honesty === 'DETERMINISTIC', 'fixture result is honestly labeled deterministic')
+    assert(!['failed', 'rejected'].includes(firstExecution.status), `first result is not misrepresented (${firstExecution.status})`)
+    assert(firstExecution.workUnitId && firstExecution.workspacePath, 'first result records Work Unit and workspace')
+    assert((await page.locator('#result-summary').textContent()).trim().length > 0, 'result summary is user-readable')
+    assert((await page.locator('#result-verified li').count()) > 0, 'verified result facts are rendered')
+    assert((await page.locator('#result-notproven li').count()) > 0, 'not-proven facts remain visible')
+    assert(firstExecution.producedFiles.includes('index.html'), 'executionProducedChanges includes index.html')
+    assert(firstExecution.artifactPath && /[\\/]index\.html$/.test(firstExecution.artifactPath), 'artifactPath points to index.html')
+    assert(firstExecution.artifactBaselineHash && firstExecution.artifactHashAfter, 'artifact baseline and after hashes are persisted')
+    assert(firstExecution.artifactBaselineHash !== firstExecution.artifactHashAfter, 'artifact baseline hash differs from post-execution hash')
+    const firstWorkUnitId = firstExecution.workUnitId
+    const firstWorkspacePath = firstExecution.workspacePath
+    checkpoint('FIRST_OUTCOME_RESULT_OK')
+
+    // Open the actual artifact in the product's isolated no-preload window.
+    // The control page remains mounted; no direct backend calls are used.
+    const controlOrigin = new URL(page.url()).origin
+    const artifactPagesBefore = new Set(context.pages())
+    const artifactPagePromise = new Promise((resolvePage, rejectPage) => {
+      const timer = setTimeout(() => rejectPage(new Error('timed out waiting for isolated artifact window')), 30_000)
+      context.once('page', (candidate) => {
+        clearTimeout(timer)
+        resolvePage(candidate)
+      })
+    })
+    await page.locator('#open-result-button').click()
+    const artifactPage = await artifactPagePromise
+    assert(!artifactPagesBefore.has(artifactPage), 'result opens a separate artifact runtime')
+    await artifactPage.waitForLoadState('domcontentloaded')
+    await artifactPage.waitForFunction(() => document.readyState === 'complete', null, { timeout: 30_000 })
+    assert(artifactPage.url().startsWith('file://'), `artifact runtime uses isolated file origin (${artifactPage.url()})`)
+    const artifactHtml = await artifactPage.content()
+    assert(artifactHtml.includes('每日记录') && artifactHtml.includes('localStorage'), 'opened artifact is the execution-produced daily-notes page')
+
+    const isolation = await artifactPage.evaluate(async (origin) => {
+      let fetchBlocked = false
+      try {
+        const response = await fetch(`${origin}/api/idea/state`, { headers: { 'x-workbench-token': 'not-a-real-token' } })
+        // Electron may expose a readable HTTP 403 to a file-origin fetch even
+        // when the browser would reject it under ordinary CORS. Either a
+        // rejected request or a non-OK control-plane response is a denied read.
+        fetchBlocked = !response.ok
+      } catch {
+        fetchBlocked = true
+      }
+      return {
+        hasPrivilegedBridge: typeof window.mingWorkbench !== 'undefined',
+        fetchBlocked,
+        tokenMarkupPresent: document.documentElement.innerHTML.includes('ming-workbench-token'),
+      }
+    }, controlOrigin)
+    assert(isolation.hasPrivilegedBridge === false, 'artifact cannot access privileged desktop IPC bridge')
+    assert(isolation.fetchBlocked === true, 'artifact cannot read the control-plane API from its file origin')
+    assert(isolation.tokenMarkupPresent === false, 'artifact does not receive the Workbench request token')
+
+    const entry = `installed outcome ${Date.now()}`
+    await artifactPage.locator('#entry').fill(entry)
+    await artifactPage.locator('#save').click()
+    await artifactPage.locator('#list').getByText(entry, { exact: true }).waitFor({ state: 'visible', timeout: 10_000 })
+    await artifactPage.reload({ waitUntil: 'domcontentloaded' })
+    await artifactPage.locator('#list').getByText(entry, { exact: true }).waitFor({ state: 'visible', timeout: 10_000 })
+    assert(true, 'artifact input -> save -> rendered entry -> reload -> entry persists')
+    await artifactPage.close()
+    checkpoint('RESULT_OPENED_OK')
+    await page.waitForSelector('#confirmed-view:not(.hidden)', { timeout: 30_000 })
+
+    // ---- 16. SECOND ITERATION: same idea/workspace, fresh execution ----
+    step('16. second iteration continuity')
+    await click(page, '#iterate-result-button', 'continue adjusting')
+    await page.waitForSelector('#conversation-view:not(.hidden)', { timeout: 30_000 })
+    const iteratedState = await getState(page)
+    assert(iteratedState.id === firstStateBeforeExecution.id, 'iteration keeps the same idea')
+    assert(!iteratedState.execution, 'iteration clears stale execution state')
+    assert(iteratedState.synthesis?.recommendation === firstStateBeforeExecution.synthesis?.recommendation, 'iteration keeps the agreed outcome')
+
+    async function sendIteration(text) {
+      await fill(page, '#message-input', text, 'iteration message')
+      await click(page, '#send-button', 'send iteration message')
+      await page.waitForFunction(
+        (t) => [...document.querySelectorAll('.bubble.human')].some((b) => b.textContent.includes(t)),
+        text,
+        { timeout: 30_000 },
+      )
+    }
+    await sendIteration('我还希望老人打开后能马上看到今天要做的步骤')
+    await page.waitForTimeout(1500)
+    const afterFirstIterationMessage = await getState(page)
+    if (afterFirstIterationMessage?.stage !== 'review') {
+      await sendIteration('界面要尽量简单，先把最关键的一步做清楚')
+    } else {
+      console.log('second iteration reached review after the first new message')
+    }
+    await waitForStage(page, 'review', 60_000)
+    await click(page, '#review-next-button', 'iteration review next')
+    await waitForStage(page, 'agreement', 30_000)
+    await clickWhenEnabled(page, '#agreement-confirm-button', 'iteration agreement confirm')
+    await waitForStage(page, 'confirmed', 30_000)
+    await click(page, '#start-execution-button', 'start second outcome')
+    await page.locator('#cost-gate').waitFor({ state: 'visible', timeout: 30_000 })
+    await click(page, '#confirm-execution-button', 'authorize second outcome')
+    await page.locator('#execution-result').waitFor({ state: 'visible', timeout: 180_000 })
+    const secondState = await getState(page)
+    const secondExecution = secondState?.execution
+    assert(secondExecution && secondExecution.status !== 'running', 'second iteration reaches a terminal result')
+    assert(secondExecution.workUnitId && secondExecution.workUnitId !== firstWorkUnitId, 'second iteration creates a new Work Unit')
+    assert(secondExecution.workspacePath === firstWorkspacePath, 'second iteration keeps the same Workbench workspace')
+    assert(!['failed', 'rejected'].includes(secondExecution.status), `second result is not misrepresented (${secondExecution.status})`)
+    checkpoint('SECOND_ITERATION_CONTINUITY_OK')
   } else {
     console.log(`stage is ${currentState ? currentState.stage : 'null'}, synthesis may not have auto-triggered`)
     // The provider may still need the message to be sent. Let's wait and retry.
@@ -511,6 +687,11 @@ async function reopenChecks(page) {
     console.log('confirmed-view visible after reopen → Idea Space fully preserved (Branch A)')
     checkpoint('IDEA_SPACE_PRESERVED_CONFIRMED')
 
+    const restoredExecution = stateAfterReopen?.execution
+    assert(restoredExecution && restoredExecution.status !== 'running', 'execution result persists after close/reopen')
+    assert(!['failed', 'rejected'].includes(restoredExecution.status), `reopened result is not misrepresented (${restoredExecution.status})`)
+    assert((await page.locator('#result-title').textContent()).trim().length > 0, 'reopened result title is visible')
+
     // Click "继续对话" to navigate back to conversation for provider-backed next turn
     await click(page, '#continue-conversation-button', 'continue conversation from confirmed')
     await page.waitForSelector('#conversation-view', { state: 'visible', timeout: 10_000 })
@@ -576,7 +757,7 @@ async function reopenChecks(page) {
   }
 
   if (textareaReady) {
-    await textarea.fill('继续完善这首诗，加一句关于月亮的')
+    await textarea.fill('继续完善菜谱网页，再加一个老人容易看懂的步骤')
     const sendBtn = page.locator('#send-button').first()
     if (await sendBtn.count() > 0) {
       await sendBtn.click()
@@ -837,7 +1018,7 @@ async function removeKeyFlow(page) {
 
   // Send a provider-dependent message → should get providerRequired=true
   step('verify providerRequired returns after key removal')
-  await fill(page, '#message-input', '再写一首关于夏天的诗', 'post-remove idea 2')
+  await fill(page, '#message-input', '再加一条老人容易看懂的菜谱步骤', 'post-remove idea 2')
   await click(page, '#send-button', 'submit post-remove idea')
 
   // Wait for CTA to reappear
@@ -856,10 +1037,10 @@ async function main() {
   console.log(`SENTINEL_FINGERPRINT=${SENTINEL_FINGERPRINT}`)
   console.log(`SENTINEL_LENGTH=${SENTINEL_KEY ? SENTINEL_KEY.length : 'unset'}`)
 
-  const { browser, page } = await mountBrowser()
+  const { browser, page, context } = await mountBrowser()
 
   if (PHASE === 'first') {
-    await firstLaunch(page)
+    await firstLaunch(page, context)
   } else if (PHASE === 'reopen') {
     await reopenChecks(page)
   } else if (PHASE === 'remove') {

@@ -2,22 +2,28 @@
  * Human-first V1 entry — thin loopback server.
  *
  * Serves the human-first letter/conversation UI and the Idea Space API for a
- * person with no project. No Harness, AAOP, repository, or execution runtime is
- * started here: conversation synthesis reuses the provider endpoint passed
- * through the backend env, and state persists to the store directory.
+ * person with no project. Conversation synthesis reuses the provider endpoint
+ * passed through the backend env, and state persists to the store directory.
+ * Execution-side Harness preparation is deferred until after confirmation and
+ * an explicit execution request.
  */
 
 import { randomBytes } from 'node:crypto'
+import { existsSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
+import { join } from 'node:path'
 
 import {
   appendHumanTurn,
   applyAgreement,
+  applyExecution,
   applySynthesis,
   beginIdea,
   chooseEntry,
   confirmIdea,
+  clearExecution,
   type HumanFirstIdea,
+  type IdeaExecution,
 } from './idea-space.js'
 import { loadIdea, saveIdea } from './persistence.js'
 import {
@@ -25,6 +31,8 @@ import {
   synthesizeTurn,
   type ProviderEndpoint,
 } from './synthesis.js'
+import { executeFirstOutcome } from '../execution/first-outcome-executor.js'
+import { prepareHarnessRuntime } from '../hosts/harness-runtime.js'
 import {
   HUMAN_FIRST_APP_JS,
   HUMAN_FIRST_CSS,
@@ -39,6 +47,10 @@ export interface HumanFirstServerOptions {
   provider?: ProviderEndpoint
   storeDir?: string
   port?: number
+  /** Reviewed Harness checkout used only when the founder executes a round. */
+  harnessCheckout?: string
+  /** Parent dir for Workbench-owned result workspaces (defaults under storeDir). */
+  resultsRoot?: string
 }
 
 export interface HumanFirstServerHandle {
@@ -141,6 +153,8 @@ export async function startHumanFirstServer(
   const provider = options.provider
   const requestedPort = options.port ?? 0
   const requestToken = randomBytes(24).toString('base64url')
+  const resultsRoot =
+    options.resultsRoot ?? join(options.storeDir ?? options.workbenchRoot, 'results')
   let boundPort = -1
 
   function persist(idea: HumanFirstIdea): HumanFirstIdea {
@@ -284,6 +298,105 @@ export async function startHumanFirstServer(
         } catch {
           sendJson(response, 409, { status: 'not-ready' })
         }
+        return
+      }
+
+      if (method === 'POST' && url.pathname === '/api/idea/execute') {
+        const idea = loadIdea(storeDir ?? '')
+        if (idea.stage !== 'confirmed') {
+          sendJson(response, 409, { status: 'not-confirmed' })
+          return
+        }
+        if (!provider || !provider.apiKey) {
+          sendJson(response, 409, { status: 'provider-required' })
+          return
+        }
+        const authorizeRealExecution = (body as { authorizeRealExecution?: unknown } | undefined)
+          ?.authorizeRealExecution === true
+        const fixtureRequested = (body as { fixture?: unknown } | undefined)?.fixture === true
+        // A browser/body flag can never self-authorize deterministic evidence.
+        // Fixture mode is only available to the repository-owned automation
+        // environment, which sets the process-level marker. The first click
+        // still reaches the normal cost gate; the authorized confirmation is
+        // what allows the installed fixture journey to enter deterministic
+        // mode without exposing a fixture control in the human UI.
+        const fixtureMarker = process.env.MING_EXECUTION_FIXTURE === '1'
+        const fixture = fixtureMarker && (fixtureRequested || authorizeRealExecution)
+        const executionMode = fixture ? 'fixture' : 'real'
+        const now = new Date()
+        // Human Cost Gate: the FIRST real execution may incur API fees. It is
+        // only run after the founder explicitly authorizes it. Fixture mode
+        // (CI only) needs no cost gate.
+        if (executionMode === 'real' && !authorizeRealExecution) {
+          sendJson(response, 409, {
+            status: 'cost-gate-required',
+            message:
+              '接下来会调用你连接的 AI 服务来实际制作这个结果，可能产生额外费用。你确认后我才会开始。',
+          })
+          return
+        }
+        let harnessCheckout = options.harnessCheckout
+        if (!harnessCheckout || !existsSync(harnessCheckout)) {
+          try {
+            const runtime = await prepareHarnessRuntime({ workbenchRoot: options.workbenchRoot })
+            harnessCheckout = runtime.checkout
+          } catch {
+            sendJson(response, 409, { status: 'harness-required' })
+            return
+          }
+        }
+        try {
+          const execResult = await executeFirstOutcome({
+            idea,
+            workbenchRoot: options.workbenchRoot,
+            workspaceRoot: resultsRoot,
+            harnessCheckout,
+            provider: process.env.MING_HARNESS_PROVIDER ?? 'deepseek-official',
+            model: process.env.MING_HARNESS_MODEL ?? provider.model ?? 'deepseek-chat',
+            sessionRoot: process.env.MING_WORKBENCH_SESSION_ROOT,
+            now: () => now,
+            mode: executionMode,
+            authorizeRealExecution,
+          })
+          const honesty = executionMode === 'fixture' ? 'DETERMINISTIC' : 'REAL'
+          const execution: IdeaExecution = {
+            status:
+              execResult.outcome.status === 'unsupported'
+                ? 'unsupported'
+                : execResult.outcome.status,
+            mode: executionMode,
+            honesty,
+            summary: execResult.summary,
+            verifiedFacts: execResult.verifiedFacts,
+            notProvenFacts: execResult.notProvenFacts,
+            producedFiles: execResult.producedFiles,
+            capabilityDecision: execResult.capabilityDecision,
+            artifactPath: execResult.artifactPath,
+            artifactBaselineHash: execResult.artifactBaselineHash,
+            artifactHashAfter: execResult.artifactHashAfter,
+            workspacePath: execResult.workspacePath,
+            workUnitId: execResult.workUnitId,
+            detail: execResult.detail,
+            at: now.toISOString(),
+          }
+          const next = applyExecution(idea, execution)
+          persist(next)
+          sendJson(response, 200, { status: 'ok', idea: next, execution })
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          sendJson(response, executionMode === 'real' && !authorizeRealExecution ? 409 : 500, {
+            status: 'execution-failed',
+            message,
+          })
+        }
+        return
+      }
+
+      if (method === 'POST' && url.pathname === '/api/idea/iterate') {
+        const idea = loadIdea(storeDir ?? '')
+        const next = clearExecution(idea)
+        persist(next)
+        sendJson(response, 200, { status: 'ok', idea: next })
         return
       }
 

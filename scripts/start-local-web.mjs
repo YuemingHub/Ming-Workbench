@@ -83,10 +83,20 @@ if (humanFirstMode) {
     storeDir,
     provider: providerEndpointFromEnv(),
     port,
+    // Only touched when the founder confirms and starts a real round: the
+    // reviewed Harness checkout and a Workbench-owned results root.
+    harnessCheckout: resolve(
+      args['harness-checkout']
+        ?? process.env.MING_HARNESS_CHECKOUT
+        ?? `${workbenchRoot}/.workbench/vendor/deepseek-harness`,
+    ),
+    resultsRoot: process.env.MING_WORKBENCH_RESULTS_ROOT
+      ? resolve(process.env.MING_WORKBENCH_RESULTS_ROOT)
+      : undefined,
   })
   console.log('Ming Workbench human-first V1 entry is ready.')
   console.log(`  open: ${handle.url}`)
-  console.log('  no project required; no harness/AAOP started')
+  console.log('  no project required');
   console.log(`MING_WORKBENCH_READY ${handle.url}`)
 } else {
   const projectRoot = resolve(args.project)
