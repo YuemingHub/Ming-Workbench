@@ -1,0 +1,926 @@
+{
+  "run_id": "p6.3-2026-08-21T12-10-42-441Z",
+  "generated_at": "2026-08-21T12:10:42.442Z",
+  "corpus": "validation/p6.3/intent-fidelity-corpus.json",
+  "constraints": {
+    "schema_changed": false,
+    "aaop_changed": false,
+    "harness_changed": false,
+    "new_agent_or_workflow": false,
+    "execution_performed": false
+  },
+  "providers": {
+    "deterministic": {
+      "provider": "deterministic-fixture",
+      "model": "fixture-model",
+      "case_count": 5,
+      "usable_synthesis_count": 5,
+      "failure_count": 0,
+      "human_review_required_count": 5,
+      "cases": [
+        {
+          "id": "daily-overload",
+          "raw_intent": "我每天事情很多，经常忘东西，希望有个简单办法。",
+          "conversation": [
+            {
+              "role": "workbench",
+              "text": "模糊的念头也可以开始。说说你脑子里反复出现的那些片段，比如最近一件让你花了心思、或者一直想做但没做的小事。",
+              "at": "2026-08-21T12:10:42.600Z"
+            },
+            {
+              "role": "human",
+              "text": "我每天事情很多，经常忘东西，希望有个简单办法。",
+              "at": "2026-08-21T12:10:42.600Z"
+            },
+            {
+              "role": "workbench",
+              "text": "我记下了。能再多说一点吗——这件事对你来说，最重要的结果是什么？",
+              "at": "2026-08-21T12:10:42.620Z"
+            },
+            {
+              "role": "human",
+              "text": "我不想花很多时间维护它，先能记住最重要的几件事就好。",
+              "at": "2026-08-21T12:10:42.620Z"
+            },
+            {
+              "role": "workbench",
+              "text": "我看清楚了。把你刚才说的，整理成下面这样，你看对不对。",
+              "at": "2026-08-21T12:10:42.624Z"
+            },
+            {
+              "role": "workbench",
+              "text": "这一轮我们这样开始。",
+              "at": "2026-08-21T12:10:42.626Z"
+            }
+          ],
+          "ai_synthesis": {
+            "desiredReality": "把「我每天事情很多，经常忘东西，希望有个简单办法。」这件事做成",
+            "strengths": [
+              "你已经清楚地说了你想要什么：我每天事情很多，经常忘东西，希望有个简单办法。",
+              "你补充了细节：我不想花很多时间维护它，先能记住最重要的几件事就好。"
+            ],
+            "path": [
+              "先用一两句话，把这件事的核心定下来",
+              "列出这件事最小的、能真正用起来的那个版本",
+              "把第一版做出来，给你亲自看"
+            ],
+            "recommendation": "先做出一个能实现「我每天事情很多，经常忘东西，希望有个简单办法。」的最小版本，让你真的能看到和用到"
+          },
+          "ai_reply": "我看清楚了。把你刚才说的，整理成下面这样，你看对不对。",
+          "ai_agreement": {
+            "willGet": "这一轮你会得到一个能直接用的「我每天事情很多，经常忘东西，希望有个简单办法。」最小版本",
+            "solves": "把你心里「我每天事情很多，经常忘东西，希望有个简单办法。」这件事，从想法变成一个看得见、用得上的东西",
+            "whereSee": "做完之后，你会在桌面上直接打开它来用",
+            "notDoing": "这一轮不会把它做成一个大而全的东西，也不会去碰和「我每天事情很多，经常忘东西，希望有个简单办法。」无关的事"
+          },
+          "human_review": {
+            "status": "HUMAN_REVIEW_REQUIRED",
+            "reviewer": null,
+            "intent_fidelity": null,
+            "captured_real_problem": null,
+            "understood_implicit_constraints": null,
+            "avoided_overdesign": null,
+            "avoided_unauthorized_decisions": null,
+            "asked_right_confirmation_questions": null,
+            "notes": []
+          },
+          "final_outcome": {
+            "status": "PROPOSED_NOT_EXECUTED",
+            "value": "先做出一个能实现「我每天事情很多，经常忘东西，希望有个简单办法。」的最小版本，让你真的能看到和用到",
+            "verified": false,
+            "note": "P6.3 验证 synthesis，不执行 Work Unit；Outcome Truth 尚未产生。"
+          },
+          "correction_count": null,
+          "failure_category": "none",
+          "failure_reason": "usable synthesis and agreement returned",
+          "provider": "deterministic-fixture",
+          "evidence_boundary": "DETERMINISTIC_FIXTURE_TRANSPORT_BASELINE_ONLY",
+          "errors": {
+            "provider": null,
+            "agreement": null
+          },
+          "turns_used": 2,
+          "evaluation_anchors": {
+            "problem": "容易忘记日常重要事项",
+            "implicit_constraints": [
+              "简单",
+              "维护成本低",
+              "先聚焦最重要的几件事"
+            ],
+            "must_confirm": [
+              "什么算最重要",
+              "什么时候或以什么方式提醒"
+            ],
+            "avoid": [
+              "替用户决定优先级",
+              "先做大而全的待办系统"
+            ]
+          }
+        },
+        {
+          "id": "morning-preparation",
+          "raw_intent": "孩子每天早上都丢三落四，我想让他出门前少一点慌乱。",
+          "conversation": [
+            {
+              "role": "workbench",
+              "text": "太好了。用一个自然的句子，把你想做成的这件事说给我听就行。",
+              "at": "2026-08-21T12:10:42.626Z"
+            },
+            {
+              "role": "human",
+              "text": "孩子每天早上都丢三落四，我想让他出门前少一点慌乱。",
+              "at": "2026-08-21T12:10:42.626Z"
+            },
+            {
+              "role": "workbench",
+              "text": "我记下了。能再多说一点吗——这件事对你来说，最重要的结果是什么？",
+              "at": "2026-08-21T12:10:42.638Z"
+            },
+            {
+              "role": "human",
+              "text": "最好是他自己能照着做，不是我一直在旁边催。",
+              "at": "2026-08-21T12:10:42.638Z"
+            },
+            {
+              "role": "workbench",
+              "text": "我看清楚了。把你刚才说的，整理成下面这样，你看对不对。",
+              "at": "2026-08-21T12:10:42.655Z"
+            },
+            {
+              "role": "workbench",
+              "text": "这一轮我们这样开始。",
+              "at": "2026-08-21T12:10:42.658Z"
+            }
+          ],
+          "ai_synthesis": {
+            "desiredReality": "把「孩子每天早上都丢三落四，我想让他出门前少一点慌乱。」这件事做成",
+            "strengths": [
+              "你已经清楚地说了你想要什么：孩子每天早上都丢三落四，我想让他出门前少一点慌乱。",
+              "你补充了细节：最好是他自己能照着做，不是我一直在旁边催。"
+            ],
+            "path": [
+              "先用一两句话，把这件事的核心定下来",
+              "列出这件事最小的、能真正用起来的那个版本",
+              "把第一版做出来，给你亲自看"
+            ],
+            "recommendation": "先做出一个能实现「孩子每天早上都丢三落四，我想让他出门前少一点慌乱。」的最小版本，让你真的能看到和用到"
+          },
+          "ai_reply": "我看清楚了。把你刚才说的，整理成下面这样，你看对不对。",
+          "ai_agreement": {
+            "willGet": "这一轮你会得到一个能直接用的「孩子每天早上都丢三落四，我想让他出门前少一点慌乱。」最小版本",
+            "solves": "把你心里「孩子每天早上都丢三落四，我想让他出门前少一点慌乱。」这件事，从想法变成一个看得见、用得上的东西",
+            "whereSee": "做完之后，你会在桌面上直接打开它来用",
+            "notDoing": "这一轮不会把它做成一个大而全的东西，也不会去碰和「孩子每天早上都丢三落四，我想让他出门前少一点慌乱。」无关的事"
+          },
+          "human_review": {
+            "status": "HUMAN_REVIEW_REQUIRED",
+            "reviewer": null,
+            "intent_fidelity": null,
+            "captured_real_problem": null,
+            "understood_implicit_constraints": null,
+            "avoided_overdesign": null,
+            "avoided_unauthorized_decisions": null,
+            "asked_right_confirmation_questions": null,
+            "notes": []
+          },
+          "final_outcome": {
+            "status": "PROPOSED_NOT_EXECUTED",
+            "value": "先做出一个能实现「孩子每天早上都丢三落四，我想让他出门前少一点慌乱。」的最小版本，让你真的能看到和用到",
+            "verified": false,
+            "note": "P6.3 验证 synthesis，不执行 Work Unit；Outcome Truth 尚未产生。"
+          },
+          "correction_count": null,
+          "failure_category": "none",
+          "failure_reason": "usable synthesis and agreement returned",
+          "provider": "deterministic-fixture",
+          "evidence_boundary": "DETERMINISTIC_FIXTURE_TRANSPORT_BASELINE_ONLY",
+          "errors": {
+            "provider": null,
+            "agreement": null
+          },
+          "turns_used": 2,
+          "evaluation_anchors": {
+            "problem": "出门前反复遗漏物品并引发慌乱",
+            "implicit_constraints": [
+              "孩子可以自己使用",
+              "减少家长持续催促"
+            ],
+            "must_confirm": [
+              "每天需要检查哪些东西",
+              "孩子能接受的表达或节奏"
+            ],
+            "avoid": [
+              "把责任转成家长监控",
+              "未经确认加入奖惩或评价"
+            ]
+          }
+        },
+        {
+          "id": "recipe-finding",
+          "raw_intent": "我做饭时总要翻聊天记录找菜谱，想以后能很快找到常做的那几道。",
+          "conversation": [
+            {
+              "role": "workbench",
+              "text": "太好了。用一个自然的句子，把你想做成的这件事说给我听就行。",
+              "at": "2026-08-21T12:10:42.658Z"
+            },
+            {
+              "role": "human",
+              "text": "我做饭时总要翻聊天记录找菜谱，想以后能很快找到常做的那几道。",
+              "at": "2026-08-21T12:10:42.658Z"
+            },
+            {
+              "role": "workbench",
+              "text": "我记下了。能再多说一点吗——这件事对你来说，最重要的结果是什么？",
+              "at": "2026-08-21T12:10:42.670Z"
+            },
+            {
+              "role": "human",
+              "text": "先把我最常做的几道放在一起就行，不用一开始什么菜都有。",
+              "at": "2026-08-21T12:10:42.670Z"
+            },
+            {
+              "role": "workbench",
+              "text": "我看清楚了。把你刚才说的，整理成下面这样，你看对不对。",
+              "at": "2026-08-21T12:10:42.685Z"
+            },
+            {
+              "role": "workbench",
+              "text": "这一轮我们这样开始。",
+              "at": "2026-08-21T12:10:42.701Z"
+            }
+          ],
+          "ai_synthesis": {
+            "desiredReality": "把「我做饭时总要翻聊天记录找菜谱，想以后能很快找到常做的那几道。」这件事做成",
+            "strengths": [
+              "你已经清楚地说了你想要什么：我做饭时总要翻聊天记录找菜谱，想以后能很快找到常做的那几道。",
+              "你补充了细节：先把我最常做的几道放在一起就行，不用一开始什么菜都有。"
+            ],
+            "path": [
+              "先用一两句话，把这件事的核心定下来",
+              "列出这件事最小的、能真正用起来的那个版本",
+              "把第一版做出来，给你亲自看"
+            ],
+            "recommendation": "先做出一个能实现「我做饭时总要翻聊天记录找菜谱，想以后能很快找到常做的那几道。」的最小版本，让你真的能看到和用到"
+          },
+          "ai_reply": "我看清楚了。把你刚才说的，整理成下面这样，你看对不对。",
+          "ai_agreement": {
+            "willGet": "这一轮你会得到一个能直接用的「我做饭时总要翻聊天记录找菜谱，想以后能很快找到常做的那几道。」最小版本",
+            "solves": "把你心里「我做饭时总要翻聊天记录找菜谱，想以后能很快找到常做的那几道。」这件事，从想法变成一个看得见、用得上的东西",
+            "whereSee": "做完之后，你会在桌面上直接打开它来用",
+            "notDoing": "这一轮不会把它做成一个大而全的东西，也不会去碰和「我做饭时总要翻聊天记录找菜谱，想以后能很快找到常做的那几道。」无关的事"
+          },
+          "human_review": {
+            "status": "HUMAN_REVIEW_REQUIRED",
+            "reviewer": null,
+            "intent_fidelity": null,
+            "captured_real_problem": null,
+            "understood_implicit_constraints": null,
+            "avoided_overdesign": null,
+            "avoided_unauthorized_decisions": null,
+            "asked_right_confirmation_questions": null,
+            "notes": []
+          },
+          "final_outcome": {
+            "status": "PROPOSED_NOT_EXECUTED",
+            "value": "先做出一个能实现「我做饭时总要翻聊天记录找菜谱，想以后能很快找到常做的那几道。」的最小版本，让你真的能看到和用到",
+            "verified": false,
+            "note": "P6.3 验证 synthesis，不执行 Work Unit；Outcome Truth 尚未产生。"
+          },
+          "correction_count": null,
+          "failure_category": "none",
+          "failure_reason": "usable synthesis and agreement returned",
+          "provider": "deterministic-fixture",
+          "evidence_boundary": "DETERMINISTIC_FIXTURE_TRANSPORT_BASELINE_ONLY",
+          "errors": {
+            "provider": null,
+            "agreement": null
+          },
+          "turns_used": 2,
+          "evaluation_anchors": {
+            "problem": "做饭时难以快速找到常用菜谱",
+            "implicit_constraints": [
+              "先覆盖常做的几道",
+              "不追求一开始收录所有菜"
+            ],
+            "must_confirm": [
+              "哪些菜先放进去",
+              "找到后需要看到哪些关键信息"
+            ],
+            "avoid": [
+              "扩展成完整菜谱社区",
+              "自行补写用户没有提供的菜谱内容"
+            ]
+          }
+        },
+        {
+          "id": "family-photo-weekend",
+          "raw_intent": "我有一些旧照片，想让家里人周末一起看看，不想折腾复杂的东西。",
+          "conversation": [
+            {
+              "role": "workbench",
+              "text": "模糊的念头也可以开始。说说你脑子里反复出现的那些片段，比如最近一件让你花了心思、或者一直想做但没做的小事。",
+              "at": "2026-08-21T12:10:42.701Z"
+            },
+            {
+              "role": "human",
+              "text": "我有一些旧照片，想让家里人周末一起看看，不想折腾复杂的东西。",
+              "at": "2026-08-21T12:10:42.701Z"
+            },
+            {
+              "role": "workbench",
+              "text": "我记下了。能再多说一点吗——这件事对你来说，最重要的结果是什么？",
+              "at": "2026-08-21T12:10:42.716Z"
+            },
+            {
+              "role": "human",
+              "text": "能让大家坐在一起就能打开看，先从这一小批照片开始。",
+              "at": "2026-08-21T12:10:42.716Z"
+            },
+            {
+              "role": "workbench",
+              "text": "我看清楚了。把你刚才说的，整理成下面这样，你看对不对。",
+              "at": "2026-08-21T12:10:42.717Z"
+            },
+            {
+              "role": "workbench",
+              "text": "这一轮我们这样开始。",
+              "at": "2026-08-21T12:10:42.732Z"
+            }
+          ],
+          "ai_synthesis": {
+            "desiredReality": "把「我有一些旧照片，想让家里人周末一起看看，不想折腾复杂的东西。」这件事做成",
+            "strengths": [
+              "你已经清楚地说了你想要什么：我有一些旧照片，想让家里人周末一起看看，不想折腾复杂的东西。",
+              "你补充了细节：能让大家坐在一起就能打开看，先从这一小批照片开始。"
+            ],
+            "path": [
+              "先用一两句话，把这件事的核心定下来",
+              "列出这件事最小的、能真正用起来的那个版本",
+              "把第一版做出来，给你亲自看"
+            ],
+            "recommendation": "先做出一个能实现「我有一些旧照片，想让家里人周末一起看看，不想折腾复杂的东西。」的最小版本，让你真的能看到和用到"
+          },
+          "ai_reply": "我看清楚了。把你刚才说的，整理成下面这样，你看对不对。",
+          "ai_agreement": {
+            "willGet": "这一轮你会得到一个能直接用的「我有一些旧照片，想让家里人周末一起看看，不想折腾复杂的东西。」最小版本",
+            "solves": "把你心里「我有一些旧照片，想让家里人周末一起看看，不想折腾复杂的东西。」这件事，从想法变成一个看得见、用得上的东西",
+            "whereSee": "做完之后，你会在桌面上直接打开它来用",
+            "notDoing": "这一轮不会把它做成一个大而全的东西，也不会去碰和「我有一些旧照片，想让家里人周末一起看看，不想折腾复杂的东西。」无关的事"
+          },
+          "human_review": {
+            "status": "HUMAN_REVIEW_REQUIRED",
+            "reviewer": null,
+            "intent_fidelity": null,
+            "captured_real_problem": null,
+            "understood_implicit_constraints": null,
+            "avoided_overdesign": null,
+            "avoided_unauthorized_decisions": null,
+            "asked_right_confirmation_questions": null,
+            "notes": []
+          },
+          "final_outcome": {
+            "status": "PROPOSED_NOT_EXECUTED",
+            "value": "先做出一个能实现「我有一些旧照片，想让家里人周末一起看看，不想折腾复杂的东西。」的最小版本，让你真的能看到和用到",
+            "verified": false,
+            "note": "P6.3 验证 synthesis，不执行 Work Unit；Outcome Truth 尚未产生。"
+          },
+          "correction_count": null,
+          "failure_category": "none",
+          "failure_reason": "usable synthesis and agreement returned",
+          "provider": "deterministic-fixture",
+          "evidence_boundary": "DETERMINISTIC_FIXTURE_TRANSPORT_BASELINE_ONLY",
+          "errors": {
+            "provider": null,
+            "agreement": null
+          },
+          "turns_used": 2,
+          "evaluation_anchors": {
+            "problem": "想和家人一起轻松回看一小批旧照片",
+            "implicit_constraints": [
+              "家人一起使用",
+              "操作简单",
+              "先从小批量开始"
+            ],
+            "must_confirm": [
+              "哪些人可以看到",
+              "照片从哪里来以及在哪里打开"
+            ],
+            "avoid": [
+              "默认公开或上传全部照片",
+              "先做复杂的相册管理体系"
+            ]
+          }
+        },
+        {
+          "id": "weekly-home-rhythm",
+          "raw_intent": "家里总是到了周末才发现有好多小事没安排，我想让大家心里有数一点。",
+          "conversation": [
+            {
+              "role": "workbench",
+              "text": "那也很好，我们不急。可以聊聊你平时在乎什么、最近什么让你花了比较多时间，慢慢就有了方向。",
+              "at": "2026-08-21T12:10:42.732Z"
+            },
+            {
+              "role": "human",
+              "text": "家里总是到了周末才发现有好多小事没安排，我想让大家心里有数一点。",
+              "at": "2026-08-21T12:10:42.732Z"
+            },
+            {
+              "role": "workbench",
+              "text": "我记下了。能再多说一点吗——这件事对你来说，最重要的结果是什么？",
+              "at": "2026-08-21T12:10:42.750Z"
+            },
+            {
+              "role": "human",
+              "text": "不用把每个人管得很细，先看见这周最要紧的几件事就够了。",
+              "at": "2026-08-21T12:10:42.750Z"
+            },
+            {
+              "role": "workbench",
+              "text": "我看清楚了。把你刚才说的，整理成下面这样，你看对不对。",
+              "at": "2026-08-21T12:10:42.767Z"
+            },
+            {
+              "role": "workbench",
+              "text": "这一轮我们这样开始。",
+              "at": "2026-08-21T12:10:42.783Z"
+            }
+          ],
+          "ai_synthesis": {
+            "desiredReality": "把「家里总是到了周末才发现有好多小事没安排，我想让大家心里有数一点。」这件事做成",
+            "strengths": [
+              "你已经清楚地说了你想要什么：家里总是到了周末才发现有好多小事没安排，我想让大家心里有数一点。",
+              "你补充了细节：不用把每个人管得很细，先看见这周最要紧的几件事就够了。"
+            ],
+            "path": [
+              "先用一两句话，把这件事的核心定下来",
+              "列出这件事最小的、能真正用起来的那个版本",
+              "把第一版做出来，给你亲自看"
+            ],
+            "recommendation": "先做出一个能实现「家里总是到了周末才发现有好多小事没安排，我想让大家心里有数一点。」的最小版本，让你真的能看到和用到"
+          },
+          "ai_reply": "我看清楚了。把你刚才说的，整理成下面这样，你看对不对。",
+          "ai_agreement": {
+            "willGet": "这一轮你会得到一个能直接用的「家里总是到了周末才发现有好多小事没安排，我想让大家心里有数一点。」最小版本",
+            "solves": "把你心里「家里总是到了周末才发现有好多小事没安排，我想让大家心里有数一点。」这件事，从想法变成一个看得见、用得上的东西",
+            "whereSee": "做完之后，你会在桌面上直接打开它来用",
+            "notDoing": "这一轮不会把它做成一个大而全的东西，也不会去碰和「家里总是到了周末才发现有好多小事没安排，我想让大家心里有数一点。」无关的事"
+          },
+          "human_review": {
+            "status": "HUMAN_REVIEW_REQUIRED",
+            "reviewer": null,
+            "intent_fidelity": null,
+            "captured_real_problem": null,
+            "understood_implicit_constraints": null,
+            "avoided_overdesign": null,
+            "avoided_unauthorized_decisions": null,
+            "asked_right_confirmation_questions": null,
+            "notes": []
+          },
+          "final_outcome": {
+            "status": "PROPOSED_NOT_EXECUTED",
+            "value": "先做出一个能实现「家里总是到了周末才发现有好多小事没安排，我想让大家心里有数一点。」的最小版本，让你真的能看到和用到",
+            "verified": false,
+            "note": "P6.3 验证 synthesis，不执行 Work Unit；Outcome Truth 尚未产生。"
+          },
+          "correction_count": null,
+          "failure_category": "none",
+          "failure_reason": "usable synthesis and agreement returned",
+          "provider": "deterministic-fixture",
+          "evidence_boundary": "DETERMINISTIC_FIXTURE_TRANSPORT_BASELINE_ONLY",
+          "errors": {
+            "provider": null,
+            "agreement": null
+          },
+          "turns_used": 2,
+          "evaluation_anchors": {
+            "problem": "家庭小事缺少共同的轻量安排",
+            "implicit_constraints": [
+              "只展示本周最要紧的几件事",
+              "不细致管控每个人"
+            ],
+            "must_confirm": [
+              "哪些事情最要紧",
+              "谁愿意看到或维护这份安排"
+            ],
+            "avoid": [
+              "把家庭变成任务考核",
+              "擅自替每个人分配责任"
+            ]
+          }
+        }
+      ]
+    },
+    "real": {
+      "provider": "real",
+      "model": "DeepSeek-V4-Flash-0731",
+      "case_count": 5,
+      "usable_synthesis_count": 2,
+      "failure_count": 3,
+      "human_review_required_count": 5,
+      "cases": [
+        {
+          "id": "daily-overload",
+          "raw_intent": "我每天事情很多，经常忘东西，希望有个简单办法。",
+          "conversation": [
+            {
+              "role": "workbench",
+              "text": "模糊的念头也可以开始。说说你脑子里反复出现的那些片段，比如最近一件让你花了心思、或者一直想做但没做的小事。",
+              "at": "2026-08-21T12:10:42.784Z"
+            },
+            {
+              "role": "human",
+              "text": "我每天事情很多，经常忘东西，希望有个简单办法。",
+              "at": "2026-08-21T12:10:42.784Z"
+            },
+            {
+              "role": "workbench",
+              "text": "我还在理解你说的这件事，我们再往前说一步就好。",
+              "at": "2026-08-21T12:10:55.750Z"
+            },
+            {
+              "role": "human",
+              "text": "我不想花很多时间维护它，先能记住最重要的几件事就好。",
+              "at": "2026-08-21T12:10:55.750Z"
+            }
+          ],
+          "ai_synthesis": null,
+          "ai_reply": "我还在理解你说的这件事，我们再往前说一步就好。",
+          "ai_agreement": null,
+          "human_review": {
+            "status": "HUMAN_REVIEW_REQUIRED",
+            "reviewer": null,
+            "intent_fidelity": null,
+            "captured_real_problem": null,
+            "understood_implicit_constraints": null,
+            "avoided_overdesign": null,
+            "avoided_unauthorized_decisions": null,
+            "asked_right_confirmation_questions": null,
+            "notes": []
+          },
+          "final_outcome": null,
+          "correction_count": null,
+          "failure_category": "C",
+          "failure_reason": "ordinary input still needs more context after the allowed follow-up",
+          "provider": "real",
+          "evidence_boundary": "L1_PROVIDER_COMPONENT_ONLY_UNTIL_HUMAN_REVIEW",
+          "errors": {
+            "provider": null,
+            "agreement": null
+          },
+          "turns_used": 2,
+          "evaluation_anchors": {
+            "problem": "容易忘记日常重要事项",
+            "implicit_constraints": [
+              "简单",
+              "维护成本低",
+              "先聚焦最重要的几件事"
+            ],
+            "must_confirm": [
+              "什么算最重要",
+              "什么时候或以什么方式提醒"
+            ],
+            "avoid": [
+              "替用户决定优先级",
+              "先做大而全的待办系统"
+            ]
+          }
+        },
+        {
+          "id": "morning-preparation",
+          "raw_intent": "孩子每天早上都丢三落四，我想让他出门前少一点慌乱。",
+          "conversation": [
+            {
+              "role": "workbench",
+              "text": "太好了。用一个自然的句子，把你想做成的这件事说给我听就行。",
+              "at": "2026-08-21T12:11:20.184Z"
+            },
+            {
+              "role": "human",
+              "text": "孩子每天早上都丢三落四，我想让他出门前少一点慌乱。",
+              "at": "2026-08-21T12:11:20.184Z"
+            },
+            {
+              "role": "workbench",
+              "text": "我还在理解你说的这件事，我们再往前说一步就好。",
+              "at": "2026-08-21T12:11:28.161Z"
+            },
+            {
+              "role": "human",
+              "text": "最好是他自己能照着做，不是我一直在旁边催。",
+              "at": "2026-08-21T12:11:28.161Z"
+            }
+          ],
+          "ai_synthesis": null,
+          "ai_reply": "我还在理解你说的这件事，我们再往前说一步就好。",
+          "ai_agreement": null,
+          "human_review": {
+            "status": "HUMAN_REVIEW_REQUIRED",
+            "reviewer": null,
+            "intent_fidelity": null,
+            "captured_real_problem": null,
+            "understood_implicit_constraints": null,
+            "avoided_overdesign": null,
+            "avoided_unauthorized_decisions": null,
+            "asked_right_confirmation_questions": null,
+            "notes": []
+          },
+          "final_outcome": null,
+          "correction_count": null,
+          "failure_category": "C",
+          "failure_reason": "ordinary input still needs more context after the allowed follow-up",
+          "provider": "real",
+          "evidence_boundary": "L1_PROVIDER_COMPONENT_ONLY_UNTIL_HUMAN_REVIEW",
+          "errors": {
+            "provider": null,
+            "agreement": null
+          },
+          "turns_used": 2,
+          "evaluation_anchors": {
+            "problem": "出门前反复遗漏物品并引发慌乱",
+            "implicit_constraints": [
+              "孩子可以自己使用",
+              "减少家长持续催促"
+            ],
+            "must_confirm": [
+              "每天需要检查哪些东西",
+              "孩子能接受的表达或节奏"
+            ],
+            "avoid": [
+              "把责任转成家长监控",
+              "未经确认加入奖惩或评价"
+            ]
+          }
+        },
+        {
+          "id": "recipe-finding",
+          "raw_intent": "我做饭时总要翻聊天记录找菜谱，想以后能很快找到常做的那几道。",
+          "conversation": [
+            {
+              "role": "workbench",
+              "text": "太好了。用一个自然的句子，把你想做成的这件事说给我听就行。",
+              "at": "2026-08-21T12:11:43.726Z"
+            },
+            {
+              "role": "human",
+              "text": "我做饭时总要翻聊天记录找菜谱，想以后能很快找到常做的那几道。",
+              "at": "2026-08-21T12:11:43.726Z"
+            },
+            {
+              "role": "workbench",
+              "text": "我还在理解你说的这件事，我们再往前说一步就好。",
+              "at": "2026-08-21T12:12:02.911Z"
+            },
+            {
+              "role": "human",
+              "text": "先把我最常做的几道放在一起就行，不用一开始什么菜都有。",
+              "at": "2026-08-21T12:12:02.911Z"
+            },
+            {
+              "role": "workbench",
+              "text": "明白了！那我们先做一件最小的事：把你最常做的几道菜的做法，从聊天记录里抄到一个固定的地方（比如手机备忘录），以后做饭直接打开它就行，不用再翻聊天记录。你觉得这个方向对吗？",
+              "at": "2026-08-21T12:12:10.812Z"
+            },
+            {
+              "role": "workbench",
+              "text": "这一轮我们这样开始。",
+              "at": "2026-08-21T12:12:18.425Z"
+            }
+          ],
+          "ai_synthesis": {
+            "desiredReality": "做饭时能很快找到常做的那几道菜谱，不用再翻聊天记录",
+            "strengths": [
+              "已经有一个明确的想法",
+              "想先专注在最常做的几道菜上，不需要一开始什么菜都有"
+            ],
+            "path": [
+              "找出聊天记录里最常做的几道菜",
+              "把这几道菜的做法整理成一份简单清单",
+              "把清单放在每次做饭容易打开的地方（比如手机备忘录）",
+              "以后做饭直接看这份清单，有新的常做菜再随时加进去"
+            ],
+            "recommendation": "先做一个「常做菜谱」清单：在手机备忘录里新建一条，把最常做的几道菜的做法从聊天记录里复制进去，每次做饭直接打开这条备忘录。"
+          },
+          "ai_reply": "明白了！那我们先做一件最小的事：把你最常做的几道菜的做法，从聊天记录里抄到一个固定的地方（比如手机备忘录），以后做饭直接打开它就行，不用再翻聊天记录。你觉得这个方向对吗？",
+          "ai_agreement": {
+            "willGet": "这一轮你会得到一份“常做菜谱清单”，里面是你最常做的几道菜的具体做法。",
+            "solves": "它解决你做饭时总要翻聊天记录找菜谱的问题，以后打开一个固定地方就能看到做法。",
+            "whereSee": "你会看到它出现在你的手机备忘录里（或者我们约定的一个固定App里），做饭时直接打开就能用。",
+            "notDoing": "这一轮不做全量菜谱整理，也不做搜索或智能推荐，只把最常做的几道菜抄到一起。"
+          },
+          "human_review": {
+            "status": "HUMAN_REVIEW_REQUIRED",
+            "reviewer": null,
+            "intent_fidelity": null,
+            "captured_real_problem": null,
+            "understood_implicit_constraints": null,
+            "avoided_overdesign": null,
+            "avoided_unauthorized_decisions": null,
+            "asked_right_confirmation_questions": null,
+            "notes": []
+          },
+          "final_outcome": {
+            "status": "PROPOSED_NOT_EXECUTED",
+            "value": "先做一个「常做菜谱」清单：在手机备忘录里新建一条，把最常做的几道菜的做法从聊天记录里复制进去，每次做饭直接打开这条备忘录。",
+            "verified": false,
+            "note": "P6.3 验证 synthesis，不执行 Work Unit；Outcome Truth 尚未产生。"
+          },
+          "correction_count": null,
+          "failure_category": "none",
+          "failure_reason": "usable synthesis and agreement returned",
+          "provider": "real",
+          "evidence_boundary": "L1_PROVIDER_COMPONENT_ONLY_UNTIL_HUMAN_REVIEW",
+          "errors": {
+            "provider": null,
+            "agreement": null
+          },
+          "turns_used": 2,
+          "evaluation_anchors": {
+            "problem": "做饭时难以快速找到常用菜谱",
+            "implicit_constraints": [
+              "先覆盖常做的几道",
+              "不追求一开始收录所有菜"
+            ],
+            "must_confirm": [
+              "哪些菜先放进去",
+              "找到后需要看到哪些关键信息"
+            ],
+            "avoid": [
+              "扩展成完整菜谱社区",
+              "自行补写用户没有提供的菜谱内容"
+            ]
+          }
+        },
+        {
+          "id": "family-photo-weekend",
+          "raw_intent": "我有一些旧照片，想让家里人周末一起看看，不想折腾复杂的东西。",
+          "conversation": [
+            {
+              "role": "workbench",
+              "text": "模糊的念头也可以开始。说说你脑子里反复出现的那些片段，比如最近一件让你花了心思、或者一直想做但没做的小事。",
+              "at": "2026-08-21T12:12:18.425Z"
+            },
+            {
+              "role": "human",
+              "text": "我有一些旧照片，想让家里人周末一起看看，不想折腾复杂的东西。",
+              "at": "2026-08-21T12:12:18.425Z"
+            },
+            {
+              "role": "workbench",
+              "text": "我还在理解你说的这件事，我们再往前说一步就好。",
+              "at": "2026-08-21T12:12:32.721Z"
+            },
+            {
+              "role": "human",
+              "text": "能让大家坐在一起就能打开看，先从这一小批照片开始。",
+              "at": "2026-08-21T12:12:32.721Z"
+            },
+            {
+              "role": "workbench",
+              "text": "好，这已经够清楚了。目标就是让家人周末坐在一起，能轻松打开看这批旧照片。建议第一件小事：挑出十来张最想给大家看的，放到一个文件夹（或手机相册里），周六晚上用你手边最常用的屏幕打开全屏播放就行。不用学任何新东西。",
+              "at": "2026-08-21T12:12:45.747Z"
+            },
+            {
+              "role": "workbench",
+              "text": "这一轮我们这样开始。",
+              "at": "2026-08-21T12:12:49.052Z"
+            }
+          ],
+          "ai_synthesis": {
+            "desiredReality": "让家里人周末一起轻松地坐在一起看旧照片，不折腾复杂的东西。",
+            "strengths": [
+              "已经有想看的旧照片",
+              "希望简单不复杂",
+              "明确了场景：大家坐在一起就能打开看",
+              "打算从一小批照片开始"
+            ],
+            "path": [
+              "把这小批照片聚到一起",
+              "确保家人坐在一起时能打开",
+              "周末实践一次，大家看着照片聊一聊"
+            ],
+            "recommendation": "挑出十来张这周末想让大家看的旧照片，放到一个文件夹或手机相册里，用你现有设备自带的全屏查看功能，在周末大家坐下来时打开它。这就是一个完整的、能直接看到效果的最小成果。"
+          },
+          "ai_reply": "好，这已经够清楚了。目标就是让家人周末坐在一起，能轻松打开看这批旧照片。建议第一件小事：挑出十来张最想给大家看的，放到一个文件夹（或手机相册里），周六晚上用你手边最常用的屏幕打开全屏播放就行。不用学任何新东西。",
+          "ai_agreement": {
+            "willGet": "一个极简步骤：挑十来张照片、放进一个文件夹，用常用屏幕全屏播放。",
+            "solves": "解决‘想分享但怕折腾’的启动障碍，让家人能轻松坐在一起看。",
+            "whereSee": "周六晚上家人坐一起时，直接打开那个文件夹全屏播放。",
+            "notDoing": "不教新工具、不做复杂整理、不涉及打印或相册制作。"
+          },
+          "human_review": {
+            "status": "HUMAN_REVIEW_REQUIRED",
+            "reviewer": null,
+            "intent_fidelity": null,
+            "captured_real_problem": null,
+            "understood_implicit_constraints": null,
+            "avoided_overdesign": null,
+            "avoided_unauthorized_decisions": null,
+            "asked_right_confirmation_questions": null,
+            "notes": []
+          },
+          "final_outcome": {
+            "status": "PROPOSED_NOT_EXECUTED",
+            "value": "挑出十来张这周末想让大家看的旧照片，放到一个文件夹或手机相册里，用你现有设备自带的全屏查看功能，在周末大家坐下来时打开它。这就是一个完整的、能直接看到效果的最小成果。",
+            "verified": false,
+            "note": "P6.3 验证 synthesis，不执行 Work Unit；Outcome Truth 尚未产生。"
+          },
+          "correction_count": null,
+          "failure_category": "none",
+          "failure_reason": "usable synthesis and agreement returned",
+          "provider": "real",
+          "evidence_boundary": "L1_PROVIDER_COMPONENT_ONLY_UNTIL_HUMAN_REVIEW",
+          "errors": {
+            "provider": null,
+            "agreement": null
+          },
+          "turns_used": 2,
+          "evaluation_anchors": {
+            "problem": "想和家人一起轻松回看一小批旧照片",
+            "implicit_constraints": [
+              "家人一起使用",
+              "操作简单",
+              "先从小批量开始"
+            ],
+            "must_confirm": [
+              "哪些人可以看到",
+              "照片从哪里来以及在哪里打开"
+            ],
+            "avoid": [
+              "默认公开或上传全部照片",
+              "先做复杂的相册管理体系"
+            ]
+          }
+        },
+        {
+          "id": "weekly-home-rhythm",
+          "raw_intent": "家里总是到了周末才发现有好多小事没安排，我想让大家心里有数一点。",
+          "conversation": [
+            {
+              "role": "workbench",
+              "text": "那也很好，我们不急。可以聊聊你平时在乎什么、最近什么让你花了比较多时间，慢慢就有了方向。",
+              "at": "2026-08-21T12:12:49.052Z"
+            },
+            {
+              "role": "human",
+              "text": "家里总是到了周末才发现有好多小事没安排，我想让大家心里有数一点。",
+              "at": "2026-08-21T12:12:49.052Z"
+            },
+            {
+              "role": "workbench",
+              "text": "我还在理解你说的这件事，我们再往前说一步就好。",
+              "at": "2026-08-21T12:13:14.905Z"
+            },
+            {
+              "role": "human",
+              "text": "不用把每个人管得很细，先看见这周最要紧的几件事就够了。",
+              "at": "2026-08-21T12:13:14.905Z"
+            }
+          ],
+          "ai_synthesis": null,
+          "ai_reply": "我还在理解你说的这件事，我们再往前说一步就好。",
+          "ai_agreement": null,
+          "human_review": {
+            "status": "HUMAN_REVIEW_REQUIRED",
+            "reviewer": null,
+            "intent_fidelity": null,
+            "captured_real_problem": null,
+            "understood_implicit_constraints": null,
+            "avoided_overdesign": null,
+            "avoided_unauthorized_decisions": null,
+            "asked_right_confirmation_questions": null,
+            "notes": []
+          },
+          "final_outcome": null,
+          "correction_count": null,
+          "failure_category": "C",
+          "failure_reason": "ordinary input still needs more context after the allowed follow-up",
+          "provider": "real",
+          "evidence_boundary": "L1_PROVIDER_COMPONENT_ONLY_UNTIL_HUMAN_REVIEW",
+          "errors": {
+            "provider": null,
+            "agreement": null
+          },
+          "turns_used": 2,
+          "evaluation_anchors": {
+            "problem": "家庭小事缺少共同的轻量安排",
+            "implicit_constraints": [
+              "只展示本周最要紧的几件事",
+              "不细致管控每个人"
+            ],
+            "must_confirm": [
+              "哪些事情最要紧",
+              "谁愿意看到或维护这份安排"
+            ],
+            "avoid": [
+              "把家庭变成任务考核",
+              "擅自替每个人分配责任"
+            ]
+          }
+        }
+      ],
+      "status": "RUN_COMPLETED_HUMAN_REVIEW_REQUIRED"
+    }
+  }
+}

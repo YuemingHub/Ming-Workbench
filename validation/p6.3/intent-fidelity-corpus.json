@@ -1,0 +1,66 @@
+{
+  "version": "P6.3",
+  "description": "最小 Intent Fidelity corpus：普通人的模糊表达，不把技术实现写进输入。",
+  "cases": [
+    {
+      "id": "daily-overload",
+      "raw_intent": "我每天事情很多，经常忘东西，希望有个简单办法。",
+      "follow_up": "我不想花很多时间维护它，先能记住最重要的几件事就好。",
+      "entry": "我只有一点模糊念头",
+      "evaluation_anchors": {
+        "problem": "容易忘记日常重要事项",
+        "implicit_constraints": ["简单", "维护成本低", "先聚焦最重要的几件事"],
+        "must_confirm": ["什么算最重要", "什么时候或以什么方式提醒"],
+        "avoid": ["替用户决定优先级", "先做大而全的待办系统"]
+      }
+    },
+    {
+      "id": "morning-preparation",
+      "raw_intent": "孩子每天早上都丢三落四，我想让他出门前少一点慌乱。",
+      "follow_up": "最好是他自己能照着做，不是我一直在旁边催。",
+      "entry": "我已经有一个想法",
+      "evaluation_anchors": {
+        "problem": "出门前反复遗漏物品并引发慌乱",
+        "implicit_constraints": ["孩子可以自己使用", "减少家长持续催促"],
+        "must_confirm": ["每天需要检查哪些东西", "孩子能接受的表达或节奏"],
+        "avoid": ["把责任转成家长监控", "未经确认加入奖惩或评价"]
+      }
+    },
+    {
+      "id": "recipe-finding",
+      "raw_intent": "我做饭时总要翻聊天记录找菜谱，想以后能很快找到常做的那几道。",
+      "follow_up": "先把我最常做的几道放在一起就行，不用一开始什么菜都有。",
+      "entry": "我已经有一个想法",
+      "evaluation_anchors": {
+        "problem": "做饭时难以快速找到常用菜谱",
+        "implicit_constraints": ["先覆盖常做的几道", "不追求一开始收录所有菜"],
+        "must_confirm": ["哪些菜先放进去", "找到后需要看到哪些关键信息"],
+        "avoid": ["扩展成完整菜谱社区", "自行补写用户没有提供的菜谱内容"]
+      }
+    },
+    {
+      "id": "family-photo-weekend",
+      "raw_intent": "我有一些旧照片，想让家里人周末一起看看，不想折腾复杂的东西。",
+      "follow_up": "能让大家坐在一起就能打开看，先从这一小批照片开始。",
+      "entry": "我只有一点模糊念头",
+      "evaluation_anchors": {
+        "problem": "想和家人一起轻松回看一小批旧照片",
+        "implicit_constraints": ["家人一起使用", "操作简单", "先从小批量开始"],
+        "must_confirm": ["哪些人可以看到", "照片从哪里来以及在哪里打开"],
+        "avoid": ["默认公开或上传全部照片", "先做复杂的相册管理体系"]
+      }
+    },
+    {
+      "id": "weekly-home-rhythm",
+      "raw_intent": "家里总是到了周末才发现有好多小事没安排，我想让大家心里有数一点。",
+      "follow_up": "不用把每个人管得很细，先看见这周最要紧的几件事就够了。",
+      "entry": "我现在也不知道想做什么",
+      "evaluation_anchors": {
+        "problem": "家庭小事缺少共同的轻量安排",
+        "implicit_constraints": ["只展示本周最要紧的几件事", "不细致管控每个人"],
+        "must_confirm": ["哪些事情最要紧", "谁愿意看到或维护这份安排"],
+        "avoid": ["把家庭变成任务考核", "擅自替每个人分配责任"]
+      }
+    }
+  ]
+}

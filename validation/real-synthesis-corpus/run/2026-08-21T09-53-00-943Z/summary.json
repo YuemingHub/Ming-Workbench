@@ -1,0 +1,70 @@
+{
+  "runId": "024e5c43",
+  "provider": {
+    "baseUrl": "https://v2.aicodee.com/v1",
+    "model": "MiniMax-M3"
+  },
+  "ranAt": "2026-08-21T09:53:00.945Z",
+  "cases": [
+    {
+      "caseId": "family-records",
+      "title": "家里零碎事老忘，想记下来随时翻",
+      "ready": false,
+      "notReady": true,
+      "providerError": null,
+      "agreementError": null,
+      "loopStatus": null,
+      "workUnitState": null,
+      "verification": null,
+      "synthesisFromTurn": null
+    },
+    {
+      "caseId": "reading-notes",
+      "title": "看完书就忘，想把感想留下来",
+      "ready": true,
+      "notReady": false,
+      "providerError": null,
+      "agreementError": null,
+      "loopStatus": "completed",
+      "workUnitState": "verifying",
+      "verification": "passed",
+      "synthesisFromTurn": 1
+    },
+    {
+      "caseId": "cat-care",
+      "title": "养猫老忘喂食换水打疫苗，想要提醒",
+      "ready": true,
+      "notReady": false,
+      "providerError": null,
+      "agreementError": null,
+      "loopStatus": "completed",
+      "workUnitState": "verifying",
+      "verification": "passed",
+      "synthesisFromTurn": 4
+    },
+    {
+      "caseId": "photo-album",
+      "title": "上万张照片里挑孩子的照片做相册",
+      "ready": false,
+      "notReady": true,
+      "providerError": null,
+      "agreementError": null,
+      "loopStatus": null,
+      "workUnitState": null,
+      "verification": null,
+      "synthesisFromTurn": null
+    },
+    {
+      "caseId": "community-order",
+      "title": "小区团购跟单乱、容易错过",
+      "ready": false,
+      "notReady": true,
+      "providerError": null,
+      "agreementError": null,
+      "loopStatus": null,
+      "workUnitState": null,
+      "verification": null,
+      "synthesisFromTurn": null
+    }
+  ]
+}

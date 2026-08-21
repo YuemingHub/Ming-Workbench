@@ -21,10 +21,35 @@ export interface ProviderEndpoint {
   model: string
 }
 
+/**
+ * Minimal provider injection seam for idea-space synthesis.
+ *
+ * The default implementation is the OpenAI-compatible HTTP chat endpoint the
+ * desktop shell already owns. Injecting a SynthesisProvider lets the Workbench
+ * Outcome stage be exercised with a deterministic / mock / failure provider
+ * without a network credential, without changing the Outcome schema, and
+ * without touching the Work Unit or any downstream Workbench logic. This is the
+ * single seam that lets the synthesis intelligence be replaced (or doubled) in
+ * isolation — the only Workbench-side gap that previously blocked a fully
+ * provider-doubled real-user intent test.
+ */
+export interface SynthesisProvider {
+  complete(systemPrompt: string, userContent: string): Promise<string>
+}
+
+/** Default provider: the real OpenAI-compatible HTTP chat endpoint. */
+export function createHttpSynthesisProvider(endpoint: ProviderEndpoint): SynthesisProvider {
+  return {
+    complete: (systemPrompt, userContent) => callChatCompletions(endpoint, systemPrompt, userContent),
+  }
+}
+
 export interface HumanFirstTurnResult {
   reply: string
   ready: boolean
   synthesis?: IdeaSynthesis
+  /** The provider's raw content, retained for validation records. */
+  rawContent?: string
 }
 
 const synthesisSchema = z.object({
@@ -39,6 +64,8 @@ const turnSchema = z.object({
   ready: z.boolean(),
   synthesis: synthesisSchema.optional(),
 })
+
+type ParsedTurn = Pick<HumanFirstTurnResult, 'reply' | 'ready' | 'synthesis'>
 
 const agreementSchema = z.object({
   willGet: z.string().min(1),
@@ -55,9 +82,12 @@ const TURN_SYSTEM_PROMPT = `你是 Ming Workbench 的引导助手，正在帮助
 - 用普通人的语言，简短、友善、不堆术语。
 - 一次只推进一小步，先理解，不要一次问一堆问题。
 - 只有当信息足够把「想达到的目的」「ta 已经带来的东西」「一步步的路径」「建议先做的一件最小完整结果」都说清楚时，ready 才为 true，并填 synthesis。
+- ta「已经带来的东西」指 ta 在对话里说过的痛点、想法、边界；不需要 ta 说出具体用什么工具，也不要去追问 ta 现在用什么软件。
 - synthesis 的每一项都必须来自这个人说过的话，绝不编造 ta 没提到的资源。
 - recommendation 必须是一个最小的、完整的、普通人能看见和使用的成果，绝不是一个工程组件。
+- 收敛规则（重要）：第 1 轮最多问一个最关键的问题；第 2 轮开始，无论 ta 怎么回答，都必须 ready 为 true 并给出 synthesis——没确定的小细节用「先按通常做法假设」处理，并把假设写进 recommendation，让 ta 在确认页改。绝不进入「每轮一问、永不收敛」的循环。
 - 只输出 JSON：{"reply": string, "ready": boolean, "synthesis": {"desiredReality": string, "strengths": string[], "path": string[], "recommendation": string}}。
+- ready 为 false 时：只输出 reply 和 ready 两个字段，不要输出 synthesis（空对象也不行）。
 标记：${TURN_MARKER}`
 
 const AGREEMENT_SYSTEM_PROMPT = `你是 Ming Workbench，正在为刚才的对话写「这一轮怎么开始」的约定。
@@ -66,8 +96,18 @@ const AGREEMENT_SYSTEM_PROMPT = `你是 Ming Workbench，正在为刚才的对�
 - solves：它解决什么问题
 - whereSee：你会在哪里看到 / 怎么使用它
 - notDoing：这一轮明确不做什么
-只输出 JSON：{"willGet": string, "solves": string, "whereSee": string, "notDoing": string}。
+只输出一个 JSON 对象，包含且仅包含这四个字段，不要包含任何其它字段或字样（包括这里提到的标记：${AGREEMENT_MARKER}）。
 标记：${AGREEMENT_MARKER}`
+
+// A provider may return useful prose or a nearly-correct object even when the
+// structured-output contract was not followed. Recovery is deliberately one
+// bounded provider call at this seam; it does not alter the Outcome schema or
+// conversation semantics.
+const TURN_FORMAT_REPAIR_PROMPT = `${TURN_SYSTEM_PROMPT}
+上一次响应无法按约定解析。请基于同一段对话重新回答，严格只输出一个合法 JSON 对象，不要解释、不要 Markdown 代码围栏，不要在 JSON 前后添加任何文字。不要新增这个人没有说过的条件、资源、时间、工具或意愿。`
+
+const AGREEMENT_FORMAT_REPAIR_PROMPT = `${AGREEMENT_SYSTEM_PROMPT}
+上一次响应无法按约定解析。请基于同一段对话重新回答，严格只输出一个合法 JSON 对象，不要解释、不要 Markdown 代码围栏，不要在 JSON 前后添加任何文字。不要新增这个人没有说过的条件、资源、时间、工具或意愿。`
 
 function conversationTranscript(idea: HumanFirstIdea): string {
   const lines = idea.turns.map((turn) => {
@@ -98,11 +138,38 @@ function parseJsonObject(text: string): Record<string, unknown> | undefined {
   return undefined
 }
 
+/**
+ * Parse the existing turn contract without treating a valid ready=false
+ * clarifying response as malformed. A recovery is eligible only when this
+ * function returns undefined (invalid JSON or an unusable schema).
+ */
+function parseTurnResult(text: string): ParsedTurn | undefined {
+  const parsed = parseJsonObject(text)
+  if (!parsed) return undefined
+
+  const loose = z.object({
+    reply: z.string().min(1),
+    ready: z.boolean(),
+  }).safeParse(parsed)
+  if (!loose.success) return undefined
+  if (!loose.data.ready) return loose.data
+
+  const strict = turnSchema.safeParse(parsed)
+  return strict.success ? strict.data : undefined
+}
+
+function parseAgreementResult(text: string): RoundAgreement | undefined {
+  const parsed = parseJsonObject(text)
+  const result = agreementSchema.safeParse(parsed ?? {})
+  return result.success ? result.data : undefined
+}
+
 async function callChatCompletions(
   endpoint: ProviderEndpoint,
   systemPrompt: string,
   transcript: string,
   timeoutMs = 45_000,
+  maxTokens = 2048,
 ): Promise<string> {
   const url = `${endpoint.baseUrl.replace(/\/$/, '')}/chat/completions`
   const response = await fetch(url, {
@@ -118,6 +185,11 @@ async function callChatCompletions(
         { role: 'user', content: transcript },
       ],
       temperature: 0.2,
+      // Some OpenAI-compatible providers default max_tokens low enough to
+      // truncate the synthesis JSON mid-object, which then fails to parse and
+      // silently degrades to "not ready". Request enough headroom for the
+      // small structured synthesis + agreement payloads.
+      max_tokens: maxTokens,
     }),
     signal: AbortSignal.timeout(timeoutMs),
   })
@@ -142,6 +214,20 @@ export function hasProvider(endpoint: ProviderEndpoint | undefined): boolean {
 }
 
 /**
+ * Resolve the active synthesis provider. An injected provider wins; otherwise the
+ * real HTTP provider is used when an endpoint is configured; otherwise none.
+ * Callers that inject a provider need no endpoint at all.
+ */
+function resolveSynthesisProvider(
+  endpoint: ProviderEndpoint | undefined,
+  provider?: SynthesisProvider,
+): SynthesisProvider | undefined {
+  if (provider) return provider
+  if (hasProvider(endpoint)) return createHttpSynthesisProvider(endpoint!)
+  return undefined
+}
+
+/**
  * One conversation turn. Appends a grounded Workbench reply; when the model
  * judges the information is enough, returns ready=true with a synthesis the
  * UI renders as the four pre-confirmation review blocks.
@@ -149,40 +235,66 @@ export function hasProvider(endpoint: ProviderEndpoint | undefined): boolean {
 export async function synthesizeTurn(
   endpoint: ProviderEndpoint | undefined,
   idea: HumanFirstIdea,
+  provider?: SynthesisProvider,
 ): Promise<HumanFirstTurnResult> {
-  if (!hasProvider(endpoint)) {
+  const activeProvider = resolveSynthesisProvider(endpoint, provider)
+  if (!activeProvider) {
     return { reply: NO_PROVIDER_REPLY, ready: false }
   }
   const transcript = conversationTranscript(idea)
-  const content = await callChatCompletions(endpoint!, TURN_SYSTEM_PROMPT, transcript)
-  const parsed = parseJsonObject(content)
-  if (!parsed) {
-    return { reply: '我还在理解你说的这件事，我们再往前说一步就好。', ready: false }
+  const content = await activeProvider.complete(TURN_SYSTEM_PROMPT, transcript)
+  let result = parseTurnResult(content)
+  let rawContent = content
+  if (!result) {
+    // Exactly one recovery is allowed, and only after a provider response
+    // exists but cannot be consumed as the current JSON/schema contract.
+    const repaired = await activeProvider.complete(TURN_FORMAT_REPAIR_PROMPT, transcript)
+    rawContent = repaired
+    result = parseTurnResult(repaired)
   }
-  const result = turnSchema.safeParse(parsed)
-  if (!result.success) {
-    return { reply: '我还在理解你说的这件事，我们再往前说一步就好。', ready: false }
+  if (!result) {
+    return { reply: '我还在理解你说的这件事，我们再往前说一步就好。', ready: false, rawContent }
   }
-  if (!result.data.ready) {
-    return { reply: result.data.reply, ready: false }
+  return { ...result, rawContent }
+}
+
+export interface AgreementSynthResult {
+  agreement: RoundAgreement
+  /** The provider's raw content, retained for validation records. */
+  rawContent: string
+}
+
+export async function synthesizeAgreementRaw(
+  endpoint: ProviderEndpoint | undefined,
+  idea: HumanFirstIdea,
+  provider?: SynthesisProvider,
+): Promise<AgreementSynthResult> {
+  if (!idea.synthesis) {
+    throw new Error('Round agreement requires synthesis')
   }
-  return { reply: result.data.reply, ready: true, synthesis: result.data.synthesis }
+  const activeProvider = resolveSynthesisProvider(endpoint, provider)
+  if (!activeProvider) {
+    throw new Error('Round agreement requires a synthesis provider')
+  }
+  const transcript = conversationTranscript(idea)
+  const content = await activeProvider.complete(AGREEMENT_SYSTEM_PROMPT, transcript)
+  let agreement = parseAgreementResult(content)
+  let rawContent = content
+  if (!agreement) {
+    const repaired = await activeProvider.complete(AGREEMENT_FORMAT_REPAIR_PROMPT, transcript)
+    rawContent = repaired
+    agreement = parseAgreementResult(repaired)
+  }
+  if (!agreement) throw new Error('provider returned an unusable round agreement')
+  return { agreement, rawContent }
 }
 
 /** Round Agreement — the four required semantics shown before confirmation. */
 export async function synthesizeAgreement(
   endpoint: ProviderEndpoint | undefined,
   idea: HumanFirstIdea,
+  provider?: SynthesisProvider,
 ): Promise<RoundAgreement> {
-  if (!hasProvider(endpoint) || !idea.synthesis) {
-    throw new Error('Round agreement requires provider and synthesis')
-  }
-  const transcript = conversationTranscript(idea)
-  const content = await callChatCompletions(endpoint!, AGREEMENT_SYSTEM_PROMPT, transcript)
-  const parsed = parseJsonObject(content)
-  const result = agreementSchema.safeParse(parsed ?? {})
-  if (!result.success) {
-    throw new Error('provider returned an unusable round agreement')
-  }
-  return result.data
+  const result = await synthesizeAgreementRaw(endpoint, idea, provider)
+  return result.agreement
 }
