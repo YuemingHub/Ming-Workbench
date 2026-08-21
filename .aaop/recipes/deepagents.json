@@ -1,0 +1,28 @@
+{
+  "id": "deepagents",
+  "provider_id": "deepagents",
+  "last_verified": "2026-08-08",
+  "source_of_truth": "https://docs.langchain.com/oss/python/deepagents/quickstart",
+  "selection": {
+    "use_when": ["a dedicated long-horizon harness is justified", "subagent context isolation, persistence, filesystem patterns, Skills, or MCP-heavy execution materially improve reliability"],
+    "avoid_when": ["the current AI IDE already handles the task reliably", "the task is short-lived and repository-local"]
+  },
+  "detect": {
+    "python_packages": ["deepagents"],
+    "commands": ["deepagents"]
+  },
+  "install": {
+    "mode": "package-manager",
+    "minimal_commands": ["python -m pip install deepagents"],
+    "notes": ["Prefer the project's existing Python package manager; the package name is `deepagents`.", "Model-provider packages and credentials are workload-specific and should be added only when actually used."]
+  },
+  "credentials": ["model-provider credential only when required by the selected model"],
+  "permissions": ["filesystem/shell/tool permissions should be bounded to the project and task"],
+  "verify": {
+    "checks": ["import deepagents successfully", "create a minimal agent with the selected model provider", "run one representative task that exercises the runtime property that justified adoption", "confirm the original gap is closed"]
+  },
+  "rollback": {
+    "steps": ["remove the deepagents dependency using the project's package manager", "remove provider-specific configuration added only for this integration"]
+  },
+  "warnings": ["Do not add example-only dependencies such as search providers unless the actual project needs them."]
+}

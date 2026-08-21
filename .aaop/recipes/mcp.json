@@ -1,0 +1,27 @@
+{
+  "id": "mcp",
+  "provider_id": "mcp",
+  "last_verified": "2026-08-08",
+  "source_of_truth": "https://modelcontextprotocol.io/",
+  "selection": {
+    "use_when": ["the current host lacks required external tool/service access and an MCP server is a better fit than a local library or native tool"],
+    "avoid_when": ["the host already exposes the required capability", "a repository-local script/library is simpler and safer"]
+  },
+  "detect": {
+    "files": [".mcp.json", ".cursor/mcp.json", ".claude/mcp.json"]
+  },
+  "install": {
+    "mode": "host-feature",
+    "minimal_commands": [],
+    "notes": ["Discover candidate servers from first-party sources or the Official MCP Registry.", "Configure the selected server using the current host's native MCP configuration; do not install unrelated servers."]
+  },
+  "credentials": ["provider-specific only when the selected MCP server requires them"],
+  "permissions": ["least-privilege read/write scope appropriate to the selected server"],
+  "verify": {
+    "checks": ["confirm the host can connect to the server", "list only expected tools/resources", "run one least-privilege representative call", "confirm the original capability gap is closed"]
+  },
+  "rollback": {
+    "steps": ["remove/disable the server entry from the host MCP configuration", "revoke any provider credential created only for this integration"]
+  },
+  "warnings": ["Discovery is not installation; inspect publisher, permissions, data egress, and write scope before connection."]
+}

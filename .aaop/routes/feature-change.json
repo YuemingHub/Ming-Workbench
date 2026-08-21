@@ -1,0 +1,95 @@
+{
+  "version": "0.21.0",
+  "route_id": "feature-change",
+  "objective": "Add or change product behavior coherently inside the existing system, with a clear behavior contract, current write baseline, explicit mutation destination, and regression evidence.",
+  "default_execution": "host-native",
+  "stages": [
+    {
+      "id": "behavior-contract",
+      "purpose": "Translate the request into observable behavior, actors, constraints, non-goals, and invariants; when historical branches/PRs are referenced, extract their intended behavior without treating their implementation shape as current design.",
+      "required_capabilities": ["intent-resolution", "acceptance-criteria"],
+      "optional_capabilities": ["specification-management", "historical-artifact-analysis"],
+      "evidence": ["user request", "existing product behavior", "relevant current specs/issues", "historical behavior/security intent when explicitly referenced"],
+      "exit_when": "The intended behavior is precise enough to distinguish success from accidental scope expansion and historical intent is separated from stale implementation."
+    },
+    {
+      "id": "impact-discovery",
+      "purpose": "Establish the current implementation baseline, trace the existing path, compare any historical implementation against current behavior, and identify affected interfaces, data, tests, permissions, operational constraints, mutation destination, and write preconditions before designing a parallel solution. If a shared contract/interface/schema is changing, enumerate its real consumers and the evidence that will become stale when that contract moves.",
+      "required_capabilities": ["repository-inspection", "impact-analysis", "current-baseline-comparison"],
+      "optional_capabilities": ["architecture-mapping", "security-impact-analysis", "git-history-analysis"],
+      "evidence": ["current implementation path", "interfaces/schema", "current tests and quality gates", "adjacent conventions", "behavior-by-behavior gap against any historical artifact", "explicit intended branch/ref/resource destination for remote mutation when relevant", "current file/branch/resource version when subsequent writes can conflict", "for shared-contract changes: current consumer references plus the dependent acceptance/review evidence that must be refreshed"],
+      "exit_when": "The smallest coherent integration point, actual missing behaviors, regression surface, intended mutation destination, material write baseline/preconditions, and any shared-contract fan-out are known on the current state."
+    },
+    {
+      "id": "implement-and-accept",
+      "purpose": "Implement only the missing/changed behavior using current primitives, explicitly target the project-authorized destination for remote writes, revalidate material write preconditions at the write boundary, reconcile concurrent/wrong-target conditions, and validate both new and preserved behavior. When a shared contract changes, update or reverify only its affected consumers and reject acceptance evidence that was produced against the stale contract.",
+      "required_capabilities": ["implementation", "acceptance-validation", "regression-testing"],
+      "optional_capabilities": ["browser-e2e-testing"],
+      "evidence": ["working feature", "acceptance tests/runtime evidence", "relevant old-path regressions", "explicit mutation destination evidence for remote writes", "write/merge precondition evidence when concurrency is material", "post-write evidence that the intended destination changed and protected/default target policy was preserved", "evidence that obsolete historical structure or stale whole-file content was not copied unnecessarily", "for shared-contract changes: evidence that affected consumers were updated/reverified and stale references/evidence were not left green", "verification-harness integrity evidence when a custom aggregator is material to the acceptance claim"],
+      "exit_when": "The requested behavior works through the current product path with regression evidence, the intended destination was used, no unreviewed concurrent or protected/default-branch state was overwritten, and any evidence invalidated by a changed shared contract has been re-established on the new baseline."
+    }
+  ],
+  "pressure_guards": [
+    {
+      "id": "stale-artifact-salvage",
+      "rule": "When an old PR/branch is materially behind the current baseline, extract useful behavior, invariants, tests, and rationale first; do not merge/rebase/copy the artifact wholesale merely to preserve its commits."
+    },
+    {
+      "id": "behavior-over-commits",
+      "rule": "Historical code is evidence of intent, not the deliverable. Rebuild only behavior still missing on current architecture and current quality/release gates."
+    },
+    {
+      "id": "reconcile-current-baseline-before-mutation",
+      "rule": "Before the first material mutation in an existing project, reconcile the current implementation/runtime baseline with the project-defined authority and freshness of material state, specification, test, adapter, deployment, and historical evidence. A failing test can itself encode a stale historical assumption; classify that possibility before changing product behavior. Preserve material conflicts and keep unknown facts unknown rather than silently converting them to false/absent state."
+    },
+    {
+      "id": "verification-harness-integrity",
+      "rule": "When a custom test runner, CI wrapper, validation aggregator, generated report, or similar harness materially converts underlying checks into pass/fail acceptance evidence, do not trust a green aggregate merely because the wrapper exited successfully. Verify the smallest consequential integrity surface: intended checks are discovered distinctly, collisions/cached reuse/duplicate counting do not substitute one check for another, skipped/errored/unavailable work is represented honestly, and failures propagate through wrapper exit/status semantics. If harness integrity is unknown or disproven, downgrade the aggregate to provisional/unknown evidence and use direct underlying checks or repair the harness before relying on it for regression, completion, or release claims."
+    },
+    {
+      "id": "contract-fanout-evidence-invalidation",
+      "rule": "When a material shared contract/interface/schema/data shape/deployment contract changes, search current consumers, classify the affected implementation and verification surface, and invalidate evidence produced against the old contract. Re-open and reverify only affected slices; do not leave stale tests/reviews green merely because the contract document changed successfully, and do not restart unrelated work without evidence."
+    },
+    {
+      "id": "explicit-remote-write-target",
+      "rule": "Before any remote repository mutation, resolve and pass the exact branch/ref/resource destination required by current project policy. An API field that is optional syntactically but defaults an omitted target to main/master/production or another implicit destination must not be omitted when target identity matters. Generic authorization to implement/continue does not authorize bypassing a project-required working-branch/PR path. Verify after the write that the intended destination changed and the protected/default target did not change unexpectedly."
+    },
+    {
+      "id": "revalidate-write-precondition",
+      "rule": "After resolving the explicit destination and before a consequential file, branch, PR, config, or remote write, revalidate the baseline/precondition used to compute the change and use native conditional-write semantics when available. If the target moved, treat that as new evidence: re-read, preserve concurrent state, recompute the intended delta against the new baseline, and retry conditionally only if it is still justified. Do not force-overwrite stale state merely to keep automation moving."
+    }
+  ],
+  "escalations": [
+    {
+      "when": "The feature has meaningful ambiguity, multiple dependent slices, or durable product intent must remain aligned with implementation.",
+      "capability_gap": "structured specification-to-implementation lifecycle",
+      "provider_candidates": ["spec-kit"],
+      "selection_rule": "Use Spec Kit when durable spec/plan/task artifacts prevent drift; stay host-native for small, obvious changes."
+    },
+    {
+      "when": "The feature changes browser-visible interaction and current tests cannot prove the user flow.",
+      "capability_gap": "browser acceptance validation",
+      "provider_candidates": ["playwright"],
+      "selection_rule": "Prefer durable Playwright Test coverage; use agent CLI/Skills or MCP only when they add needed interactive verification."
+    },
+    {
+      "when": "The implementation is a large autonomous software-engineering task that exceeds the current host's reliable execution envelope.",
+      "capability_gap": "dedicated autonomous coding runtime",
+      "provider_candidates": ["openhands", "deepagents"],
+      "selection_rule": "Choose based on the missing execution property, not framework popularity; keep AAOP as the route/policy layer."
+    }
+  ],
+  "verification": [
+    "new behavior satisfies explicit acceptance evidence",
+    "existing affected behavior still works",
+    "when a shared contract changed, current consumers were identified and affected implementation/review/test evidence was refreshed on the new contract rather than inherited from the stale baseline",
+    "when a custom verification aggregator is material, its discovery/identity/failure-propagation integrity is credible enough for the acceptance claim rather than assumed from a green wrapper result",
+    "current baseline rather than stale implementation determined the final architecture",
+    "remote mutations used an explicit project-authorized destination rather than relying on an implicit host/API default when target identity mattered",
+    "post-write verification proved the intended branch/ref/resource changed and protected/default target policy was preserved",
+    "material writes/merges were conditional on or revalidated against the current baseline when practical",
+    "stale-write/precondition or wrong-target conflicts were reconciled by stopping, re-reading, and recomputing the target/delta rather than compounding the mistake",
+    "the change reuses existing system primitives where appropriate instead of creating a needless parallel architecture"
+  ],
+  "reroute_signals": ["requested behavior already existed but is broken -> bug-fix", "the existing repository is too contradictory to trust -> repo-recovery", "deployment/production readiness becomes the blocker -> release-operations"]
+}

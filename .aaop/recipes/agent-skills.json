@@ -1,0 +1,27 @@
+{
+  "id": "agent-skills",
+  "provider_id": "agent-skills",
+  "last_verified": "2026-08-08",
+  "source_of_truth": "https://agentskills.io/specification",
+  "selection": {
+    "use_when": ["repeatable procedural knowledge should be reusable and progressively loaded"],
+    "avoid_when": ["a one-off project instruction is sufficient"]
+  },
+  "detect": {
+    "files": [".aaop/skills/*/SKILL.md", ".agents/skills/*/SKILL.md", ".claude/skills/*/SKILL.md"]
+  },
+  "install": {
+    "mode": "none",
+    "minimal_commands": [],
+    "notes": ["Agent Skills is a file format; no framework installation is inherently required.", "Place or reference a valid SKILL.md directory in a path supported by the current host."]
+  },
+  "credentials": [],
+  "permissions": [],
+  "verify": {
+    "checks": ["validate SKILL.md frontmatter", "confirm the current host can discover/load the skill", "exercise the skill on one representative task"]
+  },
+  "rollback": {
+    "steps": ["remove or unlink the skill directory from the host/project skill path"]
+  },
+  "warnings": ["Host support for optional Agent Skills fields may vary."]
+}

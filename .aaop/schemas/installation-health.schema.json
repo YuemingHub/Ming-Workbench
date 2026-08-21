@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aaop.dev/schemas/installation-health.schema.json",
+  "title": "AAOP Installation Health",
+  "type": "object",
+  "required": [
+    "project_root",
+    "package_root",
+    "manifest_present",
+    "state",
+    "managed_files",
+    "bootstrap",
+    "runtime_present",
+    "trust_boundary",
+    "next_action"
+  ],
+  "properties": {
+    "project_root": {"type": "string"},
+    "package_root": {"type": "string"},
+    "package_version": {"type": ["string", "null"]},
+    "manifest_present": {"type": "boolean"},
+    "manifest_schema_version": {"type": ["integer", "null"], "minimum": 1},
+    "manifest_version": {"type": ["string", "null"]},
+    "state": {
+      "enum": [
+        "healthy",
+        "drifted",
+        "incomplete",
+        "upgrade-recommended",
+        "legacy-install",
+        "source-tree",
+        "invalid-manifest",
+        "unsupported-manifest",
+        "unknown"
+      ]
+    },
+    "managed_files": {
+      "type": "object",
+      "required": ["expected", "current", "modified", "missing", "unreadable"],
+      "properties": {
+        "expected": {"type": "integer", "minimum": 0},
+        "current": {"type": "integer", "minimum": 0},
+        "modified": {"type": "array", "items": {"type": "string"}},
+        "missing": {"type": "array", "items": {"type": "string"}},
+        "unreadable": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "bootstrap": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["status", "tracked"],
+        "properties": {
+          "status": {
+            "enum": [
+              "current",
+              "modified",
+              "present-untracked",
+              "missing-file",
+              "missing-aaop-block",
+              "malformed-markers",
+              "unreadable"
+            ]
+          },
+          "tracked": {"type": "boolean"},
+          "expected_hash": {"type": "string"},
+          "current_hash": {"type": "string"},
+          "begin_count": {"type": "integer", "minimum": 0},
+          "end_count": {"type": "integer", "minimum": 0}
+        },
+        "additionalProperties": true
+      }
+    },
+    "runtime_present": {"type": "boolean"},
+    "version_mismatch": {"type": "boolean"},
+    "manifest_error": {"type": "string"},
+    "trust_boundary": {"type": "string", "minLength": 1},
+    "next_action": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

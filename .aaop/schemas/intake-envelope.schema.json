@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aaop.dev/schemas/intake-envelope.schema.json",
+  "title": "AAOP Developer Intake Envelope",
+  "type": "object",
+  "required": [
+    "raw_request",
+    "asset_state",
+    "situation",
+    "desired_outcome",
+    "route",
+    "route_confidence",
+    "question_needed"
+  ],
+  "properties": {
+    "raw_request": {"type": "string", "minLength": 1},
+    "asset_state": {
+      "type": "string",
+      "enum": ["idea-only", "current-workspace", "repository-reference", "files-or-snippets", "deployed-system", "mixed"]
+    },
+    "situation": {
+      "type": "string",
+      "enum": ["greenfield", "repo-recovery", "bug", "feature", "understand-review", "release-operations", "mixed", "unclear"]
+    },
+    "desired_outcome": {"type": "string", "minLength": 1},
+    "evidence_present": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["repository", "source-files", "tests", "error-output", "logs", "issue-or-spec", "screenshots", "runtime-access", "deployment-config", "none"]
+      },
+      "uniqueItems": true
+    },
+    "constraints_observed": {"type": "array", "items": {"type": "string"}},
+    "solution_vocabulary": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["term", "status"],
+        "properties": {
+          "term": {"type": "string", "minLength": 1},
+          "status": {"enum": ["hard-constraint", "preference", "hypothesis"]},
+          "reason": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "decision_frame": {
+      "type": "object",
+      "required": ["decision", "mutation_boundary"],
+      "properties": {
+        "decision": {"type": "string", "minLength": 1},
+        "usage_context": {"type": "string"},
+        "materiality": {"type": "string"},
+        "mutation_boundary": {"enum": ["read-only", "write-authorized", "unclear"]}
+      },
+      "additionalProperties": false
+    },
+    "ambiguities": {"type": "array", "items": {"type": "string"}},
+    "route": {
+      "type": "string",
+      "enum": ["idea-to-build", "repo-recovery", "bug-fix", "feature-change", "understand-review", "release-operations"]
+    },
+    "route_confidence": {"type": "number", "minimum": 0, "maximum": 1},
+    "question_needed": {"type": "boolean"},
+    "question": {"type": ["string", "null"]},
+    "question_reason": {"type": ["string", "null"]},
+    "queued_secondary_intents": {"type": "array", "items": {"type": "string"}},
+    "initial_risk": {"type": "string", "enum": ["low", "medium", "high"]}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"question_needed": {"const": true}}},
+      "then": {"required": ["question", "question_reason"]}
+    }
+  ],
+  "additionalProperties": false
+}

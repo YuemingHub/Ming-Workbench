@@ -1,0 +1,119 @@
+{
+  "version": "0.23.0",
+  "route_id": "release-operations",
+  "objective": "Move software toward or through its actual release/operational target safely, without assuming every deliverable is a deployed application. Preserve direct target evidence, explicit rollback/reversal, authorization-aware execution, write-time target revalidation, artifact-capability closure, and outbound-rights evidence when third-party reuse/redistribution is part of the accepted outcome.",
+  "default_execution": "host-native",
+  "stages": [
+    {
+      "id": "environment-truth",
+      "purpose": "Recover the accepted deliverable, intended consumer, and real target first, then identify the current target state/revision, publication/deployment/install path, configuration, dependencies, authorization boundary, and whether the current execution environment can actually reach that target. A target may be a deployed service, clean consumer installation, package/registry consumer, host-loaded Skill/plugin, installed command, infrastructure state, or another project-defined observable destination; these are examples, not a fixed taxonomy.",
+      "required_capabilities": ["environment-inspection", "ci-cd-inspection", "permission-awareness", "reachability-check", "blocker-classification"],
+      "optional_capabilities": ["runtime-observability"],
+      "evidence": ["current deliverable/consumer/target contract", "deployment/publication/install/distribution configuration when applicable", "CI status/logs when applicable", "runtime/version/revision or installed-artifact evidence", "target identity", "authorized access path", "reachability result", "explicit unknown state when direct evidence cannot be obtained"],
+      "exit_when": "The system knows what deliverable is actually being released, who/what consumes it, which real target must prove acceptance, the allowed access path, the current material target state, whether that path is usable from the current execution context, and which facts remain unknown."
+    },
+    {
+      "id": "preflight-and-rollback",
+      "purpose": "If execution/publication/installation is reachable and authorized, define preflight checks, expected target revision/preconditions, failure thresholds, rollback/uninstall/restore path, and any required user authorization before writes. For every material built/installed/distributed artifact, establish which capabilities that exact artifact claims and whether its required files, entrypoints, runtime dependencies, configuration, and declared external prerequisites survive the artifact boundary. When the accepted outcome includes third-party installation, reuse, modification, or redistribution, also establish current outbound license/terms/notice evidence and relevant bundled third-party redistribution obligations; keep them unknown rather than infer permission from public visibility. Otherwise record the blocker and minimal unblock condition without widening access, scope, or rights.",
+      "required_capabilities": ["release-validation", "rollback-planning", "risk-classification"],
+      "optional_capabilities": ["migration-analysis", "smoke-test-design", "license-and-distribution-review"],
+      "evidence": ["preflight results", "expected target revision/resource/artifact version when supported", "backup/rollback/uninstall/restore path appropriate to the target", "migration reversibility when applicable", "explicit authorization when required", "for material artifact claims: final artifact/install-plan contents plus dependency/entrypoint/configuration evidence for each claimed capability, or explicit unknown/omitted capability", "for third-party reuse/redistribution outcomes: current project LICENSE/NOTICE/terms or explicit unknown, plus material bundled third-party redistribution constraints when applicable", "or a bounded blocker record when the route cannot proceed"],
+      "exit_when": "The change can be attempted against the actual deliverable target with bounded blast radius and an appropriate reversal path; each material artifact capability claim is closed or explicitly omitted/unknown; any public reuse/redistribution claim is backed by current outbound-rights evidence; or the exact operational/distribution blocker and minimal unblock are recorded and execution stops safely for that slice."
+    },
+    {
+      "id": "execute-and-observe",
+      "purpose": "Revalidate the material target precondition immediately before the authorized release/operational write, reconcile or stop if the target moved, then perform only the authorized deployment/publication/installation/delivery operation that the real deliverable requires. Validate behavior against the accepted consumer/target contract. When an artifact boundary is material, exercise representative capability paths from the built/installed artifact or clean target rather than relying only on the source checkout. Never invent a production deployment merely because AAOP has a release route; an auxiliary demo or server does not redefine a package/Skill/library/CLI target without project evidence.",
+      "required_capabilities": ["controlled-execution", "post-change-validation"],
+      "optional_capabilities": ["browser-smoke-testing", "observability-query"],
+      "evidence": ["pre-write target revision/precondition result", "deployment/migration/publication/installation/delivery output as applicable", "health/smoke/representative-consumer acceptance checks appropriate to the chosen target", "version/state confirmation", "post-change error signals", "representative final-artifact/install-target capability evidence when artifact boundaries are material", "distribution artifact/terms evidence when redistribution is part of the outcome", "or explicit not-executed/revalidation-required status when blocked or moved"],
+      "exit_when": "The actual deliverable reaches and passes its intended target/consumer acceptance with required artifact/rights evidence, reversal restored a known-good state, or execution stopped/replanned safely because authorization, reachability, artifact closure, rights, or the validated target baseline no longer held."
+    }
+  ],
+  "pressure_guards": [
+    {
+      "id": "reconcile-current-baseline-before-mutation",
+      "rule": "Before the first material mutation in an existing project or target environment, reconcile the current implementation/runtime baseline with the project-defined authority and freshness of material state, specification, test, adapter, deployment, and historical evidence. A failing test can itself encode a stale historical assumption; classify that possibility before changing product or operational behavior. Preserve material conflicts and keep unknown facts unknown rather than silently converting them to false/absent state."
+    },
+    {
+      "id": "verification-harness-integrity",
+      "rule": "When a custom test runner, CI wrapper, validation aggregator, generated report, or similar harness materially converts underlying checks into pass/fail acceptance evidence, do not trust a green aggregate merely because the wrapper exited successfully. Verify the smallest consequential integrity surface: intended checks are discovered distinctly, collisions/cached reuse/duplicate counting do not substitute one check for another, skipped/errored/unavailable work is represented honestly, and failures propagate through wrapper exit/status semantics. If harness integrity is unknown or disproven, downgrade the aggregate to provisional/unknown evidence and use direct underlying checks or repair the harness before relying on it for regression, completion, or release claims."
+    },
+    {
+      "id": "deliverable-aware-completion-target",
+      "rule": "Recover the project's actual deliverable, intended consumer, and observable acceptance target before deciding what release completion means. Direct target evidence remains mandatory, but the target is not universally a deployed Web/application environment: it may be a clean installed consumer, package/registry consumer, host-loaded Skill/plugin, installed CLI, infrastructure state, delivered artifact, or another project-defined destination. Do not force an unrelated production deployment, treat an auxiliary demo as the product target, or keep a non-service project permanently incomplete solely because AAOP has application/deployment-oriented defaults. Conversely, do not weaken target verification: prove the exact deliverable on the target its real consumer uses."
+    },
+    {
+      "id": "artifact-capability-closure",
+      "rule": "Source-tree success, build success, artifact creation, installation, runtime success, and target acceptance are distinct evidence layers. When a final package/image/zip/install profile or other artifact claims a capability, verify that the exact artifact carries or explicitly declares every required file, entrypoint, runtime dependency, configuration, and external prerequisite for that capability. When the artifact boundary is material, exercise a representative path from a clean built/installed target rather than allowing the developer source tree, global environment, cache, or leftover files to satisfy missing artifact dependencies. Optional artifact profiles need their own closure evidence; a capability that is intentionally omitted need not be bundled, but it must not be advertised as present."
+    },
+    {
+      "id": "distribution-rights-before-public-release",
+      "rule": "When the accepted release outcome explicitly includes third-party installation, use, modification, redistribution, sublicensing, or similar external reuse, public repository/package visibility is access evidence only and must not be treated as permission evidence. Inspect the current project-declared LICENSE/NOTICE/terms and material bundled third-party redistribution obligations. If outbound rights are absent, conflicting, or unclear, keep the reuse/redistribution claim unknown and scope a human/legal/product decision; do not silently choose a popular license or publish a claim that others are authorized to reuse. This blocker applies only to the affected distribution/reuse outcome while independent engineering work may continue."
+    },
+    {
+      "id": "blocker-not-capability-gap",
+      "rule": "A network policy, missing authorization, absent credential, inaccessible external system, required product/legal decision, or stale/moved target precondition is a blocker/revalidation condition—not automatically a missing technical capability. Do not search for/install providers to bypass it unless an authorized capability gap genuinely exists."
+    },
+    {
+      "id": "preserve-unknown-operational-state",
+      "rule": "When direct target evidence cannot be obtained, keep deployment/runtime/install/publication facts unknown. Git state, CI success, local health, repository visibility, source-tree success, or guessed public behavior must not be promoted into verified target, final-artifact capability, or distribution-rights facts."
+    },
+    {
+      "id": "revalidate-write-precondition",
+      "rule": "Before a consequential merge, deployment, migration, configuration, data, publication, installation, or other operational write, revalidate the target revision/resource/artifact version/precondition used by preflight and use native conditional-write semantics when available. If the target moved, treat it as new evidence: do not force through the stale plan; re-read target state, preserve concurrent changes, recompute the operational delta and rollback/risk assumptions, re-check authorization if material, and execute only against the newly validated baseline."
+    }
+  ],
+  "escalations": [
+    {
+      "when": "Browser-visible smoke validation is required, the target is reachable/authorized, and the current release pipeline lacks a reliable check.",
+      "capability_gap": "browser production/staging smoke validation",
+      "provider_candidates": ["playwright"],
+      "selection_rule": "Prefer a durable Playwright smoke test when the check should repeat; use interactive agent browser control only when exploration is genuinely needed."
+    },
+    {
+      "when": "Release orchestration itself must become a durable structured workflow with explicit sessions, hosting, or typed workflow state.",
+      "capability_gap": "production agent workflow runtime",
+      "provider_candidates": ["microsoft-agent-framework", "deepagents"],
+      "selection_rule": "Use a dedicated runtime only when the operational workflow is becoming a product/system in its own right, not for an ordinary release."
+    },
+    {
+      "when": "Many humans/agents/runtimes need persistent approvals, permissions, audit, and scheduling for operations.",
+      "capability_gap": "organizational operations control plane",
+      "provider_candidates": ["agentspace"],
+      "selection_rule": "Treat this as Level 5 infrastructure and adopt only when shared governance is the actual requirement."
+    },
+    {
+      "when": "The project already uses Spec Kit and a reviewed release/ship extension closes a proven workflow gap.",
+      "capability_gap": "structured release workflow integration",
+      "provider_candidates": ["spec-kit"],
+      "selection_rule": "Review community extension source/provenance/permissions before adoption; catalog presence alone is not trust."
+    }
+  ],
+  "verification": [
+    "the actual deliverable/consumer/target contract is explicit and was not replaced by an assumed Web/application deployment shape",
+    "target identity and final state are explicit or intentionally unknown when direct evidence is blocked",
+    "preflight and post-change evidence are recorded when execution/publication/installation occurred",
+    "when a custom verification aggregator is material to release eligibility, its discovery/identity/failure-propagation integrity is credible enough for the release claim rather than assumed from a green wrapper result",
+    "when an artifact/install profile claims a material capability, its required files, entrypoints, runtime dependencies, configuration, and declared external prerequisites are present/resolvable in the exact artifact or the capability is explicitly omitted/unknown",
+    "when artifact boundaries are material, representative validation ran from the final built/installed artifact or clean target rather than being satisfied only by the source checkout/global environment",
+    "the chosen target was verified through evidence appropriate to the deliverable: deployment when deployment is real, clean consumer/install/load/representative use when that is the real target, or another project-defined observable target",
+    "when the accepted outcome includes third-party reuse/redistribution, current outbound LICENSE/NOTICE/terms and material bundled third-party redistribution obligations are established or the affected distribution claim remains explicitly blocked/unknown",
+    "public repository or package visibility was not treated as evidence that others have permission to reuse, modify, or redistribute",
+    "a missing/ambiguous outbound-rights decision was not silently resolved by choosing a license without established project authority",
+    "rollback/uninstall/recovery appropriate to the actual target was defined before consequential writes",
+    "the material target revision/precondition was revalidated immediately before the operational write when practical",
+    "a moved target caused reconciliation/replanning rather than stale force execution",
+    "no production/publication/install write exceeded the granted authorization scope",
+    "environment/authorization/concurrency/artifact/rights blockers were not bypassed by unauthorized provider, network, force, alternate write, source-tree leakage, invented deployment scope, or invented legal assumptions"
+  ],
+  "reroute_signals": [
+    "a code defect is blocking release -> bug-fix",
+    "a product behavior must change before release -> feature-change",
+    "the release/target repository or configuration is too contradictory to trust -> repo-recovery",
+    "the current release target was inferred from AAOP defaults rather than project evidence -> reconcile deliverable/consumer/target before continuing",
+    "a green release/CI aggregate is materially authoritative but its harness integrity is disproven -> repair the verification harness under bug-fix or use direct underlying checks before release",
+    "the final artifact/install profile lacks a file, dependency, entrypoint, or configuration required by an advertised capability -> bug-fix or packaging repair before that capability can be accepted",
+    "the target changed materially since preflight -> re-read/replan the current release delta before executing",
+    "public reuse/redistribution is required but outbound terms are missing/ambiguous -> keep that release slice human/legal/product blocked while continuing independent authorized frontier"
+  ]
+}

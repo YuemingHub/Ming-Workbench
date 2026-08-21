@@ -1,0 +1,196 @@
+{
+  "schema_version": "0.5.0",
+  "last_verified": "2026-08-14",
+  "policy": "reference-and-select; never auto-install from this catalog",
+  "providers": [
+    {
+      "id": "agent-skills",
+      "kind": "standard",
+      "upstream": "https://agentskills.io/",
+      "provides": ["procedural-knowledge", "skill-packaging", "progressive-disclosure"],
+      "select_when": ["repeatable procedure is missing", "project knowledge should be reusable across agents"],
+      "avoid_when": ["one-off instruction is sufficient"],
+      "adoption_level": 2
+    },
+    {
+      "id": "agent-bundles",
+      "kind": "retired-compatibility-alias",
+      "upstream": "https://github.com/YuemingHub/agent-bundles",
+      "provides": ["legacy-specialist-source-reference"],
+      "select_when": ["a legacy AAOP instruction still names agent-bundles and must be resolved safely during migration; redirect immediately to the current Task Pod role-source policy rather than installing the repository"],
+      "avoid_when": ["all new specialist selection", "the role can be sourced from host-native/project-local roles", "agency-agents-zh or another current reviewed role source can satisfy the bounded role gap", "the missing capability is a tool/API/runtime/credential/authorization/product-decision gap"],
+      "adoption_level": 2,
+      "status_note": "RETIRED compatibility alias: do not install or newly adopt YuemingHub/agent-bundles. New bounded specialist-role selection uses AAOP Task Pods and, only when justified, the reviewed agency-agents-zh source. The alias remains temporarily so historical instructions fail safe while old consumers migrate; AAOP runtime no longer depends on the agent-bundles repository."
+    },
+    {
+      "id": "agency-agents-zh",
+      "kind": "specialist-agent-source",
+      "upstream": "https://github.com/randyjin/agency-agents-zh",
+      "provides": ["specialist-role-procedures", "cross-discipline-role-library", "cross-host-agent-role-adapters"],
+      "select_when": ["a Task Pod has a proven specialist responsibility gap after host-native and project-local roles are checked", "one or a few concrete role procedures materially improve specialization, independent review, or context isolation"],
+      "avoid_when": ["one capable agent is sufficient", "the full catalog would be installed without a concrete role boundary", "the blocker is a tool/API/runtime/credential/authorization/product-decision gap", "role prompts would be treated as project or product authority"],
+      "adoption_level": 2,
+      "status_note": "optional role source only; select the minimum justified role subset, record material upstream revisions, and keep AAOP as Working Contract/Journey control plane"
+    },
+    {
+      "id": "mcp",
+      "kind": "standard",
+      "upstream": "https://modelcontextprotocol.io/",
+      "registry": "https://registry.modelcontextprotocol.io/",
+      "provides": ["external-tool-access", "service-integration", "tool-discovery-at-connection"],
+      "select_when": ["the host lacks required external read/write capability"],
+      "avoid_when": ["native host tool already provides the capability", "a local script/library is simpler"],
+      "adoption_level": 2
+    },
+    {
+      "id": "a2a",
+      "kind": "standard",
+      "upstream": "https://a2a-protocol.org/",
+      "provides": ["agent-discovery", "agent-cards", "cross-agent-task-interoperability"],
+      "select_when": ["independent agent systems must communicate across framework boundaries"],
+      "avoid_when": ["all workers are local subagents inside one host"],
+      "adoption_level": 3
+    },
+    {
+      "id": "ard",
+      "kind": "discovery-standard",
+      "upstream": "https://agenticresourcediscovery.org/",
+      "repository": "https://github.com/ards-project/ard-spec",
+      "provides": ["resource-discovery", "federated-catalog-search", "ranked-capability-candidates"],
+      "select_when": ["required capability exists but provider is unknown", "the environment supports an ARD-compatible discovery service"],
+      "avoid_when": ["a trusted provider is already available", "discovery would add no decision value"],
+      "adoption_level": 3,
+      "status_note": "draft/evolving; adapters must tolerate schema evolution"
+    },
+    {
+      "id": "host-native",
+      "kind": "runtime-family",
+      "provides": ["repository-execution", "native-tools", "native-agent-primitives"],
+      "select_when": ["the developer's existing AI IDE can satisfy the task"],
+      "avoid_when": ["required durability, interoperability, or governance is unavailable"],
+      "adoption_level": 1,
+      "preference": "default"
+    },
+    {
+      "id": "spec-kit",
+      "kind": "development-harness",
+      "upstream": "https://github.com/github/spec-kit",
+      "docs": "https://github.github.com/spec-kit/",
+      "provides": ["spec-driven-development", "intent-to-plan", "task-decomposition", "existing-project-spec-evolution", "bugfix-extension", "extension-catalogs", "bundles"],
+      "select_when": ["idea-to-build or feature-change benefits from durable intent/specification artifacts", "a supported Spec Kit workflow or extension closes a proven route capability gap"],
+      "avoid_when": ["the task is a tiny local edit", "the project already has an equally trustworthy specification workflow", "community extensions have not passed provenance and permission review"],
+      "adoption_level": 2,
+      "status_note": "core project is mature and agent-agnostic; community extensions are independently maintained and must be reviewed before use"
+    },
+    {
+      "id": "playwright",
+      "kind": "verification-tool-family",
+      "upstream": "https://github.com/microsoft/playwright",
+      "mcp": "https://github.com/microsoft/playwright-mcp",
+      "provides": ["browser-e2e-testing", "browser-automation", "agent-browser-cli", "browser-mcp"],
+      "select_when": ["browser-visible behavior requires deterministic verification", "UI/network/storage behavior cannot be proven adequately through static tests"],
+      "avoid_when": ["the change has no browser surface", "existing project browser tests already prove the outcome"],
+      "adoption_level": 2,
+      "status_note": "choose Test, CLI+Skills, or MCP by workload; upstream currently recommends CLI+Skills for many coding-agent workflows and MCP for persistent introspective browser loops"
+    },
+    {
+      "id": "mini-swe-agent",
+      "kind": "software-engineering-agent",
+      "upstream": "https://github.com/SWE-agent/mini-swe-agent",
+      "provides": ["bounded-issue-resolution", "repository-agent-loop", "test-driven-software-fix"],
+      "select_when": ["a well-defined reproducible software issue should be delegated to a dedicated minimal SWE agent", "a clean isolated issue-solving runtime is preferable to the current host"],
+      "avoid_when": ["product intent is ambiguous", "the repository first needs recovery", "the issue cannot be meaningfully verified"],
+      "adoption_level": 4,
+      "status_note": "SWE-agent maintainers currently recommend mini-SWE-agent over the older SWE-agent for new usage"
+    },
+    {
+      "id": "openhands",
+      "kind": "software-engineering-runtime",
+      "upstream": "https://github.com/OpenHands",
+      "sdk": "https://github.com/OpenHands/software-agent-sdk",
+      "provides": ["autonomous-coding-runtime", "software-agent-sdk", "cli-canvas", "skills-extensions", "automation"],
+      "select_when": ["a dedicated autonomous software-engineering runtime is itself the missing capability", "execution isolation or a reusable coding-agent SDK is required"],
+      "avoid_when": ["the current AI IDE already executes the route reliably", "adding another general coding runtime would only duplicate host capability"],
+      "adoption_level": 4
+    },
+    {
+      "id": "deepagents",
+      "kind": "runtime",
+      "upstream": "https://github.com/langchain-ai/deepagents",
+      "docs": "https://docs.langchain.com/oss/python/deepagents/overview",
+      "provides": ["long-horizon-agent-harness", "subagents", "skills", "persistence", "filesystem", "mcp"],
+      "select_when": ["dedicated long-running harness materially improves reliability", "subagent context isolation is important", "skills and MCP need a unified runtime"],
+      "avoid_when": ["host-native execution is already sufficient"],
+      "adoption_level": 4
+    },
+    {
+      "id": "deepseek-harness",
+      "kind": "agent-host-runtime",
+      "upstream": "https://github.com/deepseek-ai/deepseek-harness",
+      "package": "@deepseek-ai/dsh",
+      "reviewed_revision": "47f943859bef60e4160492346772ded9b24f765a",
+      "reviewed_version": "0.1.0-rc.5",
+      "provides": ["plugin-composable-agent-host", "model-adapters", "guarded-tool-registry", "mcp-client", "skills", "durable-session-event-log", "session-query", "agent-presets", "subagents", "codex-subagent-provider", "claude-code-subagent-provider", "dynamic-workflows", "background-jobs", "approval-and-permission-surfaces", "web-ui-extension-slots"],
+      "select_when": ["a unified host for tools, Skills, MCP, differently composed Agent Presets, subagents and workflows materially reduces duplicated execution machinery", "Codex, Claude Code and in-process agents should coexist behind one bounded subagent seam", "durable session provenance and an extensible Web UI are first-class host requirements", "a consumer product needs replaceable capability providers without deep-forking a privileged runtime core"],
+      "avoid_when": ["the current AI IDE already completes the bounded task reliably and another host would add no material capability", "the blocker is credentials, authorization, product truth, environment access, cost, network or deployment access", "a tiny one-off task does not benefit from another runtime layer", "adoption would require a broad long-lived fork of developer-preview internals rather than plugins/profiles/bundles/patches", "durable cross-session continuation is the only missing capability and the narrower LoopX provider closes that proven gap"],
+      "adoption_level": 4,
+      "status_note": "developer preview reviewed 2026-08-14; compatibility-breaking changes are expected. Treat as an optional host/runtime provider. Consumer products own any preferred-host policy. Pin/review upgrades deliberately, keep AAOP authoritative for Working Contract/Route/authorization/acceptance, and prefer documented plugin/profile/bundle/patch seams over a deep fork."
+    },
+    {
+      "id": "loopx",
+      "kind": "long-running-execution-control-plane",
+      "upstream": "https://github.com/huangruiteng/loopx",
+      "provides": ["durable-agent-loop-state", "todo-claims-and-handoff", "evidence-writeback", "operator-and-user-gates", "quota-should-run-control", "scheduler-heartbeat-hints", "monitor-wait-state", "restartable-cross-session-execution"],
+      "select_when": ["a long-running AAOP Journey or bounded Task Pod needs durable execution continuity beyond the current host", "repeated unchanged retries/polls need quota and no-progress control", "a custom runner needs a provider-neutral local-first contract between bounded agent turns"],
+      "avoid_when": ["host-native execution already finishes the task reliably", "AAOP Working Contract/Journey/Task Pod continuity is already sufficient without another execution state layer", "the blocker is authorization/credential/environment/product-decision/tool capability rather than loop control", "LoopX would become a competing source of truth for AAOP Working Contract/Route/Journey/production authority"],
+      "adoption_level": 4,
+      "status_note": "optional bounded execution-loop provider; prefer upstream stable direct-CLI/custom-runner surface first, keep AAOP authoritative for human contract, Route/Journey, authorization, acceptance, and release truth"
+    },
+    {
+      "id": "agency-orchestrator",
+      "kind": "delegated-multi-agent-runtime",
+      "upstream": "https://github.com/jnMetaCode/agency-orchestrator",
+      "provides": ["natural-language-role-composition", "bounded-dag-execution", "parallel-specialist-steps", "resume", "acceptance-checks", "human-input-and-approval-steps"],
+      "select_when": ["a justified Task Pod needs multi-role DAG/resume execution that the current host cannot provide adequately", "AAOP can delegate one bounded Pod while retaining goal, authorization, acceptance, and handoff ownership"],
+      "avoid_when": ["host-native subagents or sequential role isolation are sufficient", "it would become a second top-level Journey/control plane", "the user is being asked to manage DAG/YAML/roles directly", "the task is a simple single-agent change"],
+      "adoption_level": 4,
+      "status_note": "optional delegated execution provider; AAOP remains authoritative for Working Contract, Journey, decision ownership, production policy, Pod acceptance, and handoff"
+    },
+    {
+      "id": "microsoft-agent-framework",
+      "kind": "runtime",
+      "upstream": "https://learn.microsoft.com/en-us/agent-framework/",
+      "provides": ["agents", "sessions", "memory", "workflows", "orchestration", "hosting"],
+      "select_when": ["production workflow composition and hosting are first-class requirements", "typed explicit workflows are preferable"],
+      "avoid_when": ["the task is repository-local and short-lived"],
+      "adoption_level": 4
+    },
+    {
+      "id": "camel-workforce",
+      "kind": "runtime",
+      "upstream": "https://github.com/camel-ai/camel",
+      "provides": ["multi-agent-societies", "dynamic-workforce", "agent-coordination"],
+      "select_when": ["dynamic worker composition is genuinely useful"],
+      "avoid_when": ["a single host agent or fixed subagents are sufficient"],
+      "adoption_level": 4
+    },
+    {
+      "id": "autoagent",
+      "kind": "generator-runtime",
+      "upstream": "https://github.com/HKUDS/AutoAgent",
+      "provides": ["natural-language-agent-generation", "tool-generation", "workflow-generation", "self-testing"],
+      "select_when": ["the user explicitly benefits from generating/testing new agents, tools, or workflows"],
+      "avoid_when": ["existing skills/tools/agents already satisfy the capability", "the project only needs orchestration policy"],
+      "adoption_level": 4
+    },
+    {
+      "id": "agentspace",
+      "kind": "workspace-control-plane",
+      "upstream": "https://github.com/HKUDS/AgentSpace",
+      "provides": ["shared-agent-workspace", "permissions", "approvals", "audit", "scheduling", "persistent-tasks", "runtime-routing"],
+      "select_when": ["multiple humans/agents need durable shared work and governance", "cross-runtime routing and approval history are required"],
+      "avoid_when": ["solo/local work does not require organizational control-plane infrastructure"],
+      "adoption_level": 5
+    }
+  ]
+}

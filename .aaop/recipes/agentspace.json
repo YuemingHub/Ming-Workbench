@@ -1,0 +1,27 @@
+{
+  "id": "agentspace",
+  "provider_id": "agentspace",
+  "last_verified": "2026-08-08",
+  "source_of_truth": "https://github.com/HKUDS/AgentSpace",
+  "selection": {
+    "use_when": ["multiple humans/agents/runtimes need durable shared tasks, permissions, approvals, audit, scheduling, knowledge, and runtime routing"],
+    "avoid_when": ["solo/local work can be completed safely in an existing AI IDE"]
+  },
+  "detect": {
+    "commands": ["agent-router"]
+  },
+  "install": {
+    "mode": "manual-choice",
+    "minimal_commands": [],
+    "notes": ["Choose hosted or self-hosted deployment from the current upstream documentation.", "Self-hosting currently involves Node/npm and PostgreSQL plus optional provider CLIs; do not introduce this infrastructure unless organizational governance is the actual requirement.", "AgentRouter may be useful as part of AgentSpace's runtime normalization path; do not duplicate that routing layer inside AAOP."]
+  },
+  "credentials": ["workspace/provider credentials required by the chosen deployment only"],
+  "permissions": ["organizational workspace roles", "runtime grants", "external service delegation only as required"],
+  "verify": {
+    "checks": ["create a bounded workspace/test environment", "verify one agent task through the selected runtime", "verify an approval/permission boundary when governance is the reason for adoption", "confirm persistent outputs/audit evidence meet the original requirement"]
+  },
+  "rollback": {
+    "steps": ["disable/remove the AAOP-to-AgentSpace binding", "revoke daemon/provider credentials created only for the integration", "follow upstream uninstall/decommission steps for self-hosted infrastructure"]
+  },
+  "warnings": ["AgentSpace is a control plane/workspace, not a lightweight per-task dependency. Treat deployment as a Level 5 decision."]
+}

@@ -308,3 +308,46 @@ Ask:
 If the answer is mostly no, do not build it.
 
 For the highest direction read `MING_WORKBENCH_NORTH_STAR.md`; for the complete durable rules and boundaries read `docs/WORKBENCH_CONSTITUTION.md`.
+
+
+<!-- AAOP:BEGIN -->
+## Adaptive Agent Orchestration Protocol (AAOP)
+
+For non-trivial developer work, read `.aaop/ORCHESTRATOR.md`, begin with
+`.aaop/skills/developer-intake/SKILL.md`, select one primary route, then load
+`.aaop/skills/route-execution/SKILL.md` plus only `.aaop/routes/<route-id>.json`.
+
+Accept ordinary developer language. Read accessible project evidence before asking
+for facts already present. For greenfield ideas, separate the observable outcome
+from technology names: Agent/MCP/RAG/vector DB/graph/memory and similar terms are
+candidate solutions unless explicitly established as hard constraints. Define an
+evidence-bearing first slice before architecture and do not make a non-technical
+user choose a stack the system can derive later.
+
+For review/adoption/audit requests, define the decision first, verify material
+external claims against current source/status when practical, contextualize risk,
+and remain read-only unless mutation is explicitly requested.
+
+Establish the relevant current baseline/source authority before treating old issues,
+PRs, branches, status files, or prior AI conclusions as current truth. Apply route
+pressure guards when their condition is present.
+
+Before relying on an existing AAOP installation when integrity is uncertain, use
+`python .aaop/tools/health.py . --json`. Treat `drifted`, `incomplete`, or invalid
+manifest/bootstrap states as evidence to review, not permission to overwrite local
+state. The health check is best-effort accidental-drift detection, not a security
+trust root.
+
+Reuse current host/repository capabilities first. If work is blocked, distinguish
+missing evidence, environment/network limits, authorization, credentials, external
+dependencies, and product decisions from a genuine technical capability gap. Only
+a proven capability gap justifies provider selection, and then choose the smallest
+provider surface. When a selected Recipe has an applicable `adoption_review`,
+re-check it against current upstream and the actual deployment context rather than
+using it as a permanent provider verdict. Do not widen access or install workaround
+machinery to bypass a non-capability blocker. Verify the outcome; if safely blocked,
+preserve unknown state and report the smallest legitimate unblock rather than
+claiming completion.
+
+Canonical orchestration Skills live under `.aaop/skills/`.
+<!-- AAOP:END -->

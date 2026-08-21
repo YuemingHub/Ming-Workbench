@@ -1,0 +1,27 @@
+{
+  "id": "microsoft-agent-framework",
+  "provider_id": "microsoft-agent-framework",
+  "last_verified": "2026-08-08",
+  "source_of_truth": "https://learn.microsoft.com/en-us/agent-framework/get-started/",
+  "selection": {
+    "use_when": ["production agent applications need explicit sessions, memory, workflows, hosting, or typed orchestration patterns"],
+    "avoid_when": ["the task is adequately handled by the current repository host", "adding a production runtime would be disproportionate"]
+  },
+  "detect": {
+    "python_packages": ["agent_framework"]
+  },
+  "install": {
+    "mode": "manual-choice",
+    "minimal_commands": [],
+    "notes": ["The Python package surface is provider-split and evolving. Re-read the current official package mapping before installation.", "Prefer `agent-framework-core` plus only the model/provider package actually used when that is sufficient; use the broader `agent-framework` package only when its wider surface is intentionally desired."]
+  },
+  "credentials": ["model/provider-specific credential", "cloud credential only when a cloud provider/hosting target is selected"],
+  "permissions": ["provider and hosting permissions required by the selected integration only"],
+  "verify": {
+    "checks": ["import only the selected Agent Framework packages", "run a minimal agent/workflow using the actual chosen provider", "exercise the session/workflow/hosting property that justified adoption", "confirm the original capability gap is closed"]
+  },
+  "rollback": {
+    "steps": ["remove the Agent Framework packages added to project dependencies", "remove provider/cloud configuration added only for this integration"]
+  },
+  "warnings": ["Do not copy an old package command from the recipe without checking current Microsoft documentation; the package split changed during 2026."]
+}

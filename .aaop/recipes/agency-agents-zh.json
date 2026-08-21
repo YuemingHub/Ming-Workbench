@@ -1,0 +1,58 @@
+{
+  "id": "agency-agents-zh",
+  "provider_id": "agency-agents-zh",
+  "last_verified": "2026-08-11",
+  "source_of_truth": "https://github.com/randyjin/agency-agents-zh",
+  "selection": {
+    "use_when": [
+      "a justified Task Pod has a bounded specialist responsibility that host-native/project-local roles do not cover well",
+      "one or a few concrete role procedures materially improve specialization, context isolation, or independent review"
+    ],
+    "avoid_when": [
+      "one capable agent is sufficient",
+      "the blocker is a missing tool/API/runtime, credential, environment, authorization, or product decision",
+      "the full catalog would be installed without a concrete role boundary",
+      "role content would be treated as authority over project/user intent"
+    ]
+  },
+  "detect": {},
+  "install": {
+    "mode": "upstream-reviewed-minimal-subset",
+    "minimal_commands": [
+      "git clone https://github.com/randyjin/agency-agents-zh.git",
+      "inspect the exact role files required by the current Task Pod",
+      "use the upstream installer/adapter only for the selected host and selected role subset when supported"
+    ],
+    "notes": [
+      "Prefer host-native/project-local specialists first; this provider is optional.",
+      "Do not expose all roles to the active context merely because the repository contains them.",
+      "Record the concrete upstream commit when selected role content materially affects a consequential decision or release.",
+      "Role files are procedural prompts. They do not grant tools, credentials, network access, runtime capability, or project authority."
+    ]
+  },
+  "permissions": [
+    "network access to GitHub when fetching/updating the provider",
+    "local write access only to the selected host agent/role configuration surface when installation is actually needed"
+  ],
+  "verify": {
+    "checks": [
+      "confirm the selected role corresponds to a real responsibility boundary in the current Task Pod",
+      "confirm no more roles were installed/loaded than required",
+      "record the upstream revision for material use",
+      "verify the specialist returns bounded evidence/output to the accountable owner",
+      "verify role use did not bypass Working Contract decision ownership or AAOP autonomy policy"
+    ]
+  },
+  "rollback": {
+    "steps": [
+      "remove only the role files/config proven to have been added for this adoption",
+      "preserve pre-existing/project-owned agent definitions",
+      "remove temporary provider checkout if no longer needed"
+    ]
+  },
+  "warnings": [
+    "More roles are not more capability. Default to one agent and use at most five Task Pod members.",
+    "A role library is not a second orchestration control plane and never owns Journey or Working Contract state.",
+    "Community role content can evolve independently; review the exact selected revision before consequential reliance."
+  ]
+}

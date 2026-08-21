@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aaop.dev/schemas/environment-inventory.schema.json",
+  "title": "AAOP Environment Inventory",
+  "type": "object",
+  "required": ["project_root", "project_signals", "provider_detection", "observed_surface_level", "policy", "next_action"],
+  "properties": {
+    "project_root": {"type": "string"},
+    "instruction_files": {"type": "array", "items": {"type": "string"}},
+    "mcp_configs": {"type": "array", "items": {"type": "string"}},
+    "skill_counts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}},
+    "host_commands": {"type": "object", "additionalProperties": {"type": "string"}},
+    "toolchain_commands": {"type": "object", "additionalProperties": {"type": "string"}},
+    "project_signals": {
+      "type": "object",
+      "required": ["manifests", "test_signals", "ci_signals", "deployment_signals", "node_dependencies"],
+      "properties": {
+        "manifests": {"type": "array", "items": {"type": "string"}},
+        "test_signals": {"type": "array", "items": {"type": "string"}},
+        "ci_signals": {"type": "array", "items": {"type": "string"}},
+        "deployment_signals": {"type": "array", "items": {"type": "string"}},
+        "node_dependencies": {"type": "object", "additionalProperties": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "provider_detection": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["provider_id", "status", "detected", "evidence"],
+        "properties": {
+          "provider_id": {"type": "string"},
+          "status": {"enum": ["detected", "not_detected", "no_detector", "no_recipe"]},
+          "detected": {"type": "boolean"},
+          "evidence": {"type": "object"},
+          "source_of_truth": {"type": ["string", "null"]},
+          "last_verified": {"type": ["string", "null"]}
+        },
+        "additionalProperties": true
+      }
+    },
+    "route_context": {
+      "type": "object",
+      "properties": {
+        "route_id": {"type": "string"},
+        "objective": {"type": ["string", "null"]},
+        "provider_candidates": {"type": "array", "items": {"type": "object"}},
+        "policy": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "observed_surface_level": {"type": "integer", "minimum": 0, "maximum": 5},
+    "policy": {"type": "string"},
+    "next_action": {"type": "string"}
+  },
+  "additionalProperties": true
+}

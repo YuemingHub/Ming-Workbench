@@ -1,0 +1,28 @@
+{
+  "id": "spec-kit",
+  "provider_id": "spec-kit",
+  "last_verified": "2026-08-08",
+  "source_of_truth": "https://github.github.com/spec-kit/",
+  "selection": {
+    "use_when": ["durable intent/specification artifacts would reduce drift", "an idea/feature requires structured Spec -> Plan -> Tasks -> Implement flow", "an existing Spec Kit project benefits from its supported bug or lifecycle workflows"],
+    "avoid_when": ["a tiny local change is already clear and verifiable", "the project already has an equally trustworthy specification lifecycle", "a community extension has not been reviewed for provenance and permissions"]
+  },
+  "detect": {
+    "commands": ["specify"],
+    "files": [".specify"]
+  },
+  "install": {
+    "mode": "package-manager",
+    "minimal_commands": ["uv tool install specify-cli"],
+    "notes": ["PyPI `uv tool install specify-cli` and pinned GitHub release-source installs are both currently supported upstream; prefer the project's/operator's existing package-management policy and pin versions when reproducibility matters.", "One-time evaluation can use upstream `uvx --from git+https://github.com/github/spec-kit.git specify ...` without persistent installation.", "Do not run `specify init` automatically in an existing repository until project-specific files, local modifications, and the selected agent integration have been inspected.", "Core Spec Kit and community extensions have different trust surfaces; catalog presence is not an endorsement."]
+  },
+  "credentials": [],
+  "permissions": ["project file writes only when initialization or workflow artifacts are intentionally created"],
+  "verify": {
+    "checks": ["run `specify version` as the local CLI/runtime sanity check", "use read-only `specify self check` when current-version status is relevant", "confirm the intended AI-agent integration is active after project initialization", "exercise one route-relevant workflow on a bounded feature/bug before broader adoption", "verify created artifacts reduce the original ambiguity/traceability gap"]
+  },
+  "rollback": {
+    "steps": ["disable/remove any extension through the upstream CLI before deleting it manually", "revert project-level Spec Kit files through version control when they were added only for evaluation", "uninstall the `specify-cli` tool using the package manager that installed it when no longer needed"]
+  },
+  "warnings": ["Spec Kit is itself an extensible development harness; AAOP must not reimplement or silently layer a competing spec workflow on top of it.", "Community extensions are independently maintained and require source/provenance/permission review before consequential use."]
+}

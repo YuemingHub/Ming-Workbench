@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aaop.dev/schemas/execution-plan.schema.json",
+  "title": "AAOP Execution Plan",
+  "type": "object",
+  "required": ["goal", "tasks"],
+  "properties": {
+    "goal": {"type": "string"},
+    "acceptance_evidence": {"type": "array", "items": {"type": "string"}},
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "owner", "action", "verification", "failure_path"],
+        "properties": {
+          "id": {"type": "string"},
+          "owner": {"type": "string"},
+          "depends_on": {"type": "array", "items": {"type": "string"}},
+          "inputs": {"type": "array", "items": {"type": "string"}},
+          "action": {"type": "string"},
+          "expected_output": {"type": "string"},
+          "verification": {"type": "array", "items": {"type": "string"}},
+          "failure_path": {"type": "string"},
+          "status": {"enum": ["planned", "running", "blocked", "failed", "verified", "skipped"]}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

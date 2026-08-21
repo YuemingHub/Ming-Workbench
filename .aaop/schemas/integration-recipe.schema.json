@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aaop.dev/schemas/integration-recipe.schema.json",
+  "title": "AAOP Integration Recipe",
+  "type": "object",
+  "required": ["id", "provider_id", "last_verified", "source_of_truth", "selection", "detect", "install", "verify", "rollback"],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "provider_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "last_verified": {"type": "string", "format": "date"},
+    "source_of_truth": {"type": "string", "format": "uri"},
+    "selection": {
+      "type": "object",
+      "required": ["use_when", "avoid_when"],
+      "properties": {
+        "use_when": {"type": "array", "items": {"type": "string"}},
+        "avoid_when": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "detect": {
+      "type": "object",
+      "description": "Read-only recognition hints consumed by AAOP environment inventory. Any matching hint is evidence of presence, never a recommendation to use the provider.",
+      "properties": {
+        "commands": {"type": "array", "items": {"type": "string"}, "description": "Executable names resolved through PATH."},
+        "python_packages": {"type": "array", "items": {"type": "string"}, "description": "Python distribution or top-level import package names detectable from the active interpreter environment."},
+        "node_packages": {"type": "array", "items": {"type": "string"}, "description": "Package names looked up in the target project's root package.json dependency sections."},
+        "files": {"type": "array", "items": {"type": "string"}, "description": "Project-root-relative file/directory glob patterns. Patterns must be provider-specific enough to avoid generic-manifest false positives."}
+      },
+      "additionalProperties": true
+    },
+    "install": {
+      "type": "object",
+      "required": ["mode"],
+      "properties": {
+        "mode": {"enum": ["none", "package-manager", "clone", "host-feature", "manual-choice"]},
+        "minimal_commands": {"type": "array", "items": {"type": "string"}},
+        "notes": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "credentials": {"type": "array", "items": {"type": "string"}},
+    "permissions": {"type": "array", "items": {"type": "string"}},
+    "adoption_review": {
+      "type": "object",
+      "description": "Optional time-stamped, scope-specific review debt that must be rechecked before consequential adoption. It is neither a vulnerability database nor a permanent provider verdict.",
+      "required": ["reviewed_at", "scope", "reason", "decision_effect", "current_observations", "sources", "required_checks"],
+      "properties": {
+        "reviewed_at": {"type": "string", "format": "date"},
+        "scope": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "decision_effect": {"enum": ["informational", "reverify-before-adoption", "conditional-adoption-only"]},
+        "current_observations": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1},
+        "sources": {"type": "array", "items": {"type": "string", "format": "uri"}, "minItems": 1, "uniqueItems": true},
+        "required_checks": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1},
+        "notes": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "verify": {
+      "type": "object",
+      "required": ["checks"],
+      "properties": {"checks": {"type": "array", "items": {"type": "string"}}},
+      "additionalProperties": true
+    },
+    "rollback": {
+      "type": "object",
+      "required": ["steps"],
+      "properties": {"steps": {"type": "array", "items": {"type": "string"}}},
+      "additionalProperties": true
+    },
+    "warnings": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

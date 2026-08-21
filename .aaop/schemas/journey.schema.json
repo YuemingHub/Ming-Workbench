@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aaop.dev/schemas/journey.schema.json",
+  "title": "AAOP Multi-Route Journey Definition",
+  "type": "object",
+  "required": [
+    "journey_id",
+    "version",
+    "status",
+    "objective",
+    "routing_policy",
+    "completion_policy",
+    "state_contract",
+    "entry_conditions",
+    "user_owns",
+    "system_owns",
+    "gates",
+    "route_transition_rules",
+    "capability_policy",
+    "completion"
+  ],
+  "properties": {
+    "journey_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+    },
+    "status": {"type": "string"},
+    "objective": {"type": "string", "minLength": 1},
+    "routing_policy": {
+      "type": "object",
+      "required": [
+        "intake_selects_current_route",
+        "greenfield_gates_are_conditional",
+        "reroute_requires_new_evidence",
+        "stale_checkpoint_never_overrides_current_evidence",
+        "completed_cycle_must_reopen_explicitly"
+      ],
+      "properties": {
+        "intake_selects_current_route": {"const": true},
+        "greenfield_gates_are_conditional": {"const": true},
+        "reroute_requires_new_evidence": {"const": true},
+        "stale_checkpoint_never_overrides_current_evidence": {"const": true},
+        "completed_cycle_must_reopen_explicitly": {"const": true}
+      },
+      "additionalProperties": true
+    },
+    "completion_policy": {
+      "type": "object",
+      "required": [
+        "blocked_is_complete",
+        "target_verification_required",
+        "target_verification_is_cycle_scoped",
+        "local_or_ci_evidence_cannot_substitute_for_target_evidence"
+      ],
+      "properties": {
+        "blocked_is_complete": {"const": false},
+        "target_verification_required": {"const": true},
+        "target_verification_is_cycle_scoped": {"const": true},
+        "local_or_ci_evidence_cannot_substitute_for_target_evidence": {"const": true}
+      },
+      "additionalProperties": true
+    },
+    "state_contract": {
+      "type": "object",
+      "required": ["runtime_file", "schema", "checkpoint_tool", "write_precondition", "authority"],
+      "properties": {
+        "runtime_file": {"type": "string", "minLength": 1},
+        "schema": {"type": "string", "minLength": 1},
+        "checkpoint_tool": {"type": "string", "minLength": 1},
+        "write_precondition": {"type": "string", "minLength": 1},
+        "authority": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
+    },
+    "entry_conditions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "user_owns": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "system_owns": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "goal", "exit_evidence"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          },
+          "primary_route": {"type": "string"},
+          "route_selection": {"enum": ["developer-intake", "current-route"]},
+          "applies_when": {"type": "string", "minLength": 1},
+          "skip_when": {"type": "string", "minLength": 1},
+          "possible_reroutes": {
+            "type": "array",
+            "items": {"type": "string"},
+            "uniqueItems": true
+          },
+          "goal": {"type": "string", "minLength": 1},
+          "exit_evidence": {
+            "type": "array",
+            "minItems": 1,
+            "items": {"type": "string", "minLength": 1}
+          }
+        },
+        "allOf": [
+          {
+            "anyOf": [
+              {"required": ["primary_route"]},
+              {"required": ["route_selection"]}
+            ]
+          }
+        ],
+        "additionalProperties": true
+      }
+    },
+    "route_transition_rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "capability_policy": {"type": "object"},
+    "historical_sources": {"type": "object"},
+    "completion": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    }
+  },
+  "additionalProperties": true
+}

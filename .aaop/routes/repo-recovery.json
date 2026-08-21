@@ -1,0 +1,141 @@
+{
+  "version": "0.25.0",
+  "route_id": "repo-recovery",
+  "objective": "Recover a trustworthy model of an unfamiliar or messy repository, including its current project-wide work frontier when material, then make or reroute to one evidence-backed authorized improvement; a local no-mutation result may be accepted without being mistaken for project completion.",
+  "default_execution": "host-native",
+  "stages": [
+    {
+      "id": "preserve-and-inventory",
+      "purpose": "Preserve current state, anchor the active repository/work target, and establish the smallest trustworthy discovery surface: governing instructions, declared current/canonical entrypoints, relevant dependency/coordination records, manifests, relevant modules/tests/CI, recent history, material source authority/freshness, and project-declared current work topology when it can change the next goal.",
+      "required_capabilities": ["repository-inspection", "git-history-analysis", "build-test-discovery", "source-authority-analysis"],
+      "optional_capabilities": ["architecture-mapping"],
+      "evidence": ["active repository/work target", "working tree and branch state", "governing instruction files", "declared first-read/current/canonical sources", "material cross-repository dependency/coordination records", "material project-declared active pull-request/candidate/branch/issue/handoff/predecessor/successor surfaces when they can change the current goal", "manifests", "relevant test/CI configuration and custom verification harnesses when they materially produce acceptance evidence", "recent commits when material", "declared current-fact/governance/reference/draft/historical status where available", "valid-as-of or staleness signals", "project-local orchestration adapter/provider pins when they can affect execution semantics"],
+      "exit_when": "The active work target, current technical surface, authoritative entrypoints, and material source/dependency/current-work authority needed for the immediate recovery decision are known without exhaustively traversing unrelated historical issues, branches, pull requests, or repository graphs."
+    },
+    {
+      "id": "truth-reconstruction",
+      "purpose": "Separate intended product behavior from accidental/stale implementation, reconcile current/draft/historical/unknown and external-repository evidence without erasing conflicts, compare accepted outcome evidence with the current project frontier, and determine whether the next result is a local delta, another current work target, a reroute, a blocker, a scope-level no-op, or true absence of a meaningful authorized project frontier.",
+      "required_capabilities": ["cross-evidence-synthesis", "architecture-understanding", "risk-prioritization", "conflict-preservation"],
+      "optional_capabilities": ["runtime-probing", "security-risk-review"],
+      "evidence": ["README/spec versus code comparison when material", "tests versus runtime behavior when material", "integrity of any custom verification harness whose aggregate result is material to current acceptance", "accepted outcome versus current acceptance evidence", "current merge-authoritative or otherwise project-declared work surfaces when material", "issue/roadmap/history context only when needed", "authority/freshness table for conflicting claims", "external repository source/revision/status when a material claim is owned there", "observable desired state versus current state", "explicit unresolved conflicts when no justified winner exists", "consumer integration version/revision compatibility when a project-local adapter constrains orchestration behavior"],
+      "exit_when": "A concise current-state and current-frontier model is defensible, local-no-mutation is distinguished from project-no-frontier, and the next result is classified as a current authorized delta on the correct work target, a reroute, a blocker, a scope-level verified no-op, or evidence that no meaningful authorized project frontier remains."
+    },
+    {
+      "id": "stabilize-one-path",
+      "purpose": "When truth reconstruction proves a current authorized local delta still owned by repo-recovery, fix or stabilize one high-value path before broad refactoring. If the current checkout has no such local delta, do not manufacture a diff: preserve local-no-mutation evidence and reroute/resume another current work target when the reconciled project frontier identifies one. Only a reconciled absence of meaningful authorized project work may support project-level pause/no-frontier.",
+      "required_capabilities": ["targeted-implementation", "regression-validation"],
+      "optional_capabilities": ["specification-management", "browser-validation"],
+      "evidence": ["proven local execution delta when mutation occurs", "before/after behavior", "tests or runtime checks", "scope-limited diff", "evidence that the chosen path follows the current source of truth", "or evidence that this checkout requires no mutation while another current project work target/reroute remains", "or reconciled evidence that no meaningful authorized project frontier remains", "explicit separate authorization if another repository also requires mutation"],
+      "exit_when": "One meaningful path is more trustworthy and verified, or this local work target is correctly classified as no-mutation and the project frontier is rerouted/recomputed; no cosmetic change or false project completion was created."
+    }
+  ],
+  "pressure_guards": [
+    {
+      "id": "source-authority-freshness",
+      "rule": "Do not equate newest file, merged branch, or most detailed document with current truth. Track material source role/authority and freshness; Draft/Proposed/Historical evidence remains non-authoritative unless the project explicitly says otherwise."
+    },
+    {
+      "id": "reconcile-current-baseline-before-mutation",
+      "rule": "Before the first material mutation in an existing project, reconcile the current implementation/runtime baseline with the project-defined authority and freshness of material state, specification, test, adapter, deployment, and historical evidence. A failing test can itself encode a stale historical assumption; classify that possibility before changing product behavior. Preserve material conflicts and keep unknown facts unknown rather than silently converting them to false/absent state."
+    },
+    {
+      "id": "verification-harness-integrity",
+      "rule": "When a custom test runner, CI wrapper, validation aggregator, generated report, or similar harness materially converts underlying checks into pass/fail acceptance evidence, do not trust a green aggregate merely because the wrapper exited successfully. Verify the smallest consequential integrity surface: intended checks are discovered distinctly, collisions/cached reuse/duplicate counting do not substitute one check for another, skipped/errored/unavailable work is represented honestly, and failures propagate through wrapper exit/status semantics. If harness integrity is unknown or disproven, downgrade the aggregate to provisional/unknown evidence and use direct underlying checks or repair the harness before relying on it for regression, completion, or release claims."
+    },
+    {
+      "id": "derived-control-surface-no-shadow-truth",
+      "rule": "When a project-local orchestration/readiness script, CI helper, generated bridge, dashboard, release-status command, or similar derived control surface reports a material project/operational fact, treat it as a consumer of the project-defined authority rather than a second source of truth. Derive from current owning evidence, propagate unknown instead of inventing a negative state, preserve source/provenance linkage, and add a local regression when material recurrence risk justifies it."
+    },
+    {
+      "id": "preserve-conflicting-evidence",
+      "rule": "When material sources disagree and authority/freshness do not justify a winner, preserve the conflict and uncertainty instead of silently selecting or rewriting history."
+    },
+    {
+      "id": "bounded-evidence-traversal",
+      "rule": "Start from explicit project first-read/current/canonical entrypoints when available. Treat links, related/depends_on metadata, registries, indexes, historical release lists, directory inventories, repository maps, and generic open-work lists as navigation rather than mandatory coverage. Follow an edge only when it can change the immediate route, baseline, work target, acceptance evidence, dependency status, or risk boundary; stop once the recovery/frontier decision is defensible."
+    },
+    {
+      "id": "cross-repository-scope-boundary",
+      "rule": "A referenced upstream/downstream repository is evidence or dependency scope, not automatically an active work target. Cross repositories only when a material claim is owned there or a local dependency/coordination record is stale, ambiguous, or insufficient; read the smallest authoritative source/revision needed, then return to the active repository. Evidence access does not authorize mutation, and product evidence must not be silently promoted into shared protocol/governance by cross-repository edits."
+    },
+    {
+      "id": "consumer-integration-freshness",
+      "rule": "Treat project-local AAOP/orchestration adapters, bootstrap scripts, installed package provenance, pinned provider/protocol revisions, generated bridges, and cached checkpoints as execution dependencies rather than product truth. Before an autonomous takeover trusts a project-local health, ready, version, no-op, blocker, or completion verdict, prove that the installed control plane supplies the safety/continuity invariants the takeover requires. Local health/ready/version prove internal installation integrity only; they do not prove current control-plane compatibility. For stable-managed consumers, when host/network policy permits, reuse the canonical state-preserving stable bootstrap to reconcile AAOP-owned files with the deliberately promoted stable channel, then re-run consumer compatibility evidence before continuing. For explicitly exact-frozen consumers, preserve reproducibility and do not silently replace the pin with stable, main, or another ref; if the pin lacks required invariants, classify a consumer-integration compatibility delta or scoped blocker rather than verified-no-op. A newer upstream release must not override project authority, runtime continuity, credentials, or product truth. If stable/exact-source compatibility cannot currently be resolved, keep freshness unknown and scope that environment/missing-evidence blocker while continuing independent authorized project work. Do not build a second updater, planner, state database, Provider, or workflow engine for this lifecycle."
+    },
+    {
+      "id": "project-frontier-before-project-noop",
+      "rule": "Before promoting a clean checkout, green tests, route-level verified no-op, or no-local-mutation result into project-level pause/completion/no-frontier, reconcile the smallest project-declared current work topology and unmet acceptance evidence that can change the current goal. Material current pull requests, candidate branches, predecessor/successor chains, issues, milestones, handoffs, or exact-head release/review gates are evidence when the project marks them current; merely open or historical artifacts are not automatically work. Green tests prove only the contracts they exercise. Distinguish local-no-mutation from project-no-frontier, choose the correct current work target when meaningful authorized work remains, and do not manufacture random cleanup/TODO work merely to avoid a no-op."
+    },
+    {
+      "id": "prove-delta-before-mutation",
+      "rule": "Do not mutate merely because the user authorized continued work or because repo-recovery has a stabilization stage. First prove a current observable delta on the selected current work target. If a local authorized delta exists, execute or reroute to the owning route; if that selected scope already satisfies its desired state, return a scope-level verified no-op/no-local-mutation result and recompute the project frontier. Only after project-frontier reconciliation proves no meaningful authorized executable work remains may that local no-op support a project-level pause."
+    },
+    {
+      "id": "default-autonomous-takeover",
+      "rule": "When a novice delegates an unfamiliar project, recover ultimate intent and select the current highest-value evidence-backed goal from authoritative project, implementation, test, runtime, continuity, and material current-work evidence. Do not require a roadmap or technical choices from the user, stop at a one-off analysis/plan/delta, or escalate ordinary technical uncertainty; continue through verified next deltas until project completion or until no meaningful authorized executable project frontier remains without a genuine human/external boundary."
+    },
+    {
+      "id": "scoped-blocker-frontier-continuation",
+      "rule": "A blocker applies only to the delta whose required precondition it covers. After any delta becomes blocked, verified no-op, or route-complete, recompute the highest-value safe authorized executable project frontier from current authority, including another current work target when project-declared work topology makes it material. Do not end the takeover, declare the project blocked, or ask the human merely because the top-ranked delta needs authorization, credentials, production access, an external dependency, or another scoped precondition while independent valuable work remains. Pause the project only when completion is proven, project-frontier reconciliation finds no meaningful authorized executable work, or the bounded host run ends with an exact durable handoff rather than a false completion."
+    }
+  ],
+  "escalations": [
+    {
+      "when": "The project needs durable reconstruction of intent/specifications before continued feature work and a current local specification delta is proven.",
+      "capability_gap": "brownfield specification and artifact alignment",
+      "provider_candidates": ["spec-kit"],
+      "selection_rule": "Prefer core Spec Kit existing-project/evolving-spec workflows first; treat community brownfield extensions as untrusted candidates until source and permissions are reviewed. Do not add specification machinery merely because recovery produced no local change."
+    },
+    {
+      "when": "The repository is too large or long-running for the current host to maintain reliable context and isolated subproblems after bounded discovery has already identified a real current execution surface.",
+      "capability_gap": "long-horizon repository execution",
+      "provider_candidates": ["deepagents", "openhands"],
+      "selection_rule": "Select the runtime property actually missing; do not migrate merely because the repository is messy, cross-referenced, or has no immediate local delta."
+    },
+    {
+      "when": "Recovery reveals that the immediate current delta is a bounded reproducible defect.",
+      "capability_gap": "bounded issue-resolution loop",
+      "provider_candidates": ["mini-swe-agent"],
+      "selection_rule": "Reroute to bug-fix first; use mini-SWE-agent only if the issue is current, clear, and verifiable."
+    }
+  ],
+  "verification": [
+    "current-state claims are grounded in repository/runtime evidence",
+    "material sources have authority/freshness considered rather than being flattened into one truth",
+    "custom verification aggregators that materially support acceptance were not trusted solely because their wrapper result was green; discovery/identity/failure-propagation integrity was checked or the aggregate was downgraded to provisional/unknown evidence",
+    "derived orchestration/readiness/control surfaces consume project-defined authority and preserve unknown/provenance semantics instead of becoming shadow truth when they make material claims",
+    "explicit project entrypoints/exclusions were respected",
+    "reference/repository/current-work graphs were traversed only for material unresolved questions",
+    "active repository/work target remained explicit",
+    "material project-declared current work topology and unmet acceptance evidence were reconciled before any project-level no-frontier/pause/completion claim",
+    "green tests or a clean checkout were treated as scoped verification evidence rather than product/project completion proof",
+    "local-no-mutation was distinguished from project-no-frontier and another current work target was selected when current authority proved meaningful authorized work remained",
+    "merely open or historical issues/branches/pull requests were not promoted into the current frontier without authority/freshness evidence",
+    "external repository reads were justified by claim ownership or stale/insufficient local dependency evidence",
+    "cross-repository writes did not occur without separate scope/authorization",
+    "project-local orchestration/provider pins were checked when they materially constrained current execution semantics",
+    "health/ready/version from an installed consumer control plane were not accepted as proof of current takeover compatibility without source/provenance/invariant reconciliation",
+    "stable-managed consumers reused the existing stable bootstrap lifecycle when a proven compatibility delta required refresh; exact-frozen consumers preserved their explicit pin until a compatible upgrade was deliberately selected",
+    "a stale control plane that lacks required takeover invariants was classified as a consumer-integration delta or scoped blocker rather than verified-no-op",
+    "stale adapter documentation or checkpoint observations were not promoted into the current execution baseline",
+    "a consumer upgrade was proposed or applied only after a concrete compatibility/safety delta was proven",
+    "a mutation occurred only after a current execution delta was proven on the selected work target",
+    "when the selected scope needed no mutation, scope-level verified-no-op/no-local-mutation evidence triggered project-frontier recomputation instead of false project completion",
+    "when recovery exposed a concrete bug, desired behavior, current candidate gate, or other executable accepted-outcome delta, the route executed/rerouted instead of remaining in analysis mode",
+    "when one delta was human/external blocked, the blocker stayed scoped and remaining meaningful authorized work was recomputed before any project-level pause",
+    "route completion or a route-level no-op did not get promoted into project/Journey completion without current completion evidence",
+    "unresolved conflicts remain explicit",
+    "broad cleanup or exhaustive repository reading was avoided unless evidence justified it"
+  ],
+  "reroute_signals": [
+    "a specific current failing behavior becomes primary -> bug-fix",
+    "a current desired new behavior becomes primary -> feature-change",
+    "the user only needs a decision/review -> understand-review",
+    "a green custom test/validation aggregate is materially acceptance-authoritative but harness integrity is disproven -> repair the harness under bug-fix or use direct underlying checks before trusting completion/release evidence",
+    "consumer AAOP health/ready is green but the installed source lacks required current takeover/continuation invariants -> consumer-integration compatibility delta; reconcile stable-managed or exact-frozen policy before accepting no-op/completion",
+    "current checkout is green/no-local-mutation but project-declared active candidate/PR/handoff/acceptance work remains -> select that current work target and reroute/continue; do not declare project no-op",
+    "one delta is blocked but independent meaningful authorized work remains -> keep the blocker scoped, recompute frontier, and continue under the evidence-selected route",
+    "the selected local next step is already satisfied or not currently justified -> scope-level verified no-op, then recompute project frontier rather than invent work or declare project completion",
+    "the meaningful next delta belongs to another repository -> preserve cross-repository scope and establish separate work scope there"
+  ]
+}

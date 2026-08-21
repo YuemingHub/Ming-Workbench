@@ -1,0 +1,91 @@
+{
+  "version": "0.9.0",
+  "route_id": "idea-to-build",
+  "objective": "Turn a rough idea into the smallest real, testable product slice without forcing the user to design the engineering process.",
+  "default_execution": "host-native",
+  "stages": [
+    {
+      "id": "outcome-discovery",
+      "purpose": "Identify the actor, situation, desired observable outcome, constraints, and the smallest valuable slice while separating product intent from proposed implementation vocabulary.",
+      "required_capabilities": ["intent-resolution", "product-reasoning"],
+      "optional_capabilities": ["market-or-domain-research"],
+      "evidence": ["user statement", "available domain/project context", "lived/domain experience and current workarounds when material", "explicit constraints", "distinction between hard requirements and solution hypotheses"],
+      "exit_when": "One small outcome can be built and judged without inventing a large speculative roadmap or making the user choose architecture."
+    },
+    {
+      "id": "behavior-contract",
+      "purpose": "Define what the first slice must visibly do and what material assumption it should test before choosing architecture.",
+      "required_capabilities": ["acceptance-criteria", "interface-definition"],
+      "optional_capabilities": ["specification-management"],
+      "evidence": ["observable user flow", "acceptance examples", "known non-goals", "first assumption or uncertainty the slice will reduce"],
+      "exit_when": "The first slice has a clear behavior contract, non-goals, and a reason it will create decision-useful evidence."
+    },
+    {
+      "id": "implementation",
+      "purpose": "Choose the minimum technical shape, implement the slice, and keep decisions reversible until evidence justifies stronger commitments.",
+      "required_capabilities": ["architecture-fit", "implementation", "local-validation"],
+      "optional_capabilities": ["browser-validation"],
+      "evidence": ["working artifact", "tests or runtime evidence", "documented material decisions", "evidence produced by the first real use or acceptance path"],
+      "exit_when": "The slice works, is ready for real evaluation, and the next product decision can be made from evidence rather than architecture speculation."
+    }
+  ],
+  "pressure_guards": [
+    {
+      "id": "outcome-before-architecture",
+      "rule": "For broad greenfield visions, define one actor, situation, observable outcome, and first evidence-bearing slice before committing to platform architecture, data model, agent topology, or infrastructure."
+    },
+    {
+      "id": "human-context-is-product-evidence",
+      "rule": "Do not infer product/domain authority from technical fluency. A person who cannot specify software architecture may still hold decisive lived experience, domain knowledge, current workarounds, stakes, constraints, and observations of real users. Treat that material as product evidence, separate what is directly known from what still needs testing, and translate it into a testable first slice instead of forcing requirements jargon or dismissing it as anecdote."
+    },
+    {
+      "id": "first-slice-must-buy-learning",
+      "rule": "The first slice must reduce a material product or execution uncertainty; generated scaffolding, diagrams, or a technically impressive demo that tests no important assumption do not satisfy this guard."
+    },
+    {
+      "id": "user-does-not-own-stack-choice",
+      "rule": "Do not make a non-technical user choose frameworks, databases, protocols, agent roles, or orchestration machinery when those choices can be derived from the outcome and evidence."
+    },
+    {
+      "id": "solution-vocabulary-is-hypothesis",
+      "rule": "Early mentions of agents, MCP, RAG, vector databases, graphs, memory, or other implementation concepts are candidate solutions unless the user explicitly establishes them as hard constraints."
+    },
+    {
+      "id": "one-question-only-when-outcome-blocked",
+      "rule": "Use available context first; if a missing user-owned fact still prevents a meaningful first slice, ask one concrete question that resolves that decision instead of a requirements questionnaire."
+    }
+  ],
+  "escalations": [
+    {
+      "when": "The idea or feature is large enough that intent, plan, and implementation are repeatedly drifting after a concrete first outcome is already defined.",
+      "capability_gap": "durable specification and structured intent-to-implementation workflow",
+      "provider_candidates": ["spec-kit"],
+      "selection_rule": "Use Spec Kit only when durable artifacts reduce demonstrated ambiguity or coordination loss; do not initialize it merely because the long-term vision is large."
+    },
+    {
+      "when": "The first slice requires deterministic browser-visible validation that the host/project cannot already provide.",
+      "capability_gap": "browser verification",
+      "provider_candidates": ["playwright"],
+      "selection_rule": "Prefer existing Playwright tests, then CLI+Skills for coding-agent validation; use MCP when a persistent exploratory browser loop is materially useful."
+    },
+    {
+      "when": "Implementation requires a dedicated autonomous software-engineering runtime rather than the current host, and that missing runtime property is evidenced by the first slice or execution plan.",
+      "capability_gap": "dedicated autonomous coding environment",
+      "provider_candidates": ["openhands", "deepagents"],
+      "selection_rule": "Choose only if the missing runtime property is explicit; do not add a second general coding agent simply because the desired future product is autonomous."
+    }
+  ],
+  "verification": [
+    "the first slice is usable or executable",
+    "acceptance behavior is observable",
+    "material lived/domain experience was preserved as product evidence without being confused with technical specification or universal truth",
+    "the slice reduces at least one material product or execution uncertainty",
+    "technology choices are traceable to actual behavior/constraints rather than trend vocabulary",
+    "the next product decision can be based on evidence rather than speculation"
+  ],
+  "reroute_signals": [
+    "a trustworthy existing implementation is discovered -> feature-change or repo-recovery",
+    "an observed failure becomes the blocker -> bug-fix",
+    "deployment becomes the immediate blocker -> release-operations"
+  ]
+}

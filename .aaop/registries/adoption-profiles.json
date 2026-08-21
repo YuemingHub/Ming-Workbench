@@ -1,0 +1,48 @@
+{
+  "schema_version": "0.2.0",
+  "profiles": [
+    {
+      "id": "protocol-only",
+      "level": 0,
+      "default": true,
+      "requires": [],
+      "description": "Use AAOP instructions with the developer's existing host and no external integration.",
+      "upgrade_triggers": ["missing repeatable procedure", "missing external capability", "missing discovery", "missing durable runtime", "missing governance"]
+    },
+    {
+      "id": "host-native",
+      "level": 1,
+      "requires": ["host-native"],
+      "description": "Use native AI IDE tools, subagents/workers, sandbox and approvals before adding another framework.",
+      "upgrade_triggers": ["procedural knowledge must be reusable", "external service access is missing", "capability provider is unknown", "runtime or execution-continuity limitations are material"]
+    },
+    {
+      "id": "standard-extensions",
+      "level": 2,
+      "optional": ["agent-skills", "mcp"],
+      "description": "Add Skills or MCP only for a concrete missing capability. These are independent extensions, not a mandatory bundle.",
+      "upgrade_triggers": ["resource provider is unknown across a broad ecosystem", "independent agent systems must interoperate", "dedicated runtime or execution control is justified"]
+    },
+    {
+      "id": "discovery-interoperability",
+      "level": 3,
+      "optional": ["ard", "a2a", "mcp"],
+      "description": "Use open discovery/interoperability standards when local knowledge and preconfigured providers are insufficient.",
+      "upgrade_triggers": ["long-horizon execution needs a dedicated harness or execution-control plane", "organization-level coordination is required"]
+    },
+    {
+      "id": "specialized-runtime",
+      "level": 4,
+      "choose_one_or_few": ["loopx", "deepagents", "agency-orchestrator", "microsoft-agent-framework", "camel-workforce", "autoagent"],
+      "description": "Select the minimum specialized runtime or execution-control provider whose primary mechanism matches a proven gap. LoopX is for durable bounded execution continuity; Deep Agents is for long-horizon agent runtime capability; agency-orchestrator is for bounded Task Pod DAG/resume execution. Do not install all runtimes.",
+      "upgrade_triggers": ["multiple people/agents/runtimes need durable shared governance"]
+    },
+    {
+      "id": "governed-workspace",
+      "level": 5,
+      "optional": ["agentspace"],
+      "description": "Add an organizational control plane only when shared ownership, approvals, permissions, audit and scheduling are real requirements."
+    }
+  ],
+  "selection_rule": "Prefer the lowest level that can satisfy the outcome with acceptable reliability and risk; levels are not mandatory or strictly cumulative. For Level 4, classify the primary missing mechanism before selecting a provider and avoid overlapping runtimes/control planes without separate proven gaps."
+}

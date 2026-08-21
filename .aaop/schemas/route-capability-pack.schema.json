@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aaop.dev/schemas/route-capability-pack.schema.json",
+  "title": "AAOP Route Capability Pack",
+  "type": "object",
+  "required": ["version", "route_id", "objective", "stages", "escalations", "verification", "reroute_signals"],
+  "properties": {
+    "version": {"type": "string"},
+    "route_id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "objective": {"type": "string", "minLength": 1},
+    "default_execution": {"type": "string"},
+    "stages": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "purpose", "required_capabilities", "evidence", "exit_when"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "purpose": {"type": "string", "minLength": 1},
+          "required_capabilities": {"type": "array", "items": {"type": "string"}},
+          "optional_capabilities": {"type": "array", "items": {"type": "string"}},
+          "evidence": {"type": "array", "items": {"type": "string"}},
+          "exit_when": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "pressure_guards": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "rule"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+          "rule": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "escalations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["when", "capability_gap", "provider_candidates", "selection_rule"],
+        "properties": {
+          "when": {"type": "string"},
+          "capability_gap": {"type": "string"},
+          "provider_candidates": {"type": "array", "items": {"type": "string"}},
+          "selection_rule": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "verification": {"type": "array", "items": {"type": "string"}},
+    "reroute_signals": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": false
+}

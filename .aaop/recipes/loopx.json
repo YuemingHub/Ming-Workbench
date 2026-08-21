@@ -1,0 +1,148 @@
+{
+  "id": "loopx",
+  "provider_id": "loopx",
+  "last_verified": "2026-08-11",
+  "source_of_truth": "https://github.com/huangruiteng/loopx",
+  "reviewed_upstream": {
+    "stable_tag": "v0.4.3",
+    "stable_commit": "1a7cc56a4c0873be0dc2cb55a32394cb31f78b48",
+    "stable_package_version": "0.4.3",
+    "main_package_version_observed": "0.4.4",
+    "identity_evidence": "GitHub compare reports v0.4.3 identical to commit 1a7cc56a4c0873be0dc2cb55a32394cb31f78b48 at the 2026-08-11 review point. Re-check before adoption; this snapshot is evidence, not permanent trust."
+  },
+  "selection": {
+    "use_when": [
+      "an AAOP Journey or bounded Task Pod must continue across many turns or sessions and the current host cannot reliably preserve bounded execution state, todo ownership, evidence, gates, scheduler cadence, or handoff",
+      "repeated unchanged retries, polling, or low-progress turns require a provider-neutral quota/should-run control so the host can avoid unnecessary model calls and stop blind execution",
+      "a custom runner or host needs a durable local-first control contract between bounded agent turns while AAOP retains product intent, Route/Journey, authorization, and acceptance authority"
+    ],
+    "avoid_when": [
+      "the task is short-lived or host-native continuation already finishes it reliably",
+      "AAOP Working Contract, Journey, Task Pod handoff, and repository-native checks already provide sufficient continuity without another runtime state layer",
+      "the blocker is a human-owned product decision, authorization, credential, environment, network, external dependency, or missing technical tool rather than long-running execution control",
+      "LoopX goal/state would be treated as a competing source of truth for AAOP Working Contract, Route, Journey, production policy, or product/domain authority",
+      "the full LoopX capability catalog, experimental Turn runtime, dashboard, or optional extensions would be installed when only the CLI control-plane contract is required"
+    ]
+  },
+  "detect": {
+    "commands": ["loopx"],
+    "python_packages": ["loopx"]
+  },
+  "install": {
+    "mode": "manual-choice",
+    "minimal_commands": [
+      "verify the current upstream stable ref/release and inspect the supported install path before adoption",
+      "curl -fsSL https://huangruiteng.github.io/loopx/install.sh | bash",
+      "loopx doctor",
+      "from the target project, run loopx connect and inspect status before creating or mutating long-running goal state"
+    ],
+    "notes": [
+      "Upstream currently documents the no-clone installer and stable ref as the normal user path; do not adopt moving main merely because it is newer.",
+      "At review time, v0.4.3 is identical to exact commit 1a7cc56a4c0873be0dc2cb55a32394cb31f78b48, stable package metadata reports 0.4.3, and main reports 0.4.4. Re-check this identity before adoption instead of trusting the remembered snapshot.",
+      "The reviewed quick-start path requires Python 3.11+, curl, tar, and a macOS or Linux shell. The upstream first-run feedback template offers Windows and WSL as reportable operating systems, but that is not an installation/support contract. Do not assume native Windows support merely because the Python package metadata is portable; verify an upstream-supported Windows/WSL path before adopting LoopX on an AAOP Windows consumer.",
+      "Prefer LoopX direct CLI/custom-runner integration as the compatibility baseline. Upstream describes LoopX Turn as experimental; do not make Turn an AAOP production dependency without separate qualification.",
+      "Install only after a real long-running execution-control gap is proven. A normal AAOP task must not install LoopX by default.",
+      "Use LoopX as a bounded execution provider beneath AAOP: AAOP owns Working Contract, current Route, Journey/release-cycle continuity, Task Pod acceptance, authorization, and final target verification.",
+      "A LoopX goal used by AAOP should represent one bounded execution outcome or execution lane derived from current AAOP evidence. It must not silently redefine the user's long-horizon product goal.",
+      "Keep LoopX live controller state in project-local ignored/runtime state according to upstream public/private guidance; do not copy raw transcripts, credentials, private paths, or private evidence into tracked AAOP artifacts.",
+      "After connect, do not assume the user's product todo is immediately executable. A newly connected goal may expose `status=connected_without_run` with an `onboarding_connection_validation` todo as the selected frontier. Follow and validate that explicit frontier before product work instead of bypassing first-run health evidence.",
+      "When AAOP has authorized only a bounded execution surface, use LoopX's official repeatable `--scan-path` interface to keep public-boundary/status reads inside that authorized surface when broader repository scanning is irrelevant or produces known false positives. Do not disable the scanner and do not rewrite legitimate consumer documents merely to satisfy a generic scan.",
+      "For a multi-agent LoopX goal, bind state-changing writeback such as `refresh-state` to the explicit registered `--agent-id`; do not rely on text inference for actor identity.",
+      "Treat terminal empty-frontier behavior as a stop signal, not an accounting error. A completed `--no-follow-up` todo with no successor may enter terminal-no-followup and reject quota spend; create/link a real successor before completion only when another bounded responsibility genuinely exists."
+    ]
+  },
+  "permissions": [
+    "local installation and project-local LoopX state writes when adoption is authorized",
+    "only the repository/tool permissions already authorized for the bounded AAOP execution outcome",
+    "scheduler or heartbeat integration only when the current host/runner explicitly supports and authorizes it",
+    "no implicit production, publication, billing, credential, or destructive authority from LoopX quota eligibility"
+  ],
+  "adoption_review": {
+    "reviewed_at": "2026-08-11",
+    "scope": "LoopX stable CLI control-plane integration for bounded AAOP long-running execution; excludes treating LoopX as the top-level AAOP Journey/Working Contract authority and excludes unqualified experimental Turn adoption",
+    "reason": "LoopX overlaps strongly with the exact execution-ledger/no-progress/scheduler layer AAOP was considering building. Reuse is preferable, but both systems describe control-plane state, so authority and maturity boundaries must be rechecked before consequential adoption.",
+    "decision_effect": "conditional-adoption-only",
+    "current_observations": [
+      "LoopX is MIT licensed, requires Python 3.11+, and declares no runtime Python dependencies in its package metadata.",
+      "LoopX documents itself as provider-neutral and local-first, with durable objective/todo/gate/evidence/quota/handoff state while external agent runtimes execute bounded turns.",
+      "The direct CLI/custom-runner contract is documented as the compatibility baseline; the typed LoopX Turn path is explicitly described as experimental.",
+      "At the review point, tag v0.4.3 is identical to commit 1a7cc56a4c0873be0dc2cb55a32394cb31f78b48; stable package metadata reports 0.4.3 while main reports 0.4.4, so stable/tag/exact-revision and moving main remain distinct adoption surfaces.",
+      "The reviewed README quick-start names macOS/Linux shell requirements. The first-run issue template includes Windows and WSL as feedback options, but no native Windows install/support contract was found in the reviewed repository surfaces; AAOP v1 itself supports Windows, so cross-platform adoption remains conditional.",
+      "LoopX has explicit public/private state guidance and project-uninstall/archive code paths, but project-specific integration still needs a real pilot to prove rollback and privacy behavior in the consumer.",
+      "LoopX itself states that dangerous permissions, publishing, production writes, and final ownership remain human-controlled; AAOP must additionally preserve its own Working Contract, target-resolution, conditional-write, and release verification rules.",
+      "LoopX can supply todo lifecycle, quota should-run decisions, user/operator gates, scheduler hints, monitor waits, peer claims/handoffs, and validated writeback accounting that would otherwise duplicate a proposed AAOP Execution Ledger.",
+      "A real AAOP consumer pilot on YuemingHub/mingos-foundation completed successfully on Linux against AAOP candidate 0250ea7a9fe1a43a3f2e54bc8916cea6b2a744a5 and LoopX v0.4.3 exact commit 1a7cc56a4c0873be0dc2cb55a32394cb31f78b48. It proved onboarding frontier handling, negative validation/no-spend behavior, validated successor accounting, multi-agent handoff ownership, user-gate scheduler backoff, fresh-process recovery, privacy isolation, and rollback/post-rollback validation.",
+      "The same pilot found a consumer-specific compatibility boundary: LoopX full-root public-boundary scanning produced false positives on legitimate Foundation governance prose. Scoped `--scan-path` reads closed the bounded execution gap without disabling security checks or modifying the consumer's governance text.",
+      "The pilot also proved terminal-no-followup is a useful anti-thrash state: when validated work has no real successor, LoopX refuses quota spend instead of allowing the host to invent continuation merely to keep automation alive."
+    ],
+    "sources": [
+      "https://github.com/huangruiteng/loopx",
+      "https://github.com/huangruiteng/loopx/tree/v0.4.3",
+      "https://github.com/huangruiteng/loopx/commit/1a7cc56a4c0873be0dc2cb55a32394cb31f78b48",
+      "https://github.com/huangruiteng/loopx/blob/main/docs/guides/custom-agent-runner-integration.md",
+      "https://github.com/huangruiteng/loopx/blob/main/docs/product/core-control-plane/state-machine.md",
+      "https://github.com/huangruiteng/loopx/blob/main/docs/product/release-readiness.md",
+      "https://github.com/huangruiteng/loopx/blob/main/docs/public-private-boundary.md",
+      "https://github.com/huangruiteng/loopx/blob/main/.github/ISSUE_TEMPLATE/first_run.yml",
+      "https://github.com/YuemingHub/Adaptive-Agent-Orchestration-Protocol/issues/42",
+      "https://github.com/YuemingHub/mingos-foundation/pull/18"
+    ],
+    "required_checks": [
+      "re-check the current stable ref/version/tag/commit identity, license, supported Python/runtime/OS matrix, installer/update instructions, and security/release notes immediately before adoption",
+      "on Windows consumers, verify an upstream-supported native Windows or explicitly accepted WSL path before installation; the presence of Windows/WSL in a feedback template is not sufficient support evidence",
+      "prove on a disposable or non-production consumer that loopx doctor/connect/status work without overwriting project-owned AAOP instructions or tracked project state",
+      "after connect, inspect the fresh selected frontier and complete any justified provider-generated onboarding/connection-validation todo before assuming product work is runnable",
+      "define an explicit authority map showing AAOP Working Contract/Route/Journey/authorization/acceptance as authoritative and LoopX as bounded execution continuity only",
+      "when public-boundary/status scanning is broader than the AAOP-authorized execution surface or demonstrably incompatible with legitimate project prose, use upstream-supported scoped `--scan-path` reads for the bounded surface and preserve the broader incompatibility as evidence; never disable the scanner or mutate unrelated project truth merely to clear a generic provider scan",
+      "for multi-agent goals, prove state-changing writeback identifies the registered actor explicitly where LoopX requires it and that one worker cannot silently take over another worker's claimed responsibility",
+      "prove a representative restart resumes from durable LoopX state without replaying chat transcripts or asking already-resolved AAOP human-owned questions",
+      "prove unchanged waiting/no-progress state yields quiet/wait/gate behavior rather than repeated model calls, provider proliferation, or blind retries",
+      "prove a genuine user gate yields no automatic turn and an explicit scheduler backoff/stop contract while the gate is unchanged",
+      "prove a validation failure cannot be recorded as completed delivery or spend and that real repository/test/runtime evidence is read back before writeback",
+      "prove validated accounting occurs only for a real non-terminal continuation frontier; if a completed todo has no real successor and LoopX enters terminal-no-followup, treat the refusal to spend/continue as correct stop behavior rather than fabricating a successor",
+      "prove user/operator gates do not grant unrelated production, publication, credential, billing, or destructive authority",
+      "prove private LoopX controller/runtime state remains ignored/local and that tracked artifacts contain no raw transcripts, credentials, private paths, or private evidence",
+      "exercise the documented project uninstall/archive/rollback path and confirm only LoopX-owned or explicitly selected state is removed/archived, then rerun the applicable consumer-native validation",
+      "if any experimental LoopX Turn surface is selected later, qualify it separately for duplicate effects, retry/resume semantics, independent validation, and scheduler acknowledgement before production reliance"
+    ],
+    "notes": [
+      "The preferred first pilot is direct CLI orchestration, not the experimental Turn adapter.",
+      "AAOP issue #42 records a passing real consumer pilot with verdict `closes-gap` for the bounded Linux direct-CLI/custom-runner execution-continuity use case. This does not qualify native Windows/WSL, full-root scanning on every repository, or every host scheduler/session model.",
+      "Do not add an AAOP Execution Ledger in parallel merely to mirror LoopX todo/quota/run state. The passing pilot did not expose an AAOP-specific continuity fact that requires a second execution database."
+    ]
+  },
+  "verify": {
+    "checks": [
+      "loopx doctor reports a usable installed runtime from the intentionally selected stable/tag/exact revision and its identity matches the adoption decision",
+      "the target project can connect without replacing AAOP project authority or tracked instructions",
+      "the first post-connect selected frontier is read and honored explicitly; provider onboarding/connection validation is not bypassed to reach product work",
+      "one bounded AAOP outcome can be represented as LoopX executable todo/frontier state and completed with independent repository/runtime validation",
+      "quota should-run prevents a model call for a quiet, waiting, gated, or throttled state and selects only a justified bounded action when eligible",
+      "a real user gate exposes no automatic turn and a bounded scheduler backoff/stop contract while unchanged",
+      "a repeated unchanged failure or wait produces a durable blocker/gate/wait state instead of endless retries",
+      "a fresh agent/session can recover the same bounded execution frontier from LoopX plus current project evidence while AAOP Journey and Working Contract remain intact",
+      "handoff to another bounded agent responsibility preserves evidence, requires explicit ownership, and does not create a second AAOP coordinator",
+      "failed validation remains incomplete/unspent; validated accounting requires real readback and a legitimate continuation frontier, while terminal-no-followup stops instead of inventing work",
+      "public-boundary/status reads remain inside the authorized relevant surface when a broader scan is not justified, without weakening security checks or modifying unrelated consumer truth",
+      "removing/disabling LoopX returns execution to host-native AAOP without losing the authoritative AAOP Working Contract/Journey state and consumer-native validation still passes"
+    ]
+  },
+  "rollback": {
+    "steps": [
+      "stop LoopX-driven scheduler/heartbeat wakes for the bounded AAOP execution outcome",
+      "preserve only the compact evidence/handoff references required by AAOP continuity; do not import raw LoopX runtime/private state into AAOP",
+      "use LoopX project uninstall/archive dry-run and explicit execution paths to remove or archive only selected LoopX project state after inspecting the plan",
+      "remove LoopX host skills/adapters or CLI installation only through the upstream-supported ownership-aware path applicable to how it was installed",
+      "resume with AAOP host-native execution from the latest authoritative Working Contract, Journey, repository baseline, and verified evidence, then rerun the applicable project-native validation"
+    ]
+  },
+  "warnings": [
+    "LoopX and AAOP both use control-plane language. Integration is safe only if authority is explicit: AAOP decides why/what/under-which-human-contract; LoopX may govern when/who/which-bounded-turn executes inside that outcome.",
+    "AAOP v1 supports Windows, while the reviewed LoopX quick-start is macOS/Linux-shell oriented. The upstream feedback form accepting Windows/WSL reports is not proof of a supported install path; do not make LoopX a cross-platform default until Windows/WSL support is explicitly qualified.",
+    "Do not duplicate LoopX todo/quota/scheduler/run-history state in a new AAOP Execution Ledger unless real pressure proves a missing AAOP-specific fact; the completed #42 pilot did not prove such a missing fact.",
+    "Do not infer that quota eligibility authorizes protected external effects. AAOP autonomy, exact write-target, stale-write, credential, cost, production, and publication gates still apply.",
+    "Do not treat a generic full-repository public-boundary scan as authority to inspect or rewrite project surfaces outside the bounded AAOP execution outcome. Use supported scoped reads when appropriate and preserve incompatibilities as evidence.",
+    "Do not treat terminal-no-followup or a user-gate backoff as failures that require more model calls. They are correct no-progress/stop states unless new evidence creates a legitimate frontier.",
+    "Do not default to LoopX for every project; the simplest host-native AAOP path remains preferred when it reliably completes the task."
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "id": "autoagent",
+  "provider_id": "autoagent",
+  "last_verified": "2026-08-08",
+  "source_of_truth": "https://github.com/HKUDS/AutoAgent",
+  "selection": {
+    "use_when": ["natural-language generation and testing of new tools, agents, or workflows is itself the required capability"],
+    "avoid_when": ["existing skills/tools/agents already satisfy the task", "only orchestration policy is needed", "the intended deployment surface has unresolved execution/network isolation concerns that have not been rechecked"]
+  },
+  "detect": {
+    "commands": ["auto"]
+  },
+  "install": {
+    "mode": "clone",
+    "minimal_commands": ["git clone https://github.com/HKUDS/AutoAgent.git", "python -m pip install -e ./AutoAgent"],
+    "notes": ["Use an isolated environment or dedicated checkout rather than vendoring AutoAgent into the target product repository by default.", "Some modes use Docker and model/provider credentials; enable only the mode needed for the selected task.", "Before using a Docker-backed execution mode in a shared or network-reachable developer environment, complete the scoped adoption review below against current upstream source and the actual host/network configuration."]
+  },
+  "credentials": ["model-provider credential required by the selected AutoAgent configuration", "GitHub token only when a selected AutoAgent workflow actually requires it"],
+  "permissions": ["Docker/host execution only when the chosen mode requires it", "repository write scope only when self-modification is intentionally enabled"],
+  "adoption_review": {
+    "reviewed_at": "2026-08-08",
+    "scope": "Docker-backed command execution path used by AutoAgent environments; especially adoption in shared or network-reachable developer environments",
+    "reason": "A public issue reports an unauthenticated command-execution channel, and the relevant current main source at review time still showed a host-published container communication port, a root container with a bind-mounted workspace, a TCP server listening on 0.0.0.0, and shell=True execution of received command text. The actual exposure and impact depend on the selected AutoAgent mode and the host/network isolation, so this is a re-verification requirement rather than a permanent project-wide verdict.",
+    "decision_effect": "reverify-before-adoption",
+    "current_observations": [
+      "Public issue #96 was open at review time and described the Docker command channel as remotely reachable and unauthenticated.",
+      "Current main autoagent/environment/docker_env.py used a Docker container running as root, bind-mounted the local workspace, and published the communication port with -p <host-port>:<container-port> without an explicit loopback host address.",
+      "Current main autoagent/environment/tcp_server.py bound the command server to 0.0.0.0 and executed received command text through subprocess.Popen(..., shell=True) inside the container.",
+      "These code observations do not by themselves establish external reachability, host-root execution, or the blast radius for every AutoAgent deployment; those depend on Docker networking, host firewall, chosen mode, mounted data, and surrounding isolation."
+    ],
+    "sources": [
+      "https://github.com/HKUDS/AutoAgent/issues/96",
+      "https://github.com/HKUDS/AutoAgent/blob/main/autoagent/environment/docker_env.py",
+      "https://github.com/HKUDS/AutoAgent/blob/main/autoagent/environment/tcp_server.py"
+    ],
+    "required_checks": [
+      "Re-check the current AutoAgent release/main source and issue status to determine whether the relevant command-channel behavior has changed or been mitigated.",
+      "Confirm whether the intended AutoAgent mode actually uses the reviewed Docker command-execution path; do not apply this review to unrelated surfaces automatically.",
+      "Inspect the actual host port binding, Docker networking/firewall policy, execution identity, workspace mount sensitivity, and who can reach the environment.",
+      "For shared or network-reachable use, require evidence that the command channel is appropriately isolated/authenticated or otherwise mitigated before adoption; otherwise choose an isolated deployment, a narrower AutoAgent surface, or another provider.",
+      "Record the adoption decision as context-specific and time-stamped rather than changing the provider into a global safe/unsafe classification."
+    ],
+    "notes": ["Issue reports are evidence leads, not maintainers' permanent security advisories unless upstream designates them as such.", "If current upstream code removes or materially mitigates the reviewed mechanism, update or retire this adoption review instead of preserving a stale warning forever."]
+  },
+  "verify": {
+    "checks": ["run the relevant AutoAgent CLI mode in an isolated test context", "create/test one representative agent/tool/workflow", "confirm the generated artifact closes the original capability gap", "when the reviewed Docker surface is used, verify the adopted isolation/network/permission assumptions in the actual environment"]
+  },
+  "rollback": {
+    "steps": ["remove the isolated AutoAgent environment/checkout", "revoke credentials created only for the integration", "remove generated artifacts not intentionally adopted by the project"]
+  },
+  "warnings": ["AutoAgent can create code/tools and may use Docker; treat self-modification and broad repository writes as higher-risk capabilities.", "The scoped adoption_review records a time-stamped re-verification obligation for one execution surface; it is not a blanket security verdict on AutoAgent."]
+}

@@ -1,0 +1,78 @@
+{
+  "version": "0.9.0",
+  "route_id": "bug-fix",
+  "objective": "Turn an observed failure into a verified root-cause fix with the smallest durable change and explicit regression evidence.",
+  "default_execution": "host-native",
+  "stages": [
+    {
+      "id": "failure-evidence",
+      "purpose": "Bind the report to the current project baseline, capture expected versus observed behavior, and reproduce the failure or obtain the strongest available evidence without assuming historical evidence is still current.",
+      "required_capabilities": ["failure-reproduction", "log-test-inspection", "baseline-freshness-check"],
+      "optional_capabilities": ["browser-validation", "runtime-observability", "platform-compatibility-analysis"],
+      "evidence": ["reported version/commit and environment", "current implementation baseline", "failing test", "runtime error/log", "browser reproduction", "minimal reproduction steps"],
+      "exit_when": "The report has been reconciled with the current baseline and the failure is reproducible or sufficiently evidenced to localize without guessing."
+    },
+    {
+      "id": "root-cause",
+      "purpose": "Trace the failure through the smallest relevant code/data/config path, distinguish cause from symptom, and treat issue comments/workarounds as hypotheses until tested.",
+      "required_capabilities": ["code-tracing", "hypothesis-testing"],
+      "optional_capabilities": ["git-regression-analysis"],
+      "evidence": ["causal path", "disproven alternatives", "tested external hypotheses", "relevant change/history when useful"],
+      "exit_when": "A root-cause hypothesis predicts the observed failure and can be tested by a bounded change."
+    },
+    {
+      "id": "fix-and-regress",
+      "purpose": "Apply the narrowest durable fix and prove the failure no longer reproduces on the strongest practical relevant environment without collateral regression.",
+      "required_capabilities": ["targeted-implementation", "regression-testing"],
+      "optional_capabilities": ["browser-e2e-testing", "cross-platform-validation"],
+      "evidence": ["passing regression check", "relevant surrounding tests", "before/after runtime evidence", "platform-specific compatibility evidence when exact reproduction is unavailable", "verification-harness integrity evidence when a custom aggregator is material to the pass/fail claim"],
+      "exit_when": "The original failure is fixed on a relevant baseline and regression evidence passes."
+    }
+  ],
+  "pressure_guards": [
+    {
+      "id": "reported-baseline-freshness",
+      "rule": "An issue, traceback, source line, or reproduction from an older version is historical evidence until compared with the current baseline; do not edit current code as though the old report were current fact."
+    },
+    {
+      "id": "reconcile-current-baseline-before-mutation",
+      "rule": "Before the first material mutation in an existing project, reconcile the current implementation/runtime baseline with the project-defined authority and freshness of material state, specification, test, adapter, deployment, and historical evidence. A failing test can itself encode a stale historical assumption; classify that possibility before changing product behavior. Preserve material conflicts and keep unknown facts unknown rather than silently converting them to false/absent state."
+    },
+    {
+      "id": "verification-harness-integrity",
+      "rule": "When a custom test runner, CI wrapper, validation aggregator, generated report, or similar harness materially converts underlying checks into pass/fail acceptance evidence, do not trust a green aggregate merely because the wrapper exited successfully. Verify the smallest consequential integrity surface: intended checks are discovered distinctly, collisions/cached reuse/duplicate counting do not substitute one check for another, skipped/errored/unavailable work is represented honestly, and failures propagate through wrapper exit/status semantics. If harness integrity is unknown or disproven, downgrade the aggregate to provisional/unknown evidence and use direct underlying checks or repair the harness before relying on it for regression, completion, or release claims."
+    },
+    {
+      "id": "discussion-is-hypothesis",
+      "rule": "Issue comments, suggested fixes, and user workarounds are hypotheses/evidence, not verified root cause; test causality before adoption."
+    }
+  ],
+  "escalations": [
+    {
+      "when": "The issue is well-defined, reproducible, bounded, and should be delegated to a dedicated issue-solving agent instead of the current host.",
+      "capability_gap": "isolated autonomous SWE issue resolution",
+      "provider_candidates": ["mini-swe-agent", "openhands"],
+      "selection_rule": "Prefer mini-SWE-agent for a minimal bounded issue loop; choose OpenHands only when a broader autonomous coding environment is the actual need."
+    },
+    {
+      "when": "The bug is browser-visible and cannot be proven reliably with current tests/tools.",
+      "capability_gap": "deterministic browser reproduction and regression validation",
+      "provider_candidates": ["playwright"],
+      "selection_rule": "Prefer project Playwright Test when adding durable regression coverage; use CLI+Skills for agent-driven checks; use MCP for persistent exploratory browser state."
+    },
+    {
+      "when": "The project already uses Spec Kit or the defect must be reconciled with durable specification artifacts.",
+      "capability_gap": "structured bug artifact/spec reconciliation",
+      "provider_candidates": ["spec-kit"],
+      "selection_rule": "Use Spec Kit's supported bug workflow when it materially improves traceability; do not initialize a full SDD system solely for a trivial one-line defect."
+    }
+  ],
+  "verification": [
+    "the current baseline corresponding to the fix is explicit",
+    "the original failure is no longer reproducible or the strongest equivalent compatibility evidence passes",
+    "a regression check guards the fixed behavior when practical",
+    "when a custom verification aggregator is material, its discovery/identity/failure-propagation integrity is credible enough for the acceptance claim rather than assumed from a green wrapper result",
+    "unrelated refactoring did not become the main change"
+  ],
+  "reroute_signals": ["the failure is actually missing/changed product behavior -> feature-change", "the repository cannot be trusted enough to localize the issue -> repo-recovery", "production mitigation becomes primary -> release-operations"]
+}

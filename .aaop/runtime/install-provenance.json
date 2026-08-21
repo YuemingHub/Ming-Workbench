@@ -1,0 +1,13 @@
+{
+  "aaop_version": "1.2.0",
+  "authority": "diagnostic-only; does not grant managed-file ownership or mutation authority",
+  "managed_file_count": 75,
+  "manifest_schema_version": 2,
+  "package_fingerprint": "af4c6b3224357fbcceffc313ebb4fc0d34ad413368c7aa2102cf3256942f4e22",
+  "recorded_at": "2026-08-21T14:13:43Z",
+  "schema_version": 1,
+  "source": {
+    "kind": "official-ref",
+    "ref": "stable"
+  }
+}

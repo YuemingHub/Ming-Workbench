@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "package_version": "1.2.0",
+  "release_line": "production",
+  "stable_channel": "stable",
+  "stable_promotion": "post-merge-fast-forward-only",
+  "downstream_consumer_validation_required": true,
+  "downstream_consumer": {
+    "repository": "YuemingHub/MingOS",
+    "commit": "c355f2b1fdbe067eb66fbd622dec372b5b12b27d",
+    "workflow": ".github/workflows/validate-downstream-consumer.yml",
+    "validation": "stable-v1.1.0-to-exact-v1.2.0-candidate upgrade plus project tests/checks, project authority, Journey, Working Contract, runtime and provenance continuity"
+  },
+  "canonical_journey": {
+    "path": ".aaop/journeys/idea-to-production.json",
+    "required_status": "canonical"
+  },
+  "human_agent_working_contract": {
+    "skill": ".aaop/skills/working-contract/SKILL.md",
+    "tool": ".aaop/tools/working_contract.py",
+    "schema": ".aaop/schemas/working-contract.schema.json",
+    "task_pod_max_members": 5,
+    "handoff_schema": ".aaop/schemas/task-handoff.schema.json"
+  },
+  "production_platform": {
+    "python_implementation": "CPython",
+    "python_min": "3.11",
+    "python_max": "3.14",
+    "operating_systems": ["linux", "windows", "macos"]
+  },
+  "required_workflows": [
+    "validate.yml",
+    "validate-host-bootstrap.yml",
+    "validate-instruction-topology.yml",
+    "validate-usable-bootstrap.yml",
+    "validate-uninstall.yml",
+    "validate-journey.yml",
+    "validate-journey-windows.yml",
+    "validate-journey-recovery.yml",
+    "validate-platform-support.yml",
+    "validate-provenance.yml",
+    "validate-working-contract.yml",
+    "validate-ci-supply-chain.yml",
+    "validate-downstream-consumer.yml",
+    "validate-production-release.yml"
+  ],
+  "required_docs": [
+    "README.md",
+    "docs/QUICKSTART.md",
+    "docs/HUMAN_AGENT_WORKING_CONTRACT.md",
+    "docs/PLATFORM_SUPPORT.md",
+    "docs/INSTALL_PROVENANCE.md",
+    "docs/CI_SUPPLY_CHAIN.md",
+    "docs/PRODUCTION_RELEASE.md"
+  ],
+  "release_invariants": [
+    "package VERSION and production release contract version are identical",
+    "README status identifies the same production release line",
+    "a stable semantic package promotion uses a new package release identity; do not move stable across materially changed managed AAOP semantics while reusing the previous VERSION",
+    "stable-managed source freshness compares release identity, not local health/ready/version alone",
+    "all required workflows exist and use reviewed immutable external Action revisions",
+    "long-lived validation workflows retain read-only repository contents permissions",
+    "canonical idea-to-production Journey is no longer experimental",
+    "Human-Agent Working Contract must preserve an explicit autonomous/collaborative choice instead of silently choosing for the human",
+    "sustained execution is gated until aligned intent has observable success evidence and no unresolved human-owned question",
+    "Task Pods default to one agent, never exceed five members, and retain exactly one accountable owner with bounded handoff",
+    "external role/orchestration providers remain delegated capability surfaces rather than competing Working Contract/Journey control planes",
+    "stable is advanced only after merge and only to a fully validated candidate with its own current package release identity",
+    "the pinned real MingOS downstream consumer validates the exact candidate head tree before stable promotion",
+    "if main/base changes during review, affected validation is rerun against the reconciled candidate",
+    "stable rollback is performed by a new fully validated forward repair/revert commit rather than silently force-moving the channel backward"
+  ]
+}

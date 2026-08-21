@@ -1,0 +1,228 @@
+{
+  "journey_id": "idea-to-production",
+  "version": "0.4.1",
+  "status": "canonical",
+  "objective": "Take a person from a rough idea or partial implementation to a real accepted deliverable on the target its intended consumer actually uses, through evidence-driven AAOP route transitions without making the user operate the engineering machinery.",
+  "routing_policy": {
+    "intake_selects_current_route": true,
+    "greenfield_gates_are_conditional": true,
+    "reroute_requires_new_evidence": true,
+    "stale_checkpoint_never_overrides_current_evidence": true,
+    "completed_cycle_must_reopen_explicitly": true,
+    "autonomous_takeover_reconstructs_intent_and_selects_current_goal": true,
+    "route_completion_is_not_project_completion": true,
+    "blocked_delta_is_scoped_and_frontier_recomputed": true,
+    "bounded_execution_end_is_handoff_not_completion": true,
+    "project_frontier_reconciled_before_project_pause": true,
+    "deliverable_target_recovered_before_completion": true
+  },
+  "completion_policy": {
+    "blocked_is_complete": false,
+    "target_verification_required": true,
+    "target_verification_is_cycle_scoped": true,
+    "local_or_ci_evidence_cannot_substitute_for_target_evidence": true,
+    "single_blocker_cannot_block_project_when_other_executable_delta_exists": true,
+    "project_pause_requires_no_meaningful_authorized_executable_frontier_or_bounded_run_end": true,
+    "local_no_mutation_is_not_project_no_frontier": true,
+    "green_checks_are_not_project_completion": true,
+    "green_aggregate_requires_trustworthy_verification_harness": true,
+    "completion_contract_is_deliverable_target_aware": true
+  },
+  "state_contract": {
+    "runtime_file": ".aaop/runtime/journeys/idea-to-production.json",
+    "schema": ".aaop/schemas/journey-state.schema.json",
+    "checkpoint_tool": ".aaop/tools/journey.py",
+    "write_precondition": "Every checkpoint mutation must use the revision returned by the latest reconciled status read; stale revisions are rejected while mutation is serialized by a local OS file lock.",
+    "authority": "Journey state is a resumability checkpoint only. Current repository, runtime, target/consumer environment, user, and materially current project-work evidence wins when it conflicts with a saved checkpoint. Completed release evidence is historical and must not satisfy a later release cycle."
+  },
+  "entry_conditions": [
+    "the user has a project/product idea or an existing partial implementation",
+    "the desired outcome spans more than one route transition",
+    "the user wants the system to continue through implementation and real target acceptance rather than only provide advice"
+  ],
+  "user_owns": [
+    "product intent and domain truth",
+    "material product decisions that cannot be inferred from evidence",
+    "credentials and external-account authorization when required",
+    "consequential production/publication/install authorization unless an existing explicit policy already grants it",
+    "material legal/rights decisions whose intended grant cannot be inferred from current project authority"
+  ],
+  "system_owns": [
+    "route selection and rerouting",
+    "intent reconstruction and current-goal selection from current project evidence",
+    "recovery of the actual deliverable, intended consumer, and observable target before project-completion claims",
+    "bounded reconciliation of materially current project work topology and unmet acceptance evidence before project pause/no-frontier claims",
+    "technical discovery and stack decisions derived from constraints",
+    "task decomposition and sequencing",
+    "implementation and verification",
+    "verification-harness integrity and evidence-target fidelity when a custom aggregator materially determines acceptance, regression, completion, or release evidence",
+    "scoped blocker handling and executable-frontier recomputation after every completed, blocked, or no-op delta",
+    "containment of dependent verification debt while continuing genuinely independent authorized frontier",
+    "journey checkpoint maintenance, resume reconciliation, and stale-write prevention",
+    "release-cycle boundaries so old target verification cannot prove a later release",
+    "capability/provider selection only after a proven gap",
+    "release/delivery preflight preparation and rollback, uninstall, restore, or other target-appropriate reversal planning"
+  ],
+  "gates": [
+    {
+      "id": "intake",
+      "route_selection": "developer-intake",
+      "goal": "Resolve the current situation, reconstruct the long-horizon observable outcome when a novice delegates takeover, recover the actual deliverable/consumer/target shape when it can change completion, reconcile any materially current project-declared work topology that can change the goal, choose the current highest-value evidence-backed result, and identify the next evidence-bearing step without assuming the project is greenfield, application-shaped, or that the checked-out branch is the whole project frontier.",
+      "exit_evidence": [
+        "provisional observable outcome",
+        "provisional deliverable/consumer/target contract when material to completion",
+        "current primary route selected from present evidence",
+        "material current work target/candidate/predecessor-successor evidence when it can change the goal",
+        "solution vocabulary classification when relevant",
+        "first material uncertainty or immediate blocker"
+      ]
+    },
+    {
+      "id": "first-slice",
+      "primary_route": "idea-to-build",
+      "applies_when": "No trustworthy existing consumer-observable slice already provides enough evidence to continue from the current implementation.",
+      "skip_when": "A trustworthy existing implementation already has a usable consumer-observable slice and the immediate problem belongs to another route.",
+      "goal": "Define and build the smallest real slice that buys useful learning for the intended consumer without prematurely choosing a deployment shape.",
+      "exit_evidence": [
+        "acceptance path",
+        "explicit non-goals",
+        "working artifact or observable behavior",
+        "evidence that at least one material uncertainty was reduced"
+      ]
+    },
+    {
+      "id": "project-readiness",
+      "route_selection": "current-route",
+      "possible_reroutes": ["repo-recovery"],
+      "goal": "Establish only the minimum trustworthy project/environment/artifact baseline and current project frontier required to continue from the current state.",
+      "exit_evidence": [
+        "trusted project baseline",
+        "known validation commands or equivalent evidence",
+        "verification-harness integrity and evidence-target-fidelity status when a custom aggregator materially determines acceptance",
+        "material current work topology/acceptance gaps when they affect the next goal",
+        "known blockers and verification debt",
+        "saved Journey checkpoint reconciled with current evidence"
+      ]
+    },
+    {
+      "id": "implementation-loop",
+      "route_selection": "current-route",
+      "applies_when": "A verified implementation, validation, review, candidate-convergence, packaging, consumer-target, or other accepted-outcome delta remains after intake/project discovery, whether that delta is on the current checkout or another project-declared current work target.",
+      "possible_reroutes": ["bug-fix", "feature-change", "repo-recovery", "understand-review"],
+      "goal": "Iterate through the smallest coherent evidence-backed changes under the current Route, recomputing the highest-value safe executable project frontier after every verified, blocked, or no-op delta. Green checks or no-local-mutation prove only their tested/scope claims, and a custom aggregate is not strong acceptance evidence until the material harness discovery/identity/failure-propagation/evidence-target path is trustworthy. A human or external boundary blocks only the affected scope; continue genuinely independent authorized work on the correct current work target while containing dependent verification debt until intended deliverable behavior is present or project-frontier reconciliation finds no meaningful executable frontier.",
+      "exit_evidence": [
+        "acceptance behavior",
+        "regression evidence",
+        "reviewed diff or scope-level no-mutation evidence",
+        "current next-decision evidence",
+        "current work target/frontier evidence when the checkout is not the whole active project surface",
+        "scoped blocker plus recomputed remaining frontier when any delta is blocked",
+        "material verification debt explicitly unknown until retired by the required evidence"
+      ]
+    },
+    {
+      "id": "release-candidate",
+      "route_selection": "current-route",
+      "possible_reroutes": ["bug-fix", "feature-change", "repo-recovery"],
+      "goal": "Prove that the current deliverable is a release/delivery candidate for its real consumer target, not merely locally complete, and respect project-declared candidate/predecessor/successor ordering when that ordering is current authority.",
+      "exit_evidence": [
+        "relevant tests/build checks",
+        "known CI or approved executable-gate state",
+        "verification-harness integrity and evidence-target-fidelity status when a custom aggregate materially contributes to release eligibility",
+        "current candidate/base/head/order evidence when material",
+        "final artifact/install/distribution closure evidence when the deliverable crosses an artifact boundary",
+        "configuration requirements",
+        "secret/sensitive-data review",
+        "migration impact when applicable",
+        "rollback/uninstall/restore prerequisites appropriate to the actual target",
+        "outbound rights status when third-party reuse/redistribution is part of the accepted outcome"
+      ]
+    },
+    {
+      "id": "release-preflight",
+      "primary_route": "release-operations",
+      "goal": "Resolve the actual deliverable/consumer/target truth, authorization, current target revision/artifact/precondition, blast radius, artifact-capability closure, applicable distribution-rights evidence, and target-appropriate reversal before consequential writes.",
+      "exit_evidence": [
+        "actual deliverable/consumer/target identity",
+        "current target state or explicit unknown",
+        "authorized access path",
+        "preflight result",
+        "artifact capability closure or explicit omitted/unknown capability when material",
+        "rollback/uninstall/restore path appropriate to the target",
+        "required production/publication/install/legal authorization when applicable"
+      ]
+    },
+    {
+      "id": "deploy-observe",
+      "primary_route": "release-operations",
+      "possible_reroutes": ["bug-fix", "feature-change", "repo-recovery"],
+      "goal": "Compatibility gate name retained for existing Journey state. Revalidate the actual target immediately before the consequential write, perform only the delivery operation the real deliverable requires (deploy, publish, install, load, apply, or another project-defined operation), and directly verify the intended consumer/target behavior before completion. Do not invent a Web/application deployment when deployment is not part of the accepted target.",
+      "exit_evidence": [
+        "pre-write target revalidation",
+        "delivery/deployment/publication/installation result as applicable",
+        "direct target revision/state/artifact evidence for the current release cycle",
+        "representative consumer/health/smoke/acceptance evidence for the current release cycle",
+        "rollback/uninstall/restore result if needed"
+      ]
+    },
+    {
+      "id": "learning-loop",
+      "primary_route": "understand-review",
+      "goal": "Convert real consumer/use/release evidence into the next product or engineering decision without automatically expanding scope. Starting a new implementation cycle explicitly archives the completed release and invalidates its target verification for the new cycle.",
+      "exit_evidence": [
+        "new evidence classified",
+        "next highest-value outcome",
+        "repeatable failure pattern promoted only when justified"
+      ]
+    }
+  ],
+  "route_transition_rules": [
+    "initial current route is selected by developer-intake from present evidence, not by Journey position",
+    "material project-declared current candidate/PR/branch/issue/handoff/predecessor-successor evidence may change the current work target or route; merely open or historical artifacts do not automatically become work",
+    "the actual deliverable, intended consumer, and observable completion target must be recovered from current project evidence when they can change what completion means; an auxiliary application/demo must not silently redefine a non-application project target",
+    "observed defect -> bug-fix",
+    "desired behavior change -> feature-change",
+    "contradictory or untrustworthy repository state -> repo-recovery",
+    "decision-only assessment before mutation -> understand-review",
+    "release/delivery/target acceptance is the immediate blocker -> release-operations",
+    "a route transition must be justified by materially new evidence or a changed blocker classification; lack of progress alone is not a reroute signal",
+    "if routes begin to oscillate without new evidence, stop and reclassify the blocker instead of continuing to bounce",
+    "route completion, verified no-op, green checks, or one blocked delta must trigger current-evidence project-frontier recomputation; none of them is project completion by itself",
+    "a green custom test/validation/CI aggregate that materially determines acceptance must remain provisional when its discovery/identity/failure-propagation integrity is unknown or disproven; repair the harness or use direct underlying evidence rather than promote a false-green result",
+    "a check that claims implementation/runtime behavior remains provisional when its observed actual value has no causal dependency on the authoritative implementation/runtime target; mirror constants and shadow implementations are specification/reference evidence only unless scoped otherwise",
+    "a local no-mutation result is scope-relative; before project pause/no-frontier, reconcile materially current work topology and unmet accepted-outcome evidence that can change the next goal",
+    "a human, credential, production, safety, environment, legal/rights, or external-dependency blocker applies only to the delta whose required precondition it covers; unrelated authorized deltas remain executable",
+    "a verification blocker propagates to later deltas whose correctness depends on the unverified surface; continue genuinely independent frontier but bound the dependent verification-debt chain rather than treating the unverified head as trusted",
+    "surface a human unblock request as a project-level pause only when current evidence and project-frontier reconciliation prove no other meaningful authorized executable delta remains",
+    "if repeated host/session termination prevents execution of a known durable frontier without human re-prompting, classify execution-continuity and use provider selection rather than adding a second AAOP scheduler/state store",
+    "if a bounded host execution window ends while executable work remains, checkpoint the exact next frontier and blockers as a resumable handoff; do not mark the Journey complete",
+    "after a completed release, new build/fix work starts an explicit next release cycle; previous target verification is archived and cannot satisfy the new cycle",
+    "before mutating Journey continuity state, re-read and reconcile the current checkpoint revision; a stale revision must fail rather than overwrite concurrent evidence"
+  ],
+  "capability_policy": {
+    "default": "one capable host-native agent with existing project tools",
+    "specialist_condition": "specialization, context isolation, safe parallel independence, adversarial review, or a permission boundary materially improves execution",
+    "provider_condition": "a genuine capability gap remains after native agent, project scripts/tests, Skills, host tools, connected tools, and existing specialists are checked",
+    "agent_bundles": "retired compatibility alias only; never select or install for new specialist composition; redirect legacy references to the current Task Pod role-source policy"
+  },
+  "historical_sources": {
+    "creating-forward": "requirements baseline, task/evidence discipline, authorization boundaries, interruption recovery; archived lineage, not a parallel runtime",
+    "solo-dev-autopilot": "novice UX, environment/bootstrap, dev loop, verification, review, commit/release preflight, deployment gate; concepts absorbed into AAOP gates rather than copied as a fixed 21-Skill topology",
+    "agent-bundles": "historical curated specialist-agent source; retired compatibility lineage only, not a current provider for new specialist composition"
+  },
+  "completion": [
+    "the current release cycle's real deliverable reaches the intended consumer/target defined by current project evidence; deployment is required only when deployment is actually part of that target",
+    "the exact target revision/state/artifact for the current release cycle is directly verified with evidence appropriate to that target rather than inferred from source-tree or local-only success",
+    "the intended consumer/target acceptance path is proven where practical",
+    "artifact capability closure is proven when the accepted deliverable crosses a package/image/zip/install/plugin/Skill or other material artifact boundary",
+    "rollback/uninstall/restore/recovery status appropriate to the actual target is known",
+    "outbound licensing/terms status is known when third-party reuse/redistribution is part of the accepted outcome; public visibility alone does not prove permission",
+    "material verification debt required by the acceptance contract is retired on the exact candidate before merge/release/deployment/publication/install completion claims",
+    "material residual risks are visible",
+    "the next product decision can be based on real evidence rather than speculative architecture",
+    "green checks or local-no-mutation do not prove project completion while materially current accepted-outcome work remains",
+    "a green custom verification aggregate does not become completion/release proof while its material harness integrity or evidence-target fidelity is unknown or disproven",
+    "a blocked delta does not make the project blocked while another meaningful authorized executable delta remains",
+    "if direct target verification is blocked, the Journey remains blocked/not-complete and records the exact unblock condition only after the remaining executable project frontier has been reconciled and exhausted"
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "id": "ard",
+  "provider_id": "ard",
+  "last_verified": "2026-08-08",
+  "source_of_truth": "https://github.com/ards-project/ard-spec",
+  "selection": {
+    "use_when": ["the required capability is known but the appropriate provider/resource is not", "the host can query an ARD-compatible catalog such as GitHub Agent Finder or an enterprise catalog"],
+    "avoid_when": ["a trusted provider is already known and available", "the task only needs local project capability"]
+  },
+  "detect": {
+    "files": []
+  },
+  "install": {
+    "mode": "host-feature",
+    "minimal_commands": [],
+    "notes": ["Prefer an ARD implementation already available in the current host or organization.", "ARD discovery returns candidates; do not silently connect/install them.", "The ARD specification is evolving, so re-check current schemas before building a client adapter."]
+  },
+  "credentials": ["catalog-specific only when querying a private registry"],
+  "permissions": ["discovery/read access to the selected catalog"],
+  "verify": {
+    "checks": ["query the catalog with one concrete capability description", "confirm ranked results identify compatible resource types and sources", "apply AAOP provider-selection policy before any installation"]
+  },
+  "rollback": {
+    "steps": ["remove the catalog endpoint/credential from host configuration if it was added solely for this project"]
+  },
+  "warnings": ["ARD is a discovery layer, not an execution runtime or trust decision."]
+}

@@ -1,0 +1,60 @@
+{
+  "id": "agency-orchestrator",
+  "provider_id": "agency-orchestrator",
+  "last_verified": "2026-08-11",
+  "source_of_truth": "https://github.com/jnMetaCode/agency-orchestrator",
+  "selection": {
+    "use_when": [
+      "a justified Task Pod requires multi-role DAG/resume execution that the current host cannot provide adequately",
+      "AAOP can delegate one bounded outcome while retaining Working Contract, Journey, authorization, acceptance, and handoff ownership"
+    ],
+    "avoid_when": [
+      "host-native subagents or sequential role isolation are sufficient",
+      "the task is small enough for one agent",
+      "the provider would become a second top-level orchestration state machine beside AAOP",
+      "the user would have to operate YAML, DAG dependencies, or role selection manually"
+    ]
+  },
+  "detect": {},
+  "install": {
+    "mode": "upstream-explicit-choice",
+    "minimal_commands": [
+      "review current upstream installation instructions and exact release/revision",
+      "install only when a proven Task Pod execution capability gap remains",
+      "delegate one bounded Pod rather than the whole AAOP Journey"
+    ],
+    "notes": [
+      "Prefer host-native multi-agent primitives before adding this provider.",
+      "If selected, map AAOP Pod members/acceptance criteria into the provider execution surface while keeping AAOP as the authoritative control plane.",
+      "Use provider human_input/approval primitives only to surface questions/approvals already justified by AAOP Decision Ownership and Autonomy Policy.",
+      "Capture the provider revision and bounded delegated Pod definition for consequential use."
+    ]
+  },
+  "permissions": [
+    "provider installation/configuration permissions appropriate to the selected host",
+    "only the tools/credentials required by the delegated Task Pod",
+    "no automatic widening of repository, production, billing, or secret access"
+  ],
+  "verify": {
+    "checks": [
+      "confirm AAOP still owns the Working Contract and Journey state",
+      "confirm no delegated workflow exceeds five Task Pod members/responsibility contexts",
+      "confirm human_input/approval steps correspond to real human-owned/authorization gates rather than routine engineering questions",
+      "confirm the provider returns evidence and outputs to the AAOP accountable owner",
+      "confirm the Pod acceptance criteria pass before handoff"
+    ]
+  },
+  "rollback": {
+    "steps": [
+      "stop delegated provider execution",
+      "preserve completed evidence/handoff artifacts needed for continuity",
+      "remove only provider-specific configuration/dependencies introduced for this adoption",
+      "fall back to host-native or sequential role isolation without changing the Working Contract goal"
+    ]
+  },
+  "warnings": [
+    "Do not run a provider DAG and AAOP Journey as competing sources of truth.",
+    "Provider resume state is execution detail; AAOP Working Contract/Journey remain authoritative continuity boundaries.",
+    "A provider cannot bypass missing credentials, network restrictions, unresolved human-owned decisions, or production authorization."
+  ]
+}

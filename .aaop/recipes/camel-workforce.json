@@ -1,0 +1,27 @@
+{
+  "id": "camel-workforce",
+  "provider_id": "camel-workforce",
+  "last_verified": "2026-08-08",
+  "source_of_truth": "https://docs.camel-ai.org/get_started/installation",
+  "selection": {
+    "use_when": ["dynamic workforce composition or established multi-agent society patterns materially improve the task"],
+    "avoid_when": ["a single agent or fixed host-native subagents are sufficient"]
+  },
+  "detect": {
+    "python_packages": ["camel"]
+  },
+  "install": {
+    "mode": "package-manager",
+    "minimal_commands": ["python -m pip install camel-ai"],
+    "notes": ["Prefer the basic `camel-ai` package first; add extras only for features the project actually uses.", "CAMEL documents broader `[all]` installs, but AAOP should not choose them by default."]
+  },
+  "credentials": ["model-provider credential only when required by the selected model"],
+  "permissions": ["tool and environment permissions required by the selected workforce only"],
+  "verify": {
+    "checks": ["import CAMEL successfully", "run a minimal workforce/agent collaboration that exercises the reason CAMEL was selected", "confirm the original capability gap is closed"]
+  },
+  "rollback": {
+    "steps": ["remove the camel-ai dependency with the project package manager", "remove provider-specific configuration added only for the workforce"]
+  },
+  "warnings": ["Do not install `camel-ai[all]` unless multiple optional feature groups are actually needed."]
+}

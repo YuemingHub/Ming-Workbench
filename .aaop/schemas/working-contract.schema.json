@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aaop.dev/schemas/working-contract.schema.json",
+  "title": "AAOP Human-Agent Working Contract",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "revision",
+    "collaboration",
+    "alignment",
+    "decision_ownership",
+    "task_pod_policy",
+    "updated_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "revision": {"type": "integer", "minimum": 1},
+    "collaboration": {
+      "type": "object",
+      "required": ["mode", "confirmed"],
+      "properties": {
+        "mode": {"enum": ["unset", "autonomous", "collaborative"]},
+        "confirmed": {"type": "boolean"},
+        "confirmed_at": {"type": ["string", "null"]},
+        "notes": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": false
+    },
+    "alignment": {
+      "type": "object",
+      "required": [
+        "state",
+        "goal",
+        "actor",
+        "situation",
+        "outcome",
+        "must",
+        "non_goals",
+        "constraints",
+        "success_evidence",
+        "human_open_questions"
+      ],
+      "properties": {
+        "state": {"enum": ["collecting", "aligned"]},
+        "goal": {"type": "string"},
+        "actor": {"type": "string"},
+        "situation": {"type": "string"},
+        "outcome": {"type": "string"},
+        "must": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "non_goals": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "constraints": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "success_evidence": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "human_open_questions": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "confirmed_at": {"type": ["string", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "decision_ownership": {
+      "type": "object",
+      "required": ["human_owned", "agent_owned", "joint"],
+      "properties": {
+        "human_owned": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "agent_owned": {"type": "array", "items": {"type": "string"}, "uniqueItems": true},
+        "joint": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+      },
+      "additionalProperties": false
+    },
+    "task_pod_policy": {
+      "type": "object",
+      "required": [
+        "default_single_agent",
+        "max_members",
+        "accountable_owner_required",
+        "independent_review_when_consequential",
+        "handoff_required_between_pods"
+      ],
+      "properties": {
+        "default_single_agent": {"const": true},
+        "max_members": {"const": 5},
+        "accountable_owner_required": {"const": true},
+        "independent_review_when_consequential": {"const": true},
+        "handoff_required_between_pods": {"const": true},
+        "role_provider_order": {
+          "type": "array",
+          "items": {"type": "string"},
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "updated_at": {"type": "string"}
+  },
+  "additionalProperties": false
+}

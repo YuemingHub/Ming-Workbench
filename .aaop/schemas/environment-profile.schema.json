@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aaop.dev/schemas/environment-profile.schema.json",
+  "title": "AAOP Environment Profile",
+  "type": "object",
+  "required": ["host", "workspace", "capabilities"],
+  "properties": {
+    "host": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {"type": "string"},
+        "version": {"type": ["string", "null"]},
+        "native_multi_agent": {"type": "boolean"},
+        "parallel_tasks": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    },
+    "workspace": {
+      "type": "object",
+      "required": ["root"],
+      "properties": {
+        "root": {"type": "string"},
+        "repository": {"type": ["string", "null"]},
+        "branch": {"type": ["string", "null"]}
+      },
+      "additionalProperties": true
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "native_tools": {"type": "array", "items": {"type": "string"}},
+        "skills": {"type": "array", "items": {"type": "string"}},
+        "mcp_servers": {"type": "array", "items": {"type": "string"}},
+        "external_apps": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "constraints": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

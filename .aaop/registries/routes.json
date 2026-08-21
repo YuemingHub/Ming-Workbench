@@ -1,0 +1,89 @@
+{
+  "version": "0.8.0",
+  "routes": [
+    {
+      "id": "idea-to-build",
+      "situation": "greenfield",
+      "use_when": "The user primarily has an idea, desired product, workflow, or outcome and there is no trustworthy implementation baseline yet.",
+      "first_moves": [
+        "translate the vision into one actor, situation, and observable outcome",
+        "separate hard constraints from suggested solution vocabulary",
+        "identify the riskiest assumption the first slice should test",
+        "define acceptance evidence and non-goals before architecture",
+        "build the smallest evidence-bearing slice with reversible choices"
+      ],
+      "avoid": ["treating trend vocabulary as requirements", "premature framework/agent/data architecture", "making a non-technical user choose the stack", "building a large roadmap before first proof", "asking a full PRD questionnaire"],
+      "completion_shape": "A working first slice that reduces a material uncertainty and gives the next product decision real evidence."
+    },
+    {
+      "id": "repo-recovery",
+      "situation": "repo-recovery",
+      "use_when": "An existing repository is messy, abandoned, unfamiliar, contradictory, partially working, or the user says to understand it and continue from the current state.",
+      "first_moves": [
+        "preserve current state before broad edits",
+        "identify scoped instructions and candidate current-fact/governance sources",
+        "inspect manifests, tests, CI, architecture, deployment, and recent history",
+        "classify material evidence by authority/freshness and preserve unresolved conflicts",
+        "identify one highest-leverage current blocker before broad cleanup"
+      ],
+      "avoid": ["mass cleanup before understanding behavior", "assuming merged/newest means authoritative", "silently resolving contradictory sources", "rewriting because the code looks old"],
+      "completion_shape": "A trustworthy current-state model with evidence authority/freshness plus one verified improvement or prioritized recovery target."
+    },
+    {
+      "id": "bug-fix",
+      "situation": "bug",
+      "use_when": "Observed behavior is wrong, failing, crashing, regressing, or producing an error and the user wants it fixed.",
+      "first_moves": [
+        "capture reported environment/version and expected versus observed behavior",
+        "reconcile historical reports/tracebacks with the current baseline",
+        "reproduce or obtain the strongest available failure evidence",
+        "test root-cause hypotheses before editing",
+        "make the narrowest durable fix and add regression evidence"
+      ],
+      "avoid": ["treating old traceback/source lines as current fact", "adopting issue-comment workarounds as root cause", "guess-fixing without evidence", "declaring success from code inspection alone"],
+      "completion_shape": "Current baseline reconciled, failure reproduced/evidenced, root cause addressed, and regression evidence passing."
+    },
+    {
+      "id": "feature-change",
+      "situation": "feature",
+      "use_when": "The user wants new behavior, a changed workflow, an integration, a UI/API capability, or a modification to an existing system.",
+      "first_moves": [
+        "translate the request into observable behavior/invariants",
+        "establish the current implementation baseline",
+        "if old PRs/branches matter, salvage behavior/tests/rationale rather than stale commits",
+        "identify impacted interfaces/data/tests and only truly missing behavior",
+        "implement the smallest coherent current-baseline change"
+      ],
+      "avoid": ["treating feature wording as a complete specification", "merging deeply stale work wholesale", "copying superseded architecture merely to preserve commits", "scope expansion"],
+      "completion_shape": "Requested behavior works on the current system with acceptance/regression evidence and without unnecessary historical implementation baggage."
+    },
+    {
+      "id": "understand-review",
+      "situation": "understand-review",
+      "use_when": "The primary request is to explain, inspect, review, compare, audit, assess quality/risk, or advise before making changes.",
+      "first_moves": [
+        "identify the concrete decision and usage context the review must support",
+        "inspect only evidence material to that decision",
+        "verify important external reports against current source/status when practical",
+        "separate verified facts, external claims, inferences, contextual risks, and unknowns",
+        "give a decision-specific recommendation without mutation by default"
+      ],
+      "avoid": ["performative full-repository summaries", "copying issue/advisory severity without current verification", "context-free security verdicts", "changes disguised as review", "style-first findings that do not affect the decision"],
+      "completion_shape": "Decision-useful, current evidence-linked findings with contextual risk, explicit uncertainty, and a concrete recommendation or acceptance condition."
+    },
+    {
+      "id": "release-operations",
+      "situation": "release-operations",
+      "use_when": "The request concerns deploy, release, migration, CI/CD, production behavior, incident recovery, environment configuration, or operational readiness.",
+      "first_moves": [
+        "identify target environment, authorization boundary, and exact evidence needed",
+        "check whether the authorized target is reachable from the current execution environment",
+        "classify blockers before calling anything a capability gap",
+        "preserve target state as unknown when direct evidence is unavailable",
+        "define rollback before consequential writes"
+      ],
+      "avoid": ["bypassing network/authorization policy with new tooling", "treating Git/CI/local health as deployed-state proof", "production writes without authorization", "migration without rollback"],
+      "completion_shape": "Operational objective reached with direct evidence, or safely blocked with unknown state preserved and the minimal legitimate unblock identified."
+    }
+  ]
+}

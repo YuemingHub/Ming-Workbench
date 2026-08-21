@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aaop.dev/schemas/team-plan.schema.json",
+  "title": "AAOP Task Pod Plan",
+  "type": "object",
+  "required": [
+    "pod_id",
+    "strategy",
+    "outcome",
+    "accountable_owner",
+    "acceptance_criteria",
+    "agents"
+  ],
+  "properties": {
+    "pod_id": {"type": "string", "minLength": 1},
+    "strategy": {"enum": ["single-agent", "subagents", "agent-team", "sequential-role-isolation", "hybrid"]},
+    "outcome": {"type": "string", "minLength": 1},
+    "rationale": {"type": "string"},
+    "accountable_owner": {"type": "string", "minLength": 1},
+    "acceptance_criteria": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "role_provider": {
+      "type": "object",
+      "properties": {
+        "id": {"type": "string"},
+        "revision": {"type": "string"},
+        "reason": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "agents": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": ["id", "role", "objective", "responsibilities", "completion_criteria"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "kind": {"enum": ["accountable-owner", "specialist", "reviewer"]},
+          "role": {"type": "string", "minLength": 1},
+          "objective": {"type": "string", "minLength": 1},
+          "responsibilities": {"type": "array", "items": {"type": "string", "minLength": 1}},
+          "inputs": {"type": "array", "items": {"type": "string"}},
+          "outputs": {"type": "array", "items": {"type": "string"}},
+          "skills": {"type": "array", "items": {"type": "string"}},
+          "tools": {"type": "array", "items": {"type": "string"}},
+          "dependencies": {"type": "array", "items": {"type": "string"}},
+          "completion_criteria": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}}
+        },
+        "additionalProperties": false
+      }
+    },
+    "handoff": {
+      "type": "object",
+      "properties": {
+        "required": {"type": "boolean"},
+        "path": {"type": "string"},
+        "next_outcome": {"type": "string"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

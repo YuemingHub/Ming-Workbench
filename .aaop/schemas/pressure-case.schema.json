@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aaop.dev/schemas/pressure-case.schema.json",
+  "title": "AAOP Real-Project Pressure Case",
+  "type": "object",
+  "required": [
+    "version",
+    "id",
+    "provenance",
+    "developer_request",
+    "expected_route",
+    "known_facts",
+    "expected_first_moves",
+    "must_preserve",
+    "must_not",
+    "required_guard_ids",
+    "lessons"
+  ],
+  "properties": {
+    "version": {"type": "string"},
+    "id": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+    "provenance": {
+      "type": "object",
+      "required": ["kind", "captured_at", "privacy"],
+      "properties": {
+        "kind": {"enum": ["public-repository", "public-issue", "anonymized-real-project"]},
+        "repository": {"type": "string"},
+        "reference": {"type": "string"},
+        "captured_at": {"type": "string", "format": "date"},
+        "privacy": {"enum": ["public", "anonymized"]}
+      },
+      "additionalProperties": false
+    },
+    "developer_request": {"type": "string", "minLength": 1},
+    "expected_route": {
+      "enum": ["idea-to-build", "repo-recovery", "bug-fix", "feature-change", "understand-review", "release-operations"]
+    },
+    "known_facts": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "expected_first_moves": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "must_preserve": {"type": "array", "items": {"type": "string"}},
+    "must_not": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "required_guard_ids": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"},
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "expected_blocker_class": {
+      "type": ["string", "null"],
+      "enum": [
+        null,
+        "missing-evidence",
+        "environment",
+        "authorization",
+        "credential",
+        "external-dependency",
+        "product-decision",
+        "capability-composability"
+      ]
+    },
+    "lessons": {"type": "array", "items": {"type": "string"}, "minItems": 1}
+  },
+  "additionalProperties": false
+}

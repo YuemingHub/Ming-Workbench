@@ -1,0 +1,70 @@
+{
+  "version": "0.2.0",
+  "description": "Seed capability vocabulary. Extend per project; do not treat this as a fixed list of roles.",
+  "resolution_policy": [
+    "A general-purpose language model is one reasoning provider, not the whole execution system.",
+    "Treat a capability as available only when the current host/project can actually exercise it with evidence at the reliability required by the task; verbal confidence is not capability proof.",
+    "Prefer deterministic project tools, runtime evidence, browser/API access, existing Skills, connected services, and independent acceptance signals before adding another general model or runtime.",
+    "When a consequential result needs independence, choose an evidence path with a meaningfully different failure mode from the builder; this may be deterministic tests, browser/runtime observation, a calibrated evaluator, a bounded specialist, or a different model/provider when semantic judgment itself is the gap.",
+    "Only a proven unresolved capability gap justifies adding a new provider, and the added provider must be verified against the original gap rather than merely installed."
+  ],
+  "capabilities": {
+    "project-discovery": {
+      "description": "Understand repository intent, architecture, state, constraints, tests, deployment and unresolved risks.",
+      "preferred_provider_types": ["native", "skill", "repository-tool"]
+    },
+    "requirement-reasoning": {
+      "description": "Resolve requested outcome, deliverables, constraints, decision boundaries and acceptance evidence while preserving domain/lived evidence that the person may hold even when they cannot express it in software vocabulary.",
+      "preferred_provider_types": ["native", "skill"]
+    },
+    "architecture-design": {
+      "description": "Design or evaluate system boundaries, interfaces, data flow and trade-offs.",
+      "preferred_provider_types": ["native", "skill", "specialist-agent"]
+    },
+    "implementation": {
+      "description": "Modify project artifacts or code to realize the accepted design.",
+      "preferred_provider_types": ["native", "specialist-agent", "repository-tool"]
+    },
+    "repository-operations": {
+      "description": "Inspect history/issues/PRs and perform authorized branch, commit, PR or merge operations.",
+      "preferred_provider_types": ["native-tool", "mcp", "api"]
+    },
+    "browser-validation": {
+      "description": "Observe rendered behavior and exercise user flows in a real or automated browser.",
+      "preferred_provider_types": ["native-tool", "mcp", "repository-tool"]
+    },
+    "data-access": {
+      "description": "Read or query project-relevant databases, analytics or structured data with least privilege.",
+      "preferred_provider_types": ["native-tool", "mcp", "api"]
+    },
+    "security-review": {
+      "description": "Review changes for security boundaries, secrets, unsafe dependencies and abuse paths.",
+      "preferred_provider_types": ["skill", "specialist-agent", "repository-tool"]
+    },
+    "verification": {
+      "description": "Define and execute evidence that the requested outcome works and regressions are controlled, using an acceptance path credible enough for the claim rather than builder self-assertion alone.",
+      "preferred_provider_types": ["skill", "repository-tool", "specialist-agent"]
+    },
+    "release-validation": {
+      "description": "Verify build/release/deployment state without assuming implementation implies deployability.",
+      "preferred_provider_types": ["repository-tool", "native-tool", "mcp"]
+    },
+    "research": {
+      "description": "Gather, compare and synthesize reliable external or internal evidence for a question.",
+      "preferred_provider_types": ["native-tool", "mcp", "specialist-agent"]
+    },
+    "document-production": {
+      "description": "Create or transform structured human-facing artifacts while preserving source intent.",
+      "preferred_provider_types": ["skill", "native-tool"]
+    }
+  },
+  "provider_types": [
+    "native",
+    "skill",
+    "native-tool",
+    "repository-tool",
+    "mcp",
+    "api",
+    "specialist-agent"
+  ]
+}

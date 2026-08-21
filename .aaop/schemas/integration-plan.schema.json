@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aaop.dev/schemas/integration-plan.schema.json",
+  "title": "AAOP Integration Plan",
+  "type": "object",
+  "required": ["capability_gap", "current_level", "selected_providers", "verification", "rollback"],
+  "properties": {
+    "capability_gap": {"type": "string", "minLength": 1},
+    "current_level": {"type": "integer", "minimum": 0, "maximum": 5},
+    "selected_providers": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "why_now": {"type": "string"},
+    "why_not_simpler": {"type": "string"},
+    "adoption_review": {"type": ["string", "null"], "description": "Current result of any applicable Recipe adoption review after re-verification; null when none applies."},
+    "permissions_required": {"type": "array", "items": {"type": "string"}},
+    "credentials_required": {"type": "array", "items": {"type": "string"}},
+    "infrastructure_required": {"type": "array", "items": {"type": "string"}},
+    "expected_benefit": {"type": "string"},
+    "verification": {"type": "string", "minLength": 1},
+    "rollback": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

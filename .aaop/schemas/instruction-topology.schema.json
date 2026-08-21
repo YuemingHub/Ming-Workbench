@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aaop.dev/schemas/instruction-topology.schema.json",
+  "title": "AAOP Instruction Topology",
+  "type": "object",
+  "required": ["root", "read_only", "host_facts_last_verified", "codex", "claude_code", "cursor", "observations", "boundary"],
+  "properties": {
+    "root": {"type": "string"},
+    "read_only": {"const": true},
+    "host_facts_last_verified": {"type": "string", "format": "date"},
+    "codex": {"type": "object"},
+    "claude_code": {"type": "object"},
+    "cursor": {"type": "object"},
+    "observations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "level", "message"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "level": {"enum": ["informational", "review"]},
+          "message": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "boundary": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": true
+}

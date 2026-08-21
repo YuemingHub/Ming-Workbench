@@ -1,0 +1,29 @@
+{
+  "id": "playwright",
+  "provider_id": "playwright",
+  "last_verified": "2026-08-08",
+  "source_of_truth": "https://github.com/microsoft/playwright",
+  "selection": {
+    "use_when": ["browser-visible behavior needs deterministic validation", "UI/network/storage interactions cannot be proven adequately with current tests", "an agent needs controlled browser interaction"],
+    "avoid_when": ["the task has no browser surface", "existing project browser tests already prove the outcome", "adding browser infrastructure would not close the actual capability gap"]
+  },
+  "detect": {
+    "commands": ["playwright", "playwright-cli"],
+    "files": ["playwright.config.ts", "playwright.config.js", "playwright.config.mts", "playwright.config.mjs"],
+    "node_packages": ["@playwright/test", "playwright", "playwright-core", "@playwright/mcp", "@playwright/cli"]
+  },
+  "install": {
+    "mode": "manual-choice",
+    "minimal_commands": [],
+    "notes": ["Choose the smallest surface: Playwright Test for durable E2E regression coverage; Playwright CLI + Skills for many high-throughput coding-agent workflows; Playwright MCP for persistent/introspective browser-agent loops.", "Do not install all three surfaces by default.", "For MCP, current upstream standard usage is `npx @playwright/mcp@latest`; for CLI, current upstream documents `npm i -g @playwright/cli@latest`; for project E2E, current upstream documents `npm init playwright@latest`.", "Re-check upstream before execution because package versions and host-specific integration commands evolve."]
+  },
+  "credentials": ["none for ordinary local browser automation", "browser/session credentials only when the target application itself requires authentication"],
+  "permissions": ["browser access to the target environment", "filesystem/network permissions required by the selected Playwright surface only"],
+  "verify": {
+    "checks": ["run one representative browser path that corresponds to the original acceptance/failure evidence", "confirm the selected surface can observe the needed DOM/network/storage state", "prefer a repeatable test artifact when the behavior should remain guarded"]
+  },
+  "rollback": {
+    "steps": ["remove the selected Playwright dependency or global CLI with the package manager that installed it", "remove/disable the Playwright MCP entry if MCP was selected", "revert generated test/config files that were created only for evaluation"]
+  },
+  "warnings": ["Playwright MCP is not a security boundary.", "Persistent browser profiles can retain authenticated state; scope them deliberately.", "MCP is not automatically the best coding-agent interface when CLI+Skills or normal tests are sufficient."]
+}

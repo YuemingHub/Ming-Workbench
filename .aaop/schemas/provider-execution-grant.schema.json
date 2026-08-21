@@ -1,0 +1,143 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aaop.dev/schemas/provider-execution-grant.schema.json",
+  "title": "AAOP Provider Execution Grant",
+  "description": "A bounded, evidence-linked handoff from the AAOP control plane to one selected execution provider. It is not a Working Contract, Route, Journey, or provider-owned source of product truth.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "grant_id",
+    "provider",
+    "route",
+    "working_contract_revision",
+    "goal",
+    "baseline",
+    "execution_mode",
+    "tasks",
+    "authorization",
+    "acceptance_evidence",
+    "human_open_questions",
+    "references",
+    "issued_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "grant_id": {"type": "string", "minLength": 1},
+    "provider": {"type": "string", "minLength": 1},
+    "route": {
+      "enum": [
+        "idea-to-build",
+        "repo-recovery",
+        "bug-fix",
+        "feature-change",
+        "understand-review",
+        "release-operations"
+      ]
+    },
+    "working_contract_revision": {"type": "integer", "minimum": 1},
+    "goal": {"type": "string", "minLength": 1},
+    "baseline": {"type": "array", "items": {"type": "string"}},
+    "execution_mode": {"enum": ["single-agent", "task-pod"]},
+    "task_pod": {
+      "type": ["object", "null"],
+      "properties": {
+        "pod_id": {"type": "string", "minLength": 1},
+        "accountable_owner": {"type": "string", "minLength": 1},
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 5,
+          "items": {"type": "string", "minLength": 1}
+        }
+      },
+      "required": ["pod_id", "accountable_owner", "members"],
+      "additionalProperties": false
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "action", "verification", "failure_path"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "owner": {"type": "string"},
+          "depends_on": {"type": "array", "items": {"type": "string"}},
+          "inputs": {"type": "array", "items": {"type": "string"}},
+          "action": {"type": "string", "minLength": 1},
+          "expected_output": {"type": "string"},
+          "verification": {"type": "array", "items": {"type": "string"}},
+          "failure_path": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "authorization": {
+      "type": "object",
+      "required": [
+        "mutation_boundary",
+        "write_target",
+        "allowed_effects",
+        "protected_effects"
+      ],
+      "properties": {
+        "mutation_boundary": {"enum": ["read-only", "write-authorized"]},
+        "write_target": {
+          "type": ["object", "null"],
+          "properties": {
+            "repository": {"type": "string", "minLength": 1},
+            "base_ref": {"type": "string", "minLength": 1},
+            "working_ref": {"type": "string", "minLength": 1},
+            "environment": {"type": ["string", "null"]}
+          },
+          "required": ["repository", "base_ref", "working_ref"],
+          "additionalProperties": false
+        },
+        "allowed_effects": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "protected_effects": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"mutation_boundary": {"const": "read-only"}}},
+          "then": {"properties": {"write_target": {"const": null}}}
+        },
+        {
+          "if": {"properties": {"mutation_boundary": {"const": "write-authorized"}}},
+          "then": {"properties": {"write_target": {"type": "object"}}}
+        }
+      ],
+      "additionalProperties": false
+    },
+    "acceptance_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "human_open_questions": {
+      "type": "array",
+      "maxItems": 0,
+      "items": {"type": "string"}
+    },
+    "references": {"type": "array", "items": {"type": "string"}},
+    "issued_at": {"type": "string", "minLength": 1}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"execution_mode": {"const": "single-agent"}}},
+      "then": {"properties": {"task_pod": {"type": "null"}}}
+    },
+    {
+      "if": {"properties": {"execution_mode": {"const": "task-pod"}}},
+      "then": {"required": ["task_pod"], "properties": {"task_pod": {"type": "object"}}}
+    }
+  ],
+  "additionalProperties": false
+}

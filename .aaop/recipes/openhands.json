@@ -1,0 +1,28 @@
+{
+  "id": "openhands",
+  "provider_id": "openhands",
+  "last_verified": "2026-08-08",
+  "source_of_truth": "https://docs.openhands.dev/",
+  "selection": {
+    "use_when": ["a dedicated autonomous software-engineering runtime is the missing capability", "the project needs a reusable software-agent SDK or isolated workspace execution", "automation should run through a dedicated coding-agent environment rather than the current IDE"],
+    "avoid_when": ["the existing AI IDE already executes the route reliably", "the task is a small repository-local edit", "adding another general coding runtime would only duplicate capability"]
+  },
+  "detect": {
+    "commands": ["openhands"],
+    "python_packages": ["openhands-sdk", "openhands-tools"]
+  },
+  "install": {
+    "mode": "manual-choice",
+    "minimal_commands": [],
+    "notes": ["For the OpenHands CLI, current upstream recommends `uv tool install openhands --python 3.12`.", "For a minimal local SDK integration, current upstream documents `pip install openhands-sdk openhands-tools`.", "Add `openhands-workspace` and `openhands-agent-server` only when sandboxed/remote execution is actually required.", "Do not install both CLI and SDK surfaces by default; choose the interface that closes the route capability gap."]
+  },
+  "credentials": ["LLM provider/API credential or another upstream-supported authentication method for the selected mode"],
+  "permissions": ["filesystem/shell access bounded to the selected workspace", "Docker/remote execution permissions only when the chosen workspace mode requires them", "external service permissions only for explicitly enabled tools"]
+  ,"verify": {
+    "checks": ["run one bounded representative repository task in the selected OpenHands surface", "confirm workspace isolation and tool permissions match the intended boundary", "run project acceptance/regression checks outside the agent loop before adopting changes", "verify OpenHands closed the original execution gap rather than merely duplicating the current host"]
+  },
+  "rollback": {
+    "steps": ["discard unverified agent-generated changes", "uninstall the selected OpenHands CLI/SDK packages with the package manager that installed them", "remove sandbox/server infrastructure created only for the integration", "revoke integration-only credentials"]
+  },
+  "warnings": ["OpenHands is a general coding-agent platform/runtime; AAOP should keep routing, policy, and provider selection outside it.", "Broader workspace/server modes materially increase permission and infrastructure surface compared with the local SDK/CLI."]
+}

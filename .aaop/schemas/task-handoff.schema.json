@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aaop.dev/schemas/task-handoff.schema.json",
+  "title": "AAOP Task Pod Handoff",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "pod_id",
+    "accountable_owner",
+    "long_horizon_goal",
+    "current_outcome",
+    "baseline",
+    "decisions",
+    "delivered",
+    "evidence",
+    "risks",
+    "blockers",
+    "human_open_questions",
+    "next_outcome",
+    "references",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "pod_id": {"type": "string", "minLength": 1},
+    "accountable_owner": {"type": "string", "minLength": 1},
+    "long_horizon_goal": {"type": "string", "minLength": 1},
+    "current_outcome": {"type": "string", "minLength": 1},
+    "baseline": {"type": "array", "items": {"type": "string"}},
+    "decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["decision", "owner", "reason"],
+        "properties": {
+          "decision": {"type": "string", "minLength": 1},
+          "owner": {"enum": ["human", "agent", "joint"]},
+          "reason": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "delivered": {"type": "array", "items": {"type": "string"}},
+    "evidence": {"type": "array", "items": {"type": "string"}},
+    "risks": {"type": "array", "items": {"type": "string"}},
+    "blockers": {"type": "array", "items": {"type": "string"}},
+    "human_open_questions": {"type": "array", "items": {"type": "string"}},
+    "next_outcome": {"type": "string", "minLength": 1},
+    "references": {"type": "array", "items": {"type": "string"}},
+    "created_at": {"type": "string"}
+  },
+  "additionalProperties": false
+}

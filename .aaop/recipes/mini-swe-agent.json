@@ -1,0 +1,28 @@
+{
+  "id": "mini-swe-agent",
+  "provider_id": "mini-swe-agent",
+  "last_verified": "2026-08-08",
+  "source_of_truth": "https://github.com/SWE-agent/mini-swe-agent",
+  "selection": {
+    "use_when": ["a software issue is bounded, reproducible, and testable", "a minimal dedicated SWE-agent loop is preferable to the current host for issue resolution"],
+    "avoid_when": ["product intent is ambiguous", "the repository first needs recovery", "the issue has no meaningful verification signal", "the current host already resolves the issue reliably without another runtime"]
+  },
+  "detect": {
+    "commands": ["mini"],
+    "python_packages": ["mini-swe-agent"]
+  },
+  "install": {
+    "mode": "package-manager",
+    "minimal_commands": ["python -m pip install mini-swe-agent"],
+    "notes": ["For one-time evaluation, upstream currently documents `uvx mini-swe-agent` or `pipx run mini-swe-agent` instead of persistent installation.", "Prefer an isolated environment for delegated issue solving.", "Use current upstream configuration for the selected model/environment rather than copying benchmark configuration blindly."]
+  },
+  "credentials": ["model-provider credential required by the selected configuration"],
+  "permissions": ["repository/workspace read-write access bounded to the issue", "shell/test execution required by the selected environment"],
+  "verify": {
+    "checks": ["reproduce/evidence the issue before delegation", "run the issue-solving agent in a bounded environment", "execute the project's regression/acceptance checks after the generated change", "review the diff for scope creep before adoption"]
+  },
+  "rollback": {
+    "steps": ["discard the delegated change if verification fails", "remove the isolated environment or uninstall `mini-swe-agent` if it was added only for evaluation", "revoke credentials created only for the integration"]
+  },
+  "warnings": ["The SWE-agent maintainers currently recommend mini-SWE-agent over the older SWE-agent for new usage.", "A benchmark-oriented issue agent is not a substitute for product discovery or repository recovery."]
+}

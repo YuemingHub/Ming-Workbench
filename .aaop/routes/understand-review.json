@@ -1,0 +1,84 @@
+{
+  "version": "0.9.0",
+  "route_id": "understand-review",
+  "objective": "Produce decision-useful understanding or review findings grounded in current evidence, including semantic merge-order/dependency risk when the decision is whether a PR can safely land, without turning analysis into unrequested mutation.",
+  "default_execution": "host-native",
+  "stages": [
+    {
+      "id": "decision-frame",
+      "purpose": "Identify the concrete decision, risk, or question that the review must support, including the usage context and declared merge/dependency ordering that changes what counts as material.",
+      "required_capabilities": ["intent-resolution", "review-scoping"],
+      "optional_capabilities": [],
+      "evidence": ["user question", "PR/repository/provider scope", "stated quality/risk concern", "deployment or usage context when relevant", "declared merge gate/predecessor/dependency order when reviewing concurrent PRs"],
+      "exit_when": "The review has a bounded decision target and materiality threshold instead of a generic request for a full summary."
+    },
+    {
+      "id": "evidence-inspection",
+      "purpose": "Inspect the minimum current code, history, tests, CI, runtime, issue, architecture, PR overlap, or dependency evidence needed to answer the decision and verify externally reported claims when practical.",
+      "required_capabilities": ["repository-inspection", "evidence-synthesis"],
+      "optional_capabilities": ["static-analysis", "security-review", "architecture-analysis"],
+      "evidence": ["specific current files/diffs", "test and CI results", "history or runtime evidence when relevant", "external reports clearly separated from verified current source", "current base/head SHAs for merge decisions", "active predecessor/dependent PR state and changed-file/authority overlap when material"],
+      "exit_when": "Material claims can be traced to current or explicitly historical evidence, deployment/context assumptions plus uncertainty are explicit, and a merge decision accounts for material predecessor/overlap evidence rather than only GitHub's current mergeability flag."
+    },
+    {
+      "id": "findings-and-action",
+      "purpose": "Separate verified facts, external claims, inferences, contextual risks, unknowns, and recommendations, then state the smallest useful next action, merge condition, rebuild condition, or adoption condition.",
+      "required_capabilities": ["risk-ranking", "technical-communication"],
+      "optional_capabilities": ["independent-review"],
+      "evidence": ["ranked findings", "supporting references", "known limitations", "decision-specific recommendation or conditions", "explicit conditional merge/rebuild sequence when concurrent PR semantics depend on order"],
+      "exit_when": "The user can make the intended decision from the findings without a performative repository dump or hidden implementation work."
+    }
+  ],
+  "pressure_guards": [
+    {
+      "id": "decision-frame-before-review",
+      "rule": "A review must be scoped to the decision it supports and the context in which that decision will be made; do not substitute a broad repository summary for a decision frame."
+    },
+    {
+      "id": "current-source-before-conclusion",
+      "rule": "When an issue, advisory, comment, prior review, or merge-gate record makes a material claim, verify the relevant current implementation/status when practical before carrying the claim into a present-tense conclusion."
+    },
+    {
+      "id": "semantic-merge-order",
+      "rule": "Do not equate GitHub/Git textual mergeability with semantic independence. When repository evidence declares a predecessor/merge order, or concurrent PRs overlap in authority-critical/configuration/state surfaces, review the candidate against that sequence. A later PR built from a pre-predecessor base is only conditionally mergeable: let the required predecessor land first, then re-read the new base, rebuild/rebase the remaining delta, preserve both intended semantics, rerun affected validation, and re-review the new head. Never resolve a semantic overlap by choosing one whole-file version merely because Git can produce a merge commit."
+    },
+    {
+      "id": "risk-is-contextual",
+      "rule": "Separate verified mechanism, plausible impact, deployment assumptions, exposure/permission context, and unknowns; severity and recommendation must be tied to the user's actual usage context rather than copied from a report label."
+    },
+    {
+      "id": "review-is-read-only-by-default",
+      "rule": "Understanding/review does not authorize code, configuration, issue, PR, or upstream mutation. Re-route only after the user explicitly asks to implement or fix a finding."
+    }
+  ],
+  "escalations": [
+    {
+      "when": "The project already uses Spec Kit and the review specifically needs spec/plan/task consistency or a supported review extension.",
+      "capability_gap": "structured artifact consistency or specialized review workflow",
+      "provider_candidates": ["spec-kit"],
+      "selection_rule": "Use core analysis capabilities first; community review/security extensions require provenance and permission review before installation."
+    },
+    {
+      "when": "A separate execution context materially improves adversarial independence or large-codebase inspection.",
+      "capability_gap": "independent long-context review environment",
+      "provider_candidates": ["deepagents", "openhands"],
+      "selection_rule": "Use only when context isolation or dedicated analysis runtime is the proven gap; do not add a second general agent for cosmetic independence."
+    }
+  ],
+  "verification": [
+    "the decision being supported is explicit",
+    "material findings are evidence-linked and current/historical status is explicit",
+    "verified facts, external claims, inferences, risks, assumptions, and unknowns are distinguished",
+    "recommendations are prioritized by decision impact rather than style preference",
+    "merge recommendations account for declared predecessor/order constraints and material changed-file/authority overlap rather than relying only on current textual mergeability",
+    "a PR that depends on an unmerged predecessor is reported as conditional and must be rebuilt/revalidated from the post-predecessor base before final merge approval",
+    "security or reliability severity is contextualized to actual exposure and permissions",
+    "no project or upstream mutation occurred unless explicitly authorized"
+  ],
+  "reroute_signals": [
+    "the review discovers a concrete defect the user wants fixed -> bug-fix",
+    "the user chooses a proposed behavior change -> feature-change",
+    "the repository cannot be understood reliably without recovery -> repo-recovery",
+    "a merge candidate must be rebuilt after a required predecessor lands -> feature-change or repo-recovery according to the resulting concrete delta"
+  ]
+}

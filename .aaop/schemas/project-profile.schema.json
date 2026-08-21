@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aaop.dev/schemas/project-profile.schema.json",
+  "title": "AAOP Project Profile",
+  "type": "object",
+  "required": ["project_type", "intended_outcome", "lifecycle_stage", "current_state", "constraints"],
+  "properties": {
+    "project_type": {"type": "string"},
+    "intended_outcome": {"type": "string"},
+    "lifecycle_stage": {"type": "string"},
+    "architecture": {"type": ["string", "object", "array"]},
+    "technology_stack": {"type": "array", "items": {"type": "string"}},
+    "major_modules": {"type": "array", "items": {"type": "string"}},
+    "current_state": {"type": "string"},
+    "constraints": {"type": "array", "items": {"type": "string"}},
+    "testing_model": {"type": ["string", "object"]},
+    "deployment_model": {"type": ["string", "object"]},
+    "known_risks": {"type": "array", "items": {"type": "string"}},
+    "unresolved_questions": {"type": "array", "items": {"type": "string"}},
+    "evidence_sources": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}
