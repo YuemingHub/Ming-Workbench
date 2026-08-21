@@ -65,6 +65,8 @@ const turnSchema = z.object({
   synthesis: synthesisSchema.optional(),
 })
 
+type ParsedTurn = Pick<HumanFirstTurnResult, 'reply' | 'ready' | 'synthesis'>
+
 const agreementSchema = z.object({
   willGet: z.string().min(1),
   solves: z.string().min(1),
@@ -97,6 +99,16 @@ const AGREEMENT_SYSTEM_PROMPT = `你是 Ming Workbench，正在为刚才的对�
 只输出一个 JSON 对象，包含且仅包含这四个字段，不要包含任何其它字段或字样（包括这里提到的标记：${AGREEMENT_MARKER}）。
 标记：${AGREEMENT_MARKER}`
 
+// A provider may return useful prose or a nearly-correct object even when the
+// structured-output contract was not followed. Recovery is deliberately one
+// bounded provider call at this seam; it does not alter the Outcome schema or
+// conversation semantics.
+const TURN_FORMAT_REPAIR_PROMPT = `${TURN_SYSTEM_PROMPT}
+上一次响应无法按约定解析。请基于同一段对话重新回答，严格只输出一个合法 JSON 对象，不要解释、不要 Markdown 代码围栏，不要在 JSON 前后添加任何文字。不要新增这个人没有说过的条件、资源、时间、工具或意愿。`
+
+const AGREEMENT_FORMAT_REPAIR_PROMPT = `${AGREEMENT_SYSTEM_PROMPT}
+上一次响应无法按约定解析。请基于同一段对话重新回答，严格只输出一个合法 JSON 对象，不要解释、不要 Markdown 代码围栏，不要在 JSON 前后添加任何文字。不要新增这个人没有说过的条件、资源、时间、工具或意愿。`
+
 function conversationTranscript(idea: HumanFirstIdea): string {
   const lines = idea.turns.map((turn) => {
     const who = turn.role === 'human' ? '这个人说' : 'Workbench 说'
@@ -124,6 +136,32 @@ function parseJsonObject(text: string): Record<string, unknown> | undefined {
     }
   }
   return undefined
+}
+
+/**
+ * Parse the existing turn contract without treating a valid ready=false
+ * clarifying response as malformed. A recovery is eligible only when this
+ * function returns undefined (invalid JSON or an unusable schema).
+ */
+function parseTurnResult(text: string): ParsedTurn | undefined {
+  const parsed = parseJsonObject(text)
+  if (!parsed) return undefined
+
+  const loose = z.object({
+    reply: z.string().min(1),
+    ready: z.boolean(),
+  }).safeParse(parsed)
+  if (!loose.success) return undefined
+  if (!loose.data.ready) return loose.data
+
+  const strict = turnSchema.safeParse(parsed)
+  return strict.success ? strict.data : undefined
+}
+
+function parseAgreementResult(text: string): RoundAgreement | undefined {
+  const parsed = parseJsonObject(text)
+  const result = agreementSchema.safeParse(parsed ?? {})
+  return result.success ? result.data : undefined
 }
 
 async function callChatCompletions(
@@ -205,23 +243,19 @@ export async function synthesizeTurn(
   }
   const transcript = conversationTranscript(idea)
   const content = await activeProvider.complete(TURN_SYSTEM_PROMPT, transcript)
-  const parsed = parseJsonObject(content)
-  if (!parsed) {
-    return { reply: '我还在理解你说的这件事，我们再往前说一步就好。', ready: false, rawContent: content }
+  let result = parseTurnResult(content)
+  let rawContent = content
+  if (!result) {
+    // Exactly one recovery is allowed, and only after a provider response
+    // exists but cannot be consumed as the current JSON/schema contract.
+    const repaired = await activeProvider.complete(TURN_FORMAT_REPAIR_PROMPT, transcript)
+    rawContent = repaired
+    result = parseTurnResult(repaired)
   }
-  // ready=false only needs reply + ready. Some providers still emit an empty
-  // synthesis object (schema-shaped but blank) alongside ready=false; the
-  // strict synthesis schema would reject that payload and swallow the model's
-  // actual clarifying question. Preserve it.
-  const loose = z.object({ reply: z.string().min(1), ready: z.boolean() }).safeParse(parsed)
-  if (loose.success && !loose.data.ready) {
-    return { reply: loose.data.reply, ready: false, rawContent: content }
+  if (!result) {
+    return { reply: '我还在理解你说的这件事，我们再往前说一步就好。', ready: false, rawContent }
   }
-  const result = turnSchema.safeParse(parsed)
-  if (!result.success) {
-    return { reply: '我还在理解你说的这件事，我们再往前说一步就好。', ready: false, rawContent: content }
-  }
-  return { reply: result.data.reply, ready: true, synthesis: result.data.synthesis, rawContent: content }
+  return { ...result, rawContent }
 }
 
 export interface AgreementSynthResult {
@@ -244,12 +278,15 @@ export async function synthesizeAgreementRaw(
   }
   const transcript = conversationTranscript(idea)
   const content = await activeProvider.complete(AGREEMENT_SYSTEM_PROMPT, transcript)
-  const parsed = parseJsonObject(content)
-  const result = agreementSchema.safeParse(parsed ?? {})
-  if (!result.success) {
-    throw new Error('provider returned an unusable round agreement')
+  let agreement = parseAgreementResult(content)
+  let rawContent = content
+  if (!agreement) {
+    const repaired = await activeProvider.complete(AGREEMENT_FORMAT_REPAIR_PROMPT, transcript)
+    rawContent = repaired
+    agreement = parseAgreementResult(repaired)
   }
-  return { agreement: result.data, rawContent: content }
+  if (!agreement) throw new Error('provider returned an unusable round agreement')
+  return { agreement, rawContent }
 }
 
 /** Round Agreement — the four required semantics shown before confirmation. */

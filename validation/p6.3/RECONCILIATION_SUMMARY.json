@@ -1,0 +1,51 @@
+{
+  "status": "HUMAN_REVIEW_REQUIRED",
+  "corpus": "validation/p6.3/intent-fidelity-corpus.json",
+  "historical_real_runs": [
+    {
+      "run": "p6.3-2026-08-21T12-10-42-441Z.json",
+      "case_count": 5,
+      "protocol_success_count": 2,
+      "protocol_failure_count": 0,
+      "intent_fidelity_failure_candidate_count": 3,
+      "intent_fidelity_result": "HUMAN_REVIEW_REQUIRED",
+      "source_legacy_categories": { "none": 2, "C_convergence_candidate": 3 }
+    },
+    {
+      "run": "p6.3-2026-08-21T12-14-51-428Z.json",
+      "case_count": 5,
+      "protocol_success_count": 4,
+      "protocol_failure_count": 1,
+      "intent_fidelity_failure_candidate_count": 0,
+      "intent_fidelity_result": "HUMAN_REVIEW_REQUIRED",
+      "source_legacy_categories": { "none": 4, "A_protocol_candidate": 1 }
+    },
+    {
+      "run": "p6.3-2026-08-21T12-18-05-080Z.json",
+      "case_count": 5,
+      "protocol_success_count": 3,
+      "protocol_failure_count": 2,
+      "intent_fidelity_failure_candidate_count": 0,
+      "intent_fidelity_result": "HUMAN_REVIEW_REQUIRED",
+      "source_legacy_categories": { "none": 3, "A_protocol_candidate": 2 }
+    }
+  ],
+  "aggregate": {
+    "case_attempts": 15,
+    "protocol_success_count": 9,
+    "protocol_success_rate": "9/15",
+    "protocol_failure_count": 3,
+    "intent_fidelity_failure_candidate_count": 3,
+    "human_review_required_count": 15,
+    "human_correction_required_count": null,
+    "invented_decisions_count": null,
+    "convergence_turns": "per-case in source run records; semantic convergence requires human review"
+  },
+  "rate_limit_run": {
+    "run": "p6.3-2026-08-21T12-29-09-156Z.json",
+    "case_count": 5,
+    "protocol_failure_count": 5,
+    "kind": "provider_rate_limit_429",
+    "intent_fidelity_result": "NOT_EVALUATED"
+  }
+}

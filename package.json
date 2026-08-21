@@ -21,7 +21,8 @@
     "desktop:package": "npm run build:test && npm run packaged:runtime:prepare && electron-builder --win --publish never",
     "desktop:package:dir": "npm run build:test && npm run harness:prepare:build && electron-builder --win dir",
     "desktop:package:smoke": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/desktop-windows-package-smoke.ps1",
-    "credential-scan": "node scripts/credential-scan.mjs"
+    "credential-scan": "node scripts/credential-scan.mjs",
+    "validate:intent-fidelity": "npm run build:test && node scripts/validate-intent-fidelity.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.25.1",
