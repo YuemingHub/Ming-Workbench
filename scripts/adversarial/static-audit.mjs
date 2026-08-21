@@ -209,6 +209,40 @@ function platformFailClosed() {
   }
 }
 
+// Outcome artifact security: the opened result must leave the control origin
+// and must not reuse the privileged Workbench preload bridge.
+function artifactRuntimeIsolation() {
+  const server = showFull('src/idea/human-first-server.ts')
+  const ui = showFull('src/idea/human-first-ui.ts')
+  const main = showFull('desktop/main.mjs')
+  const preload = showFull('desktop/preload.cjs')
+  if ([server, ui, main, preload].some((source) => source === null)) {
+    record('E15-artifact-runtime-isolation', 'NOT PROVEN', 'artifact isolation sources absent at HEAD')
+    return
+  }
+  const noSameOriginArtifactRoute = !/url\.pathname\s*===\s*['"]\/result['"]/.test(server)
+    && !/window\.location\.href\s*=\s*['"]\/result['"]/.test(ui)
+  const isolatedBridge = /desktop:open-artifact/.test(preload) && /desktop:open-artifact/.test(main)
+  const noPreloadWindow = /preload:\s*undefined/.test(main)
+    && /nodeIntegration:\s*false/.test(main)
+    && /contextIsolation:\s*true/.test(main)
+    && /sandbox:\s*true/.test(main)
+  if (noSameOriginArtifactRoute && isolatedBridge && noPreloadWindow) {
+    record(
+      'E15-artifact-runtime-isolation',
+      'PASS',
+      'artifact opens through a separate file runtime with no Workbench preload; the control-origin /result path is absent',
+    )
+  } else {
+    record(
+      'E15-artifact-runtime-isolation',
+      'FAIL',
+      'artifact may still execute in the control origin or receive the privileged preload bridge',
+      JSON.stringify({ noSameOriginArtifactRoute, isolatedBridge, noPreloadWindow }),
+    )
+  }
+}
+
 function summarize() {
   if (EXPECT_SHA && TARGET_SHA !== EXPECT_SHA) {
     record('E00-head-binding', 'FAIL', `TARGET ${TARGET_SHA} != expected ${EXPECT_SHA} (working HEAD=${actingHead})`)
@@ -233,4 +267,5 @@ fixtureRealSeparation()
 noFalseCompleted()
 rejectionPreserved()
 platformFailClosed()
+artifactRuntimeIsolation()
 summarize()

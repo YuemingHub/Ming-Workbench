@@ -45,6 +45,7 @@ if (resolvedUserDataDir) {
 const LOOPBACK_ORIGIN_RE = /^http:\/\/127\.0\.0\.1:\d+$/
 
 let win = null
+let artifactWin = null
 let backend = null
 let backendUrl = ''
 let activeBackendOrigin = ''
@@ -438,6 +439,59 @@ function hardenWindow(targetWin) {
   targetWin.webContents.session.setPermissionCheckHandler(() => false)
 }
 
+function artifactPathIsOwned(candidate) {
+  if (typeof candidate !== 'string' || candidate.length === 0) return false
+  const root = resolve(app.getPath('userData'), 'results')
+  const artifact = resolve(candidate)
+  return artifact.startsWith(`${root}${process.platform === 'win32' ? '\\' : '/'}`) && existsSync(artifact)
+}
+
+function openArtifactWindow(candidate) {
+  if (!artifactPathIsOwned(candidate)) return { ok: false }
+  const artifactPath = resolve(candidate)
+  if (artifactWin && !artifactWin.isDestroyed()) {
+    artifactWin.focus()
+    void artifactWin.loadFile(artifactPath)
+    return { ok: true }
+  }
+
+  artifactWin = new BrowserWindow({
+    width: 960,
+    height: 720,
+    minWidth: 560,
+    minHeight: 420,
+    title: 'Ming Workbench 结果',
+    backgroundColor: '#ffffff',
+    webPreferences: {
+      // Deliberately no Workbench preload: the generated artifact is an
+      // ordinary file runtime, not a control-plane renderer.
+      preload: undefined,
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+    },
+  })
+  artifactWin.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  artifactWin.webContents.on('will-attach-webview', (event) => event.preventDefault())
+  artifactWin.webContents.on('will-navigate', (event, targetUrl) => {
+    try {
+      if (targetUrl.startsWith('file://') && resolve(fileURLToPath(targetUrl)) === artifactPath) return
+    } catch {
+      // Fall through to the fail-closed navigation denial.
+    }
+    event.preventDefault()
+  })
+  artifactWin.webContents.session.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
+  artifactWin.webContents.session.setPermissionCheckHandler(() => false)
+  artifactWin.on('closed', () => {
+    artifactWin = null
+  })
+  void artifactWin.loadFile(artifactPath)
+  appendStartupLog(`artifact window opened isolated file runtime path=${artifactPath}`)
+  return { ok: true }
+}
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1180,
@@ -590,6 +644,13 @@ function registerIpc() {
     } finally {
       switching = false
     }
+  })
+
+  ipcMain.handle('desktop:open-artifact', async (event, artifactPath) => {
+    if (!isTrustedDesktopSender(event.sender.getURL(), activeBackendOrigin)) {
+      return { ok: false }
+    }
+    return openArtifactWindow(artifactPath)
   })
 
   ipcMain.handle('desktop:get-provider-preferences', async (event) => {
@@ -815,6 +876,10 @@ if (!gotLock) {
 
   function performClose() {
     if (cleanShutdownDone) return
+    if (artifactWin && !artifactWin.isDestroyed()) {
+      artifactWin.close()
+      artifactWin = null
+    }
     if (!backend) {
       cleanShutdownDone = true
       appendStartupLog('close: no backend to clean up')

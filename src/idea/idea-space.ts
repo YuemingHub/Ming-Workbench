@@ -82,6 +82,10 @@ export interface IdeaExecution {
   /** Capability selection facts for this Work Unit; never a secret. */
   capabilityDecision?: CapabilityDecision
   artifactPath?: string
+  /** SHA-256 of the artifact immediately before this execution. */
+  artifactBaselineHash?: string
+  /** SHA-256 of the artifact after this execution. */
+  artifactHashAfter?: string
   workspacePath?: string
   workUnitId?: string
   detail?: string

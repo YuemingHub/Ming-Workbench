@@ -409,6 +409,9 @@ export const HUMAN_FIRST_APP_JS = `
         el('agreement-wheresee').textContent = idea.agreement.whereSee;
         el('agreement-notdoing').textContent = idea.agreement.notDoing;
       }
+      // A new iteration reuses the same DOM. Re-enable the confirmation
+      // control after the previous round's POST disabled it.
+      if (idea.stage === 'agreement') el('agreement-confirm-button').disabled = false;
     }
     if (idea.stage === 'confirmed') {
       el('confirmed-recommendation').textContent = idea.synthesis ? idea.synthesis.recommendation : '';
@@ -515,7 +518,22 @@ export const HUMAN_FIRST_APP_JS = `
   }
 
   function openResult() {
-    window.location.href = '/result';
+    if (!EXECUTION || !EXECUTION.artifactPath) return;
+    var desktop = window.mingWorkbench;
+    if (!desktop || typeof desktop.openArtifact !== 'function') {
+      el('execution-error').textContent = '当前运行环境不能打开隔离的结果窗口。';
+      show('execution-error');
+      return;
+    }
+    desktop.openArtifact(EXECUTION.artifactPath).then(function (result) {
+      if (!result || !result.ok) {
+        el('execution-error').textContent = '结果没有在隔离窗口中打开。';
+        show('execution-error');
+      }
+    }).catch(function () {
+      el('execution-error').textContent = '结果没有在隔离窗口中打开。';
+      show('execution-error');
+    });
   }
 
   function iterateResult() {

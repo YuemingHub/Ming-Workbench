@@ -48,6 +48,18 @@ async function click(page, selector, label) {
   console.log(`clicked ${label} (${selector})`)
 }
 
+async function clickWhenEnabled(page, selector, label) {
+  await page.waitForFunction(
+    (s) => {
+      const el = document.querySelector(s)
+      return el && !el.disabled
+    },
+    selector,
+    { timeout: 30_000 },
+  )
+  await click(page, selector, label)
+}
+
 async function fill(page, selector, value, label) {
   const el = page.locator(selector).first()
   await el.waitFor({ state: 'attached', timeout: 10_000 })
@@ -134,10 +146,10 @@ async function mountBrowser() {
   }
   await page.bringToFront().catch(() => {})
   console.log(`mountBrowser: connected to page: ${page.url()}`)
-  return { browser, page }
+  return { browser, context, page }
 }
 
-async function firstLaunch(page) {
+async function firstLaunch(page, context) {
   // ---- 1. Human-first letter appears ----
   step('1. human-first V1 entry letter')
   await page.waitForSelector('#letter-view', { timeout: 30_000 })
@@ -439,7 +451,7 @@ async function firstLaunch(page) {
     checkpoint('AGREEMENT_OK')
 
     // Click confirm
-    await click(page, '#agreement-confirm-button', 'agreement confirm button')
+    await clickWhenEnabled(page, '#agreement-confirm-button', 'agreement confirm button')
     await waitForStage(page, 'confirmed', 15_000)
     console.log('confirmed view visible — agreement fully confirmed')
 
@@ -467,22 +479,64 @@ async function firstLaunch(page) {
     assert((await page.locator('#result-summary').textContent()).trim().length > 0, 'result summary is user-readable')
     assert((await page.locator('#result-verified li').count()) > 0, 'verified result facts are rendered')
     assert((await page.locator('#result-notproven li').count()) > 0, 'not-proven facts remain visible')
+    assert(firstExecution.producedFiles.includes('index.html'), 'executionProducedChanges includes index.html')
+    assert(firstExecution.artifactPath && /[\\/]index\.html$/.test(firstExecution.artifactPath), 'artifactPath points to index.html')
+    assert(firstExecution.artifactBaselineHash && firstExecution.artifactHashAfter, 'artifact baseline and after hashes are persisted')
+    assert(firstExecution.artifactBaselineHash !== firstExecution.artifactHashAfter, 'artifact baseline hash differs from post-execution hash')
     const firstWorkUnitId = firstExecution.workUnitId
     const firstWorkspacePath = firstExecution.workspacePath
     checkpoint('FIRST_OUTCOME_RESULT_OK')
 
-    // Open the actual artifact through the product's result button, then
-    // return to the confirmed surface without direct backend calls.
+    // Open the actual artifact in the product's isolated no-preload window.
+    // The control page remains mounted; no direct backend calls are used.
+    const controlOrigin = new URL(page.url()).origin
+    const artifactPagesBefore = new Set(context.pages())
+    const artifactPagePromise = new Promise((resolvePage, rejectPage) => {
+      const timer = setTimeout(() => rejectPage(new Error('timed out waiting for isolated artifact window')), 30_000)
+      context.once('page', (candidate) => {
+        clearTimeout(timer)
+        resolvePage(candidate)
+      })
+    })
     await page.locator('#open-result-button').click()
-    await page.waitForURL(/\/result$/, { timeout: 30_000 })
-    await page.waitForLoadState('domcontentloaded')
-    await page.waitForFunction(() => document.readyState === 'complete', null, { timeout: 30_000 })
-    const artifactHtml = await page.content()
-    const artifactText = await page.locator('body').textContent().catch(() => '')
-    const artifactTitle = await page.title().catch(() => '')
-    assert(artifactHtml.includes('这一轮结果') && artifactHtml.includes('菜谱'), `open result shows the generated artifact (${artifactTitle}; body=${artifactText.slice(0, 80)})`)
+    const artifactPage = await artifactPagePromise
+    assert(!artifactPagesBefore.has(artifactPage), 'result opens a separate artifact runtime')
+    await artifactPage.waitForLoadState('domcontentloaded')
+    await artifactPage.waitForFunction(() => document.readyState === 'complete', null, { timeout: 30_000 })
+    assert(artifactPage.url().startsWith('file://'), `artifact runtime uses isolated file origin (${artifactPage.url()})`)
+    const artifactHtml = await artifactPage.content()
+    assert(artifactHtml.includes('每日记录') && artifactHtml.includes('localStorage'), 'opened artifact is the execution-produced daily-notes page')
+
+    const isolation = await artifactPage.evaluate(async (origin) => {
+      let fetchBlocked = false
+      try {
+        const response = await fetch(`${origin}/api/idea/state`, { headers: { 'x-workbench-token': 'not-a-real-token' } })
+        // Electron may expose a readable HTTP 403 to a file-origin fetch even
+        // when the browser would reject it under ordinary CORS. Either a
+        // rejected request or a non-OK control-plane response is a denied read.
+        fetchBlocked = !response.ok
+      } catch {
+        fetchBlocked = true
+      }
+      return {
+        hasPrivilegedBridge: typeof window.mingWorkbench !== 'undefined',
+        fetchBlocked,
+        tokenMarkupPresent: document.documentElement.innerHTML.includes('ming-workbench-token'),
+      }
+    }, controlOrigin)
+    assert(isolation.hasPrivilegedBridge === false, 'artifact cannot access privileged desktop IPC bridge')
+    assert(isolation.fetchBlocked === true, 'artifact cannot read the control-plane API from its file origin')
+    assert(isolation.tokenMarkupPresent === false, 'artifact does not receive the Workbench request token')
+
+    const entry = `installed outcome ${Date.now()}`
+    await artifactPage.locator('#entry').fill(entry)
+    await artifactPage.locator('#save').click()
+    await artifactPage.locator('#list').getByText(entry, { exact: true }).waitFor({ state: 'visible', timeout: 10_000 })
+    await artifactPage.reload({ waitUntil: 'domcontentloaded' })
+    await artifactPage.locator('#list').getByText(entry, { exact: true }).waitFor({ state: 'visible', timeout: 10_000 })
+    assert(true, 'artifact input -> save -> rendered entry -> reload -> entry persists')
+    await artifactPage.close()
     checkpoint('RESULT_OPENED_OK')
-    await page.goBack({ waitUntil: 'domcontentloaded' })
     await page.waitForSelector('#confirmed-view:not(.hidden)', { timeout: 30_000 })
 
     // ---- 16. SECOND ITERATION: same idea/workspace, fresh execution ----
@@ -514,7 +568,7 @@ async function firstLaunch(page) {
     await waitForStage(page, 'review', 60_000)
     await click(page, '#review-next-button', 'iteration review next')
     await waitForStage(page, 'agreement', 30_000)
-    await click(page, '#agreement-confirm-button', 'iteration agreement confirm')
+    await clickWhenEnabled(page, '#agreement-confirm-button', 'iteration agreement confirm')
     await waitForStage(page, 'confirmed', 30_000)
     await click(page, '#start-execution-button', 'start second outcome')
     await page.locator('#cost-gate').waitFor({ state: 'visible', timeout: 30_000 })
@@ -983,10 +1037,10 @@ async function main() {
   console.log(`SENTINEL_FINGERPRINT=${SENTINEL_FINGERPRINT}`)
   console.log(`SENTINEL_LENGTH=${SENTINEL_KEY ? SENTINEL_KEY.length : 'unset'}`)
 
-  const { browser, page } = await mountBrowser()
+  const { browser, page, context } = await mountBrowser()
 
   if (PHASE === 'first') {
-    await firstLaunch(page)
+    await firstLaunch(page, context)
   } else if (PHASE === 'reopen') {
     await reopenChecks(page)
   } else if (PHASE === 'remove') {

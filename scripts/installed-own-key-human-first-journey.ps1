@@ -220,6 +220,10 @@ $fixtureBaseUrl = "http://127.0.0.1:$fixturePort/v1"
 $env:FIXTURE_PORT = "$fixturePort"
 $env:FIXTURE_API_KEY = $SentinelKey
 $env:FIXTURE_TARGET_DIR = $scratchDir
+# The installed outcome journey must mutate the same index.html artifact that
+# the product opens; the legacy README fixture remains reserved for the older
+# project journey.
+$env:FIXTURE_SCENARIO = "daily-notes"
 
 Write-Host "FIXTURE_URL=$fixtureBaseUrl"
 Write-Host "FIXTURE_FINGERPRINT=$sentinelFingerprint"
@@ -259,6 +263,7 @@ $env:DEEPSEEK_API_KEY = $null
 $env:PROVIDER_API_KEY = $null
 $env:MING_PROVIDER_KEY = $null
 $env:FIXTURE_API_KEY = $null
+$env:FIXTURE_SCENARIO = $null
 Write-Host "NO_PROVIDER_ENV"
 
 # ====================================================================

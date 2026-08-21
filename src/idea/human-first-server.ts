@@ -9,9 +9,9 @@
  */
 
 import { randomBytes } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
-import { join, resolve, sep } from 'node:path'
+import { join } from 'node:path'
 
 import {
   appendHumanTurn,
@@ -181,30 +181,6 @@ export async function startHumanFirstServer(
       }
       if (method === 'GET' && url.pathname === '/app.js') {
         sendText(response, 200, 'text/javascript; charset=utf-8', HUMAN_FIRST_APP_JS)
-        return
-      }
-
-      if (method === 'GET' && url.pathname === '/result') {
-        // Browser navigation is not an /api/* request. Keep the artifact
-        // path restricted to this Workbench-owned results root.
-        const idea = loadIdea(storeDir ?? '')
-        const artifact = idea.execution?.artifactPath
-        if (!artifact) {
-          sendJson(response, 404, { status: 'no-result' })
-          return
-        }
-        const resolvedRoot = resolve(resultsRoot)
-        const resolvedArtifact = resolve(artifact)
-        if (resolvedRoot === '' || !resolvedArtifact.startsWith(resolvedRoot + sep) || !existsSync(resolvedArtifact)) {
-          sendJson(response, 404, { status: 'result-not-found' })
-          return
-        }
-        try {
-          const html = readFileSync(resolvedArtifact, 'utf8')
-          sendText(response, 200, 'text/html; charset=utf-8', html)
-        } catch {
-          sendJson(response, 404, { status: 'result-unreadable' })
-        }
         return
       }
 
@@ -396,6 +372,8 @@ export async function startHumanFirstServer(
             producedFiles: execResult.producedFiles,
             capabilityDecision: execResult.capabilityDecision,
             artifactPath: execResult.artifactPath,
+            artifactBaselineHash: execResult.artifactBaselineHash,
+            artifactHashAfter: execResult.artifactHashAfter,
             workspacePath: execResult.workspacePath,
             workUnitId: execResult.workUnitId,
             detail: execResult.detail,

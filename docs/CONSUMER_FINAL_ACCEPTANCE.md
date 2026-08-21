@@ -122,3 +122,54 @@ Canonical installer evidence (local only; not a release):
 Verification: `npm run check` PASS; `npm test` PASS (226 passed, 3 skipped,
 0 failed); `npm run credential-scan` PASS. No push, merge, tag, or release was
 performed.
+
+## 2026-08-21 Outcome Truth correction and canonical installer revalidation
+
+Total Review found that the previous installed journey could report a changed
+`README.md` while opening the pre-execution `index.html`. That was not Outcome
+Truth: artifact existence had been mistaken for execution provenance.
+
+The correction is intentionally thin:
+
+- the installed deterministic own-key fixture now writes the exact `index.html`
+  target that the result opens;
+- `executeFirstOutcome` records the execution-produced file, granted-slice
+  membership, and SHA-256 before/after hashes, and exposes an artifact only
+  when the current run produced that file and changed its bytes;
+- result opening uses a separate Electron `BrowserWindow` with a `file://`
+  artifact origin, no Workbench preload, no privileged IPC, and no control
+  origin `/result` route;
+- the installed artifact was exercised as a daily-notes page: input → save →
+  rendered entry → reload → entry persists. Control API fetch, request-token
+  markup, and privileged IPC were adversarially checked and denied.
+
+Current local delivery status after the Outcome Truth correction:
+
+```text
+LOCAL ENGINEERING: PASS
+INSTALLED REALITY: PASS
+CAPABILITY ASSESSMENT: PASS
+EXTERNAL DISCOVERY: NOT REQUIRED
+EXECUTOR PORTABILITY: NOT PROVEN
+REAL PROVIDER: NOT RUN — HUMAN COST GATE
+REAL HUMAN L5: NOT PROVEN
+WINDOWS SYMLINK ADVERSARIAL: NOT RUN — ENVIRONMENT PRIVILEGE
+REMOTE CI: PENDING EXACT-HEAD REVALIDATION
+```
+
+Canonical installer evidence (local only; not a release):
+
+- command: `npm run desktop:package` (exit code 0)
+- installer: `dist-desktop/Ming Workbench Setup 0.1.0.exe`
+- SHA-256: `2E5F668DA3CADAD5F2A2A41152B9564361837A00E76E0F5F475825405C160AF0`
+- size: `200750968` bytes
+- timestamp (UTC): `2026-08-21T00:35:43.1145396Z`
+- installed own-key evidence: local temporary `own-key-af0a40e7` run (not tracked)
+- packaged smoke evidence: local temporary `mwps-ec55682f` run (not tracked)
+
+Verification: `npm run check` PASS; `npm test` PASS (226 passed, 3 skipped,
+0 failed); `npm run credential-scan` PASS; static adversarial audit includes
+artifact-runtime isolation; canonical win-unpacked and NSIS packaged smokes
+PASS. The Stage 3 transport/readback slice records `index.html` production;
+its optional xvfb browser substep remains Windows-unavailable and is not
+promoted to stronger evidence.

@@ -403,16 +403,34 @@ if (-not $SkipBuild) {
   Write-Step "BUILD win-unpacked (desktop:package:dir)"
   Push-Location $WorkDir
   try {
-    & npm.cmd run desktop:package:dir 2>&1 | Out-File (Join-Path $ScratchRoot "build-dir.log") -Encoding utf8
-    if ($LASTEXITCODE -ne 0) {
-      Write-Host "FAIL: desktop:package:dir exited $LASTEXITCODE"
+    # npm/pnpm warnings are written to stderr on Windows. PowerShell 7 can
+    # promote that native stderr stream to a terminating NativeCommandError
+    # under ErrorActionPreference=Stop even when npm exits 0; capture the real
+    # process exit code instead of treating a warning as a packaging failure.
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+      & npm.cmd run desktop:package:dir 2>&1 | Out-File (Join-Path $ScratchRoot "build-dir.log") -Encoding utf8
+      $buildDirExit = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $previousErrorAction
+    }
+    if ($buildDirExit -ne 0) {
+      Write-Host "FAIL: desktop:package:dir exited $buildDirExit"
       Write-BuildLog "build-dir.log"
       exit 1
     }
     Write-Step "BUILD NSIS installer (desktop:package)"
-    & npm.cmd run desktop:package 2>&1 | Out-File (Join-Path $ScratchRoot "build-nsis.log") -Encoding utf8
-    if ($LASTEXITCODE -ne 0) {
-      Write-Host "FAIL: desktop:package exited $LASTEXITCODE"
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+      & npm.cmd run desktop:package 2>&1 | Out-File (Join-Path $ScratchRoot "build-nsis.log") -Encoding utf8
+      $buildNsisExit = $LASTEXITCODE
+    } finally {
+      $ErrorActionPreference = $previousErrorAction
+    }
+    if ($buildNsisExit -ne 0) {
+      Write-Host "FAIL: desktop:package exited $buildNsisExit"
       Write-BuildLog "build-nsis.log"
       exit 1
     }

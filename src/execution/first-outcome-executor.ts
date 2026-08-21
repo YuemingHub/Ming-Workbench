@@ -23,7 +23,8 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import type { HumanFirstIdea } from '../idea/idea-space.js'
@@ -41,7 +42,7 @@ import type { WorkbenchProjectManifest } from '../projects/manifest.js'
 import { runProjectAaopCoordinator } from '../intake/coordinator.js'
 import { readRepositorySnapshot } from '../execution/repository.js'
 import { proposeMutationScope } from '../execution/scope-proposal.js'
-import { buildExactSlice } from '../execution/mutation-slice.js'
+import { buildExactSlice, isPathWithinSlice } from '../execution/mutation-slice.js'
 import { issueProviderExecutionGrant } from '../execution/grant-issuance.js'
 import { runBoundedExecution } from '../execution/bounded-execution.js'
 
@@ -82,6 +83,10 @@ export interface FirstOutcomeResult {
   producedFiles: string[]
   /** Absolute path to the primary result artifact (openable), if any. */
   artifactPath?: string
+  /** SHA-256 of the artifact immediately before this execution. */
+  artifactBaselineHash?: string
+  /** SHA-256 of the artifact after this execution. */
+  artifactHashAfter?: string
   /** Absolute path to the Workbench-owned idea workspace. */
   workspacePath: string
   /** Honest human summary of this round. */
@@ -138,6 +143,14 @@ function escapeHtml(value: string): string {
       default: return character
     }
   })
+}
+
+function sha256File(path: string): string | undefined {
+  try {
+    return createHash('sha256').update(readFileSync(path)).digest('hex')
+  } catch {
+    return undefined
+  }
 }
 
 export async function executeFirstOutcome(
@@ -218,6 +231,8 @@ export async function executeFirstOutcome(
   // baseline is a clean tree; an empty commit keeps the new Work Unit
   // independent instead of surfacing a false execution failure.
   runGit(workspacePath, ['commit', '--allow-empty', '-qm', 'init: workbench first-outcome baseline'])
+  const artifactBaselinePath = join(workspacePath, 'index.html')
+  const artifactBaselineHash = sha256File(artifactBaselinePath)
 
   // 2. bridge -> Work Unit (reuses the existing intake factory).
   const bridged = bridgeConfirmedIdeaToExecution(idea, {
@@ -363,24 +378,51 @@ export async function executeFirstOutcome(
   const projected = projectOutcomeFromRun(result.runOutcome)
   const producedFiles =
     result.repositoryReadback.executionProducedChanges || result.appliedBack || []
+  // Outcome Truth rule: an artifact is openable only when this execution
+  // explicitly produced that exact file inside the granted slice and changed
+  // its content from the pre-execution baseline. Mere existence is not
+  // provenance.
   const primaryArtifact = ['index.html', 'index.htm'].find((name) =>
-    existsSync(join(workspacePath, name)),
+    producedFiles.includes(name)
+      && isPathWithinSlice(slice, name)
+      && result.repositoryReadback.scopeViolations.length === 0,
   )
+  const artifactPath = primaryArtifact ? join(workspacePath, primaryArtifact) : undefined
+  const artifactHashAfter = artifactPath ? sha256File(artifactPath) : undefined
+  const artifactProvenancePassed = Boolean(
+    primaryArtifact
+      && artifactBaselineHash
+      && artifactHashAfter
+      && artifactBaselineHash !== artifactHashAfter,
+  )
+  const honestProjected = artifactProvenancePassed
+    ? projected
+    : {
+        ...projected,
+        status: projected.status === 'failed' ? 'failed' as const : 'not_proven' as const,
+        summary: '执行产生了改动，但结果产物与本轮执行的对应关系还没有被证明。',
+        detail: `${projected.detail} 结果产物必须由本轮执行明确产生，并且执行前后内容必须不同。`,
+      }
 
   let verifiedFacts: string[]
   let notProvenFacts: string[]
-  if (result.runOutcome.verification === 'passed' && result.runOutcome.effect === 'mutation-observed') {
+  if (
+    result.runOutcome.verification === 'passed'
+      && result.runOutcome.effect === 'mutation-observed'
+      && artifactProvenancePassed
+  ) {
     verifiedFacts = [
-      `执行确实产生了文件改动：${producedFiles.join('、') || '无'}`,
-      `改动没有超出本轮约定的范围。`,
+      `执行确实产生了文件改动：${producedFiles.join('、') || '无'}。`,
+      `结果产物是本轮执行产生的 index.html，且位于本轮授权改动范围内。`,
+      `index.html 执行前后 SHA-256 不同：${artifactBaselineHash} → ${artifactHashAfter}。`,
       `还没有被独立验证的部分已如实列出。`,
     ]
     notProvenFacts = [`这个成果是否真的像你想的那样好用，还需要你亲自打开、使用、确认。`]
   } else {
     verifiedFacts = []
     notProvenFacts = [
-      `执行没有产出可用的成果，或还缺少独立验证。`,
-      projected.detail,
+      `执行没有产出可用的、可追溯到本轮执行的成果，或还缺少独立验证。`,
+      honestProjected.detail,
     ]
   }
 
@@ -388,17 +430,19 @@ export async function executeFirstOutcome(
     mode: options.mode,
     route,
     goal,
-    outcome: projected,
+    outcome: honestProjected,
     runOutcome: result.runOutcome,
     workUnitId: workUnit.id,
     workUnitState: workUnit.state,
     producedFiles,
-    artifactPath: primaryArtifact ? join(workspacePath, primaryArtifact) : undefined,
+    artifactPath: artifactProvenancePassed ? artifactPath : undefined,
+    artifactBaselineHash,
+    artifactHashAfter: artifactProvenancePassed ? artifactHashAfter : undefined,
     workspacePath,
-    summary: projected.summary,
+    summary: honestProjected.summary,
     verifiedFacts,
     notProvenFacts,
-    detail: projected.detail,
+    detail: honestProjected.detail,
     capabilityDecision,
   }
 }
