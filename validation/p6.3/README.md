@@ -17,6 +17,12 @@ npm run validate:intent-fidelity
 real provider 只有在显式 cost gate 和完整环境变量存在时才调用；结果不写入密钥。
 每个结果都分开记录 `protocol_failure` 和 `intent_fidelity_failure`，并保留
 `HUMAN_REVIEW_REQUIRED`、`execution_correctness=NOT_RUN`、`convergence_turns`。
+每次 provider generation 还记录 `request_index`、phase、system prompt class、
+raw response、transport error、`recovery_used`；每个案例保留
+`first_raw_response` 与 `recovery_raw_response`，不以 recovery 响应覆盖首次失败。
+
+protocol outcome 只能是：`FIRST_PASS_SUCCESS`、`RECOVERED_SUCCESS`、
+`PROTOCOL_FAILURE`。统计按这三个来源分别报告，不合并成一个 usable 数字。
 
 ## Human review
 

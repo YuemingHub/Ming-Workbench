@@ -46,6 +46,22 @@ function emptyReview() {
     asked_right_confirmation_questions: null,
     correction_count: null,
     invented_decisions_count: null,
+    intent_boundary_layers: {
+      USER_STATED: [],
+      REASONABLE_INFERENCE: [],
+      AI_PROPOSAL: [],
+      HUMAN_CONFIRMED: [],
+    },
+    invented_decisions: {
+      cadence: null,
+      time: null,
+      tool: null,
+      platform: null,
+      resource: null,
+      willingness: null,
+      priority: null,
+      scope: null,
+    },
     notes: [],
   }
 }
@@ -69,17 +85,76 @@ function protocolFailure(error, synthesisResult, agreementError) {
   return null
 }
 
-async function runCase(endpoint, item, providerLabel) {
+function classifySystemPrompt(systemPrompt) {
+  const isAgreement = systemPrompt.includes('MING_HUMAN_FIRST_AGREEMENT')
+  const isRecovery = systemPrompt.includes('上一次响应无法按约定解析')
+  return {
+    phase: isAgreement ? 'agreement' : 'synthesis',
+    system_prompt_class: isAgreement
+      ? (isRecovery ? 'AGREEMENT_FORMAT_RECOVERY' : 'AGREEMENT_ORIGINAL')
+      : (isRecovery ? 'TURN_FORMAT_RECOVERY' : 'TURN_ORIGINAL'),
+    recovery_used: isRecovery,
+  }
+}
+
+function createRecordingProvider(endpoint, calls, requestIndexRef) {
+  const delegate = idea.createHttpSynthesisProvider(endpoint)
+  return {
+    async complete(systemPrompt, userContent) {
+      const classification = classifySystemPrompt(systemPrompt)
+      const record = {
+        request_index: ++requestIndexRef.value,
+        phase: classification.phase,
+        system_prompt_class: classification.system_prompt_class,
+        raw_provider_response: null,
+        transport_error: null,
+        recovery_used: classification.recovery_used,
+      }
+      try {
+        const raw = await delegate.complete(systemPrompt, userContent)
+        record.raw_provider_response = raw
+        return raw
+      } catch (error) {
+        record.transport_error = error instanceof Error ? error.message : String(error)
+        throw error
+      } finally {
+        calls.push(record)
+      }
+    },
+  }
+}
+
+function phaseProvenance(calls, phase) {
+  const phaseCalls = calls.filter((call) => call.phase === phase)
+  const first = phaseCalls.find((call) => call.system_prompt_class.endsWith('_ORIGINAL'))
+  const recovery = phaseCalls.find((call) => call.recovery_used)
+  return {
+    first_raw_response: first?.raw_provider_response ?? null,
+    recovery_raw_response: recovery?.raw_provider_response ?? null,
+    recovery_used: Boolean(recovery),
+  }
+}
+
+function protocolOutcome({ protocol, calls }) {
+  if (protocol) return 'PROTOCOL_FAILURE'
+  return calls.some((call) => call.recovery_used)
+    ? 'RECOVERED_SUCCESS'
+    : 'FIRST_PASS_SUCCESS'
+}
+
+async function runCase(endpoint, item, providerLabel, requestIndexRef) {
   let current = idea.beginIdea(idea.createLetterIdea())
   current = idea.chooseEntry(current, item.entry)
   current = idea.appendHumanTurn(current, item.raw_intent)
   let turnsUsed = 1
   let synthesisResult
   let providerError = null
+  const providerCalls = []
+  const provider = createRecordingProvider(endpoint, providerCalls, requestIndexRef)
 
   async function ask() {
     try {
-      return await idea.synthesizeTurn(endpoint, current)
+      return await idea.synthesizeTurn(undefined, current, provider)
     } catch (error) {
       providerError = error instanceof Error ? error.message : String(error)
       return undefined
@@ -102,7 +177,7 @@ async function runCase(endpoint, item, providerLabel) {
   if (!providerError && synthesisResult?.synthesis) {
     current = idea.applySynthesis(current, synthesisResult.synthesis, synthesisResult.reply)
     try {
-      agreement = await idea.synthesizeAgreement(endpoint, current)
+      agreement = await idea.synthesizeAgreement(undefined, current, provider)
       current = idea.applyAgreement(current, agreement, '这一轮我们这样开始。')
     } catch (error) {
       agreementError = error instanceof Error ? error.message : String(error)
@@ -110,6 +185,7 @@ async function runCase(endpoint, item, providerLabel) {
   }
 
   const protocol = protocolFailure(providerError, synthesisResult, agreementError)
+  const outcome = protocolOutcome({ protocol, calls: providerCalls })
   const intent = protocol || !synthesisResult?.synthesis || !agreement
     ? null
     : { status: 'HUMAN_REVIEW_REQUIRED', reason: 'JSON/schema success is not evidence of intent fidelity' }
@@ -121,6 +197,12 @@ async function runCase(endpoint, item, providerLabel) {
     ai_synthesis: synthesisResult?.synthesis ?? null,
     ai_reply: synthesisResult?.reply ?? null,
     ai_agreement: agreement,
+    protocol_outcome: outcome,
+    provider_provenance: {
+      synthesis: phaseProvenance(providerCalls, 'synthesis'),
+      agreement: phaseProvenance(providerCalls, 'agreement'),
+    },
+    provider_calls: providerCalls,
     protocol_failure: protocol,
     intent_fidelity_failure: intent,
     execution_correctness: 'NOT_RUN',
@@ -141,14 +223,20 @@ async function runCase(endpoint, item, providerLabel) {
 
 async function runCorpus(endpoint, providerLabel) {
   const cases = []
-  for (const item of corpus.cases) cases.push(await runCase(endpoint, item, providerLabel))
-  const protocolSuccess = cases.filter((item) => !item.protocol_failure).length
+  const requestIndexRef = { value: 0 }
+  for (const item of corpus.cases) cases.push(await runCase(endpoint, item, providerLabel, requestIndexRef))
+  const protocolOutcomes = Object.fromEntries(
+    ['FIRST_PASS_SUCCESS', 'RECOVERED_SUCCESS', 'PROTOCOL_FAILURE']
+      .map((outcome) => [outcome, cases.filter((item) => item.protocol_outcome === outcome).length]),
+  )
   return {
     provider: providerLabel,
     model: endpoint.model,
     case_count: cases.length,
-    protocol_success_count: protocolSuccess,
-    protocol_success_rate: `${protocolSuccess}/${cases.length}`,
+    protocol_outcomes: protocolOutcomes,
+    first_pass_protocol_success_count: protocolOutcomes.FIRST_PASS_SUCCESS,
+    recovered_protocol_success_count: protocolOutcomes.RECOVERED_SUCCESS,
+    protocol_failure_count: protocolOutcomes.PROTOCOL_FAILURE,
     intent_fidelity_result: 'HUMAN_REVIEW_REQUIRED',
     human_review_required_count: cases.length,
     human_correction_required_count: null,
@@ -242,7 +330,10 @@ await writeFile(outputPath, `${JSON.stringify(run, null, 2)}\n`, 'utf8')
 console.log(JSON.stringify({ output: outputPath, providers: Object.fromEntries(Object.entries(run.providers).map(([key, value]) => [key, {
   status: value.status ?? 'RUN_COMPLETED_HUMAN_REVIEW_REQUIRED',
   case_count: value.case_count ?? 0,
-  protocol_success_rate: value.protocol_success_rate ?? null,
+  protocol_outcomes: value.protocol_outcomes ?? null,
+  first_pass_protocol_success_count: value.first_pass_protocol_success_count ?? null,
+  recovered_protocol_success_count: value.recovered_protocol_success_count ?? null,
+  protocol_failure_count: value.protocol_failure_count ?? null,
   intent_fidelity_result: value.intent_fidelity_result ?? null,
   human_correction_required_count: value.human_correction_required_count ?? null,
 }])) }, null, 2))

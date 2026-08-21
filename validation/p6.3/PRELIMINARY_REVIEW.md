@@ -40,6 +40,27 @@ intent fidelity。以上把 protocol consumption 与 convergence candidate 分�
 即使显示 `verification=passed`，也只说明 execution correctness，不改变 Intent
 correctness 的失败/待修正结论。
 
+## Intent Boundary review form
+
+每个 protocol-success case 在 post-recovery review 中必须把每个输出片段放入且只
+放入一层：
+
+| layer | 含义 |
+| --- | --- |
+| `USER_STATED` | 用户明确说过 |
+| `REASONABLE_INFERENCE` | AI 合理理解，但用户没有明确确认 |
+| `AI_PROPOSAL` | AI 提出的建议/方案 |
+| `HUMAN_CONFIRMED` | 用户明确接受 |
+
+若 B/C 被错误写成 A/D，记录为 Intent Boundary failure，并分别计数：
+
+`invented_cadence`, `invented_time`, `invented_tool`, `invented_platform`,
+`invented_resource`, `invented_willingness`, `invented_priority`,
+`invented_scope`。
+
+在真实 post-recovery runs 完成前，这些字段保持 `null` / 空数组；不得用模型自评
+填充，也不得把 execution verification 当作 human confirmation。
+
 ## Review table for P6.3 five cases
 
 | case | protocol result | intent result | human action |
