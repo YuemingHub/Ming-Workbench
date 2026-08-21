@@ -69,6 +69,16 @@ const AGREEMENT_SYSTEM_PROMPT = `你是 Ming Workbench，正在为刚才的对�
 只输出 JSON：{"willGet": string, "solves": string, "whereSee": string, "notDoing": string}。
 标记：${AGREEMENT_MARKER}`
 
+// Real providers occasionally answer with helpful prose even when the
+// existing contract asks for JSON. Keep the recovery bounded and local to the
+// provider seam; this does not change the Idea Space schema or conversation
+// semantics.
+const TURN_FORMAT_REPAIR_PROMPT = `${TURN_SYSTEM_PROMPT}
+上一次响应无法按约定解析。请重新回答，严格只输出一个合法 JSON 对象，不要解释、不要 Markdown 代码围栏，不要在 JSON 前后添加任何文字。`
+
+const AGREEMENT_FORMAT_REPAIR_PROMPT = `${AGREEMENT_SYSTEM_PROMPT}
+上一次响应无法按约定解析。请重新回答，严格只输出一个合法 JSON 对象，不要解释、不要 Markdown 代码围栏，不要在 JSON 前后添加任何文字。`
+
 function conversationTranscript(idea: HumanFirstIdea): string {
   const lines = idea.turns.map((turn) => {
     const who = turn.role === 'human' ? '这个人说' : 'Workbench 说'
@@ -96,6 +106,20 @@ function parseJsonObject(text: string): Record<string, unknown> | undefined {
     }
   }
   return undefined
+}
+
+function parseTurnResult(content: string): HumanFirstTurnResult | undefined {
+  const parsed = parseJsonObject(content)
+  if (!parsed) return undefined
+  const result = turnSchema.safeParse(parsed)
+  if (!result.success) return undefined
+  return result.data
+}
+
+function parseAgreementResult(content: string): RoundAgreement | undefined {
+  const parsed = parseJsonObject(content)
+  const result = agreementSchema.safeParse(parsed ?? {})
+  return result.success ? result.data : undefined
 }
 
 async function callChatCompletions(
@@ -155,18 +179,18 @@ export async function synthesizeTurn(
   }
   const transcript = conversationTranscript(idea)
   const content = await callChatCompletions(endpoint!, TURN_SYSTEM_PROMPT, transcript)
-  const parsed = parseJsonObject(content)
-  if (!parsed) {
+  let result = parseTurnResult(content)
+  if (!result) {
+    const repaired = await callChatCompletions(endpoint!, TURN_FORMAT_REPAIR_PROMPT, transcript)
+    result = parseTurnResult(repaired)
+  }
+  if (!result) {
     return { reply: '我还在理解你说的这件事，我们再往前说一步就好。', ready: false }
   }
-  const result = turnSchema.safeParse(parsed)
-  if (!result.success) {
-    return { reply: '我还在理解你说的这件事，我们再往前说一步就好。', ready: false }
+  if (!result.ready) {
+    return { reply: result.reply, ready: false }
   }
-  if (!result.data.ready) {
-    return { reply: result.data.reply, ready: false }
-  }
-  return { reply: result.data.reply, ready: true, synthesis: result.data.synthesis }
+  return { reply: result.reply, ready: true, synthesis: result.synthesis }
 }
 
 /** Round Agreement — the four required semantics shown before confirmation. */
@@ -179,10 +203,11 @@ export async function synthesizeAgreement(
   }
   const transcript = conversationTranscript(idea)
   const content = await callChatCompletions(endpoint!, AGREEMENT_SYSTEM_PROMPT, transcript)
-  const parsed = parseJsonObject(content)
-  const result = agreementSchema.safeParse(parsed ?? {})
-  if (!result.success) {
-    throw new Error('provider returned an unusable round agreement')
+  let result = parseAgreementResult(content)
+  if (!result) {
+    const repaired = await callChatCompletions(endpoint!, AGREEMENT_FORMAT_REPAIR_PROMPT, transcript)
+    result = parseAgreementResult(repaired)
   }
-  return result.data
+  if (!result) throw new Error('provider returned an unusable round agreement')
+  return result
 }

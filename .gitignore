@@ -1,20 +1,251 @@
-node_modules/
-package-lock.json
+﻿# ============================================================
+# Ming Workbench · .gitignore（隐私 + 运行时 + 构建产物）
+# 最后更新：2026-08-20
+#
+# 原则：任何一旦 push 到公开仓库就无法回收的内容，
+#       宁可错杀 1000，不可放过 1 个。
+# ============================================================
+
+# ============== 1. 最高风险：真实隐私 / 未脱敏素材 ==============
+# 含真实姓名、学校、联系方式、可识别事件组合的原始材料
+_inbox/*_原始*
+_inbox/*原对话*
+_inbox/*未脱敏*
+_inbox/*chat-export*
+_inbox/*wechat*
+06-case-notes/*.原始.*
+06-case-notes/*_未脱敏.*
+04-working-drafts/*_原始*
+04-working-drafts/*_未脱敏.*
+00-daily/**/*_原始*
+01-weekly/**/*_未脱敏*
+
+# 聊天导出文件
+*.export.json
+*.chat-export.*
+*.wechat-export.*
+*.chat_history.*
+*.conversation.*
+
+# 语音 / 视频 / 图片原件（个人素材，默认本地存）
+*.mp3
+*.wav
+*.m4a
+*.aac
+*.flac
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.png
+*.jpg
+*.jpeg
+*.heic
+*.webp
+*.bmp
+# 例外：如果你确实想 push 公开图片（比如 public 素材），
+# 用 !public/**/*.png 这样的白名单单独放开，并先逐张检查
+
+# ============== 2. 密钥 / 凭据 / Token（死都不能 commit） ==============
+# 通用密钥文件
 .env
 .env.*
 !.env.example
-.DS_Store
-coverage/
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.cer
+*.pub
+secrets.json
+credentials.json
+token.json
+tokens.json
+tokens.yaml
+*.secret
+*.secrets
+auth.json
+config.local.*
+*.local.json
+*.local.yaml
+*.local.yml
+*.env.local
+
+# 云 / SaaS / LLM 凭据
+.openai_key
+.openai_api_key
+anthropic.key
+deepseek.key
+deepseek_api_key
+*.apikey
+*.api_key
+*_key.txt
+*credentials*
+*.sqlite.bak
+*.sqlite3.bak
+
+# ============== 3. Workbench 运行时数据（高概率含敏感信息） ==============
+.workbench/
+!.workbench/.gitkeep
+.workbench/vendor/deepseek-harness/
+!.workbench/vendor/deepseek-harness-*.bundle
+.workbuddy/
+!.workbuddy/.gitkeep
+.tmp/
+.traces/
+.sessions/
+sessions-*/
+sessions-admin/
+*.session
+*.sess
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+*.bak
+*.backup
+*.sql
+*.dump
+reports/
+flywheel/
+family_profiles/
+
+# Harness 压缩包快照（含依赖 + 可能有凭据）
+harness-capsule-*.tar
+harness-capsule-*.tar.gz
+harness-capsule-*.tgz
+harness-capsule-*.zip
+capsule-*.tar*
+*.tar.gz
+*.tgz
+*.zip
+# 例外：如果你真的需要 push 一个不含敏感内容的公开 zip，
+# 用 !path/to/public-file.zip 单独放开，并先解压检查 3 遍
+
+# ============== 4. Node / npm 依赖 ==============
+node_modules/
+jspm_packages/
+bower_components/
+
+# npm 缓存
+.npm
+.eslintcache
+.stylelintcache
+.parcel-cache/
+.cache/
+.turbo/
+
+# 包锁（是否保留看团队）——如果 package-lock.json 是官方审核过的跟踪文件，
+# 不要在 .gitignore 里忽略。官方 package.json 要求 lockfile，
+# 所以 package-lock.json 不应该忽略。
+
+# ============== 5. 构建产物 ==============
 dist/
 dist-desktop/
-.tmp/
-.workbench/runtime/
-.workbench/vendor/deepseek-harness/
-.workbench/vendor/deepseek-harness-capsule/
-.workbench/vendor/deepseek-harness-capsule.tar.gz
-.workbench/runtime/
-.workbench/projects/
-!.workbench/vendor/deepseek-harness-*.bundle
-# Throwaway local build verification artifacts (P0-D headless build check)
-p0d-build/
-p0d-*.log
+build/
+out/
+output/
+.next/
+.nuxt/
+.svelte-kit/
+.astro/
+coverage/
+.nyc_output/
+
+# Electron 打包中间物
+release/
+packages/
+Unpackaged/
+*.AppImage
+*.dmg
+*.exe
+*.msi
+*.deb
+*.rpm
+*.snap
+*.flatpak
+*.pkg
+
+# TypeScript 编译产物
+*.tsbuildinfo
+*.d.ts.map
+*.js.map
+
+# ============== 6. 日志 ==============
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.log.*
+logs/
+
+# ============== 7. IDE / 编辑器 ==============
+.idea/
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+.project
+.classpath
+.settings/
+*.swp
+*.swo
+*~
+.vscode-test/
+
+# ============== 8. 操作系统 ==============
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+ehthumbs_vista.db
+Thumbs.db
+desktop.ini
+.BIN/
+System Volume Information
+lost+found/
+
+# ============== 9. 桌面端本地打包时的用户临时数据 ==============
+# Electron 打包时会产生一些本地配置
+electron-builder/
+builder-effective-config.yaml
+
+# ============== 10. 用户本地 OneDrive / 同步软件临时文件 ==============
+*.tmp
+*.temp
+*.crdownload
+*.part
+*.partial
+
+# ============== 11. Git 自己的忽略说明 ==============
+# 不要忽略 .gitignore 自己（不然规则不生效）
+# （这一行留作说明，不需要写反忽略规则）
+
+# ============== 12. 个人工作区（本地隐私边界） ==============
+# 12个个人工作区目录：时间记录、技能库、草稿、证据等
+# 这些目录包含个人日志、未脱敏的案例笔记，不推送到公开仓库
+00-daily/
+01-weekly/
+02-monthly/
+03-personal-skills/
+04-working-drafts/
+05-references-imported/
+06-case-notes/
+07-content-lab/
+08-assets-evidence/
+_inbox/
+_maintenance/
+_scripts/
+_templates/
+
+# ============== 白名单例外区（慎重加！每加一个都要逐文件检查） ==============
+# 例子：
+# !public/open-image.png
+# !config/only-public-keys.json
