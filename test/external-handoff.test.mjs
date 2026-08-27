@@ -5,6 +5,7 @@ import {
   assertUserApprovedHandoffV0,
   validateUserApprovedHandoffV0,
 } from '../.tmp/handoff/external-handoff.js'
+import { createCreationWorkUnitFromHandoffV0 } from '../.tmp/handoff/to-work-unit.js'
 
 function validPacket() {
   return {
@@ -56,6 +57,34 @@ test('assertion returns a typed packet only after validation', () => {
   assert.equal(packet.confirmedIntent, '做一个记录小区流浪猫的网站')
   assert.throws(
     () => assertUserApprovedHandoffV0({ ...validPacket(), confirmedIntent: '' }),
+    /Invalid external handoff/,
+  )
+})
+
+test('approved handoff becomes a Creation Work Unit without AAOP ownership', () => {
+  const result = createCreationWorkUnitFromHandoffV0(validPacket(), {
+    now: () => new Date('2026-08-27T12:30:00Z'),
+    idFactory: () => 'handoff-1',
+  })
+
+  assert.equal(result.route, 'creation')
+  assert.equal(result.workUnit.id, 'WU-handoff-1')
+  assert.equal(result.workUnit.owner, 'creation')
+  assert.notEqual(result.workUnit.owner, 'development-aaop')
+  assert.equal(result.workUnit.outcome, validPacket().firstOutcome)
+  assert.equal(result.workUnit.acceptance.length, 1)
+  assert.equal(result.workUnit.acceptance[0].satisfied, false)
+  assert.deepEqual(result.workUnit.acceptance[0].evidenceIds, [])
+  assert.equal(result.workUnit.assets.length, 1)
+  assert.equal(result.workUnit.assets[0].uri, 'cat-1.jpg')
+  assert.equal(result.workUnit.evidence[0].kind, 'human-confirmation')
+})
+
+test('unapproved handoff cannot create a Creation Work Unit', () => {
+  const packet = validPacket()
+  packet.userAuthorization.approved = false
+  assert.throws(
+    () => createCreationWorkUnitFromHandoffV0(packet),
     /Invalid external handoff/,
   )
 })
