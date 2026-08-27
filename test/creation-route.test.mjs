@@ -86,7 +86,7 @@ test('verified artifact is still partial until the human accepts it', async () =
   }
 })
 
-test('human rejection reopens the Creation Work Unit for revision instead of completing it', async () => {
+test('human rejection reopens the Creation Work Unit and invalidates the rejected artifact for completion', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mw-creation-'))
   try {
     const workspace = join(root, 'workspace')
@@ -107,7 +107,8 @@ test('human rejection reopens the Creation Work Unit for revision instead of com
     assert.equal(rejected.state, 'ready')
     assert.equal(rejected.gate.open, false)
     assert.match(rejected.nextFrontier, /地图/)
-    assert.equal(canMarkCompleted(rejected), true)
+    assert.equal(canMarkCompleted(rejected), false)
+    assert.deepEqual(rejected.acceptance[0].evidenceIds, [])
     assert.notEqual(rejected.state, 'completed')
   } finally {
     rmSync(root, { recursive: true, force: true })
