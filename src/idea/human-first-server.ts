@@ -8,6 +8,7 @@
  */
 
 import { randomBytes } from 'node:crypto'
+import { writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 
 import {
@@ -42,6 +43,18 @@ import {
 
 const LOOPBACK_HOST = '127.0.0.1'
 const MAX_JSON_BODY_BYTES = 64 * 1024
+
+function hfDebugLog(storeDir: string | undefined, message: string): void {
+  const line = `[HF-DEBUG] ${message}`
+  console.error(line)
+  if (storeDir) {
+    try {
+      writeFileSync(`${storeDir}/hf-debug.log`, `${line}\n`, { flag: 'a' })
+    } catch {
+      // best-effort
+    }
+  }
+}
 
 function buildProviderEndpoint(
   envOverride: ProviderEndpoint | undefined,
@@ -190,10 +203,10 @@ export async function startHumanFirstServer(
       const _host = request.headers.host;
       const _origin = request.headers.origin as string | undefined;
       const _tokenHeader = request.headers['x-workbench-token'];
-      console.error(`[HF-DEBUG] ${_method} ${_pathname} host=${_host} origin=${_origin ?? '(none)'} tokenHeader=${_tokenHeader ? 'present' : 'MISSING'}`);
+      hfDebugLog(storeDir, `${_method} ${_pathname} host=${_host} origin=${_origin ?? '(none)'} tokenHeader=${_tokenHeader ? 'present' : 'MISSING'}`);
 
       if (!safeHostHeader(request.headers.host, boundPort)) {
-        console.error(`[HF-DEBUG] → 400 bad host header`);
+        hfDebugLog(storeDir, '→ 400 bad host header');
         sendJson(response, 400, { status: 'bad-request' })
         return
       }
@@ -218,7 +231,7 @@ export async function startHumanFirstServer(
         return
       }
       const tokenOk = hasRequestToken(request, requestToken);
-      console.error(`[HF-DEBUG] tokenCheck=${tokenOk ? 'OK' : 'FAIL'}`);
+      hfDebugLog(storeDir, `tokenCheck=${tokenOk ? 'OK' : 'FAIL'}`);
       if (!tokenOk) {
         sendJson(response, 403, { status: 'forbidden' })
         return
@@ -231,7 +244,7 @@ export async function startHumanFirstServer(
       }
 
       const originOk = sameLoopbackOrigin(request.headers.origin, boundPort);
-      console.error(`[HF-DEBUG] originCheck=${originOk ? 'OK' : 'FAIL'} (origin=${_origin ?? '(none)'})`);
+      hfDebugLog(storeDir, `originCheck=${originOk ? 'OK' : 'FAIL'} (origin=${_origin ?? '(none)'})`);
       if (method === 'POST' && !originOk) {
         sendJson(response, 403, { status: 'forbidden' })
         return

@@ -142,6 +142,7 @@ function Close-InstalledTree([int]$RootPid, [string]$ScratchPath, [string]$Insta
 function Invoke-HumanFirstUiJourney([string]$Label, [string]$UserData, [string]$Phase) {
   Write-Step "HUMAN-FIRST UI JOURNEY $Label (phase=$Phase)"
   $startupLog = Join-Path $UserData "startup.log"
+ $hfDebugLog = Join-Path $UserData "hf-debug.log"
   # NO --project: the journey starts from fresh userData with no repository.
   $launchStart = Get-Date
   $proc = Start-Process -FilePath $installedExe `
@@ -192,6 +193,7 @@ function Invoke-HumanFirstUiJourney([string]$Label, [string]$UserData, [string]$
     if ($ArtifactDir) {
       New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
       if (Test-Path $startupLog) { Copy-Item $startupLog (Join-Path $ArtifactDir "$Label-startup.log") -Force }
+      if (Test-Path $hfDebugLog) { Copy-Item $hfDebugLog (Join-Path $ArtifactDir "$Label-hf-debug.log") -Force }
       if (Test-Path (Join-Path $ScratchRoot "$Label-ui.log")) { Copy-Item (Join-Path $ScratchRoot "$Label-ui.log") (Join-Path $ArtifactDir "$Label-ui.log") -Force }
     }
     if ($driverExit -ne 0) {
@@ -210,6 +212,7 @@ function Invoke-HumanFirstUiJourney([string]$Label, [string]$UserData, [string]$
   if ($ArtifactDir) {
     New-Item -ItemType Directory -Force -Path $ArtifactDir | Out-Null
     if (Test-Path $startupLog) { Copy-Item $startupLog (Join-Path $ArtifactDir "$Label-startup.log") -Force }
+      if (Test-Path $hfDebugLog) { Copy-Item $hfDebugLog (Join-Path $ArtifactDir "$Label-hf-debug.log") -Force }
     if (Test-Path (Join-Path $ScratchRoot "$Label-ui.log")) { Copy-Item (Join-Path $ScratchRoot "$Label-ui.log") (Join-Path $ArtifactDir "$Label-ui.log") -Force }
   }
 
