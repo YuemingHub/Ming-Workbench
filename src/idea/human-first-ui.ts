@@ -547,11 +547,15 @@ export const HUMAN_FIRST_APP_JS = `
     return PROVIDER_STATE;
   };
 
-  document.addEventListener('DOMContentLoaded', function () {
-    boot().catch(function (e) {
-      console.error('boot failed:', e);
+  // Script type="module" is deferred but async — by the time the module
+  // executes, DOMContentLoaded may have already fired. Use readyState gate.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+      boot().catch(function (e) { console.error('boot failed:', e); });
     });
-  });
+  } else {
+    boot().catch(function (e) { console.error('boot failed:', e); });
+  }
 })();
 `
 
