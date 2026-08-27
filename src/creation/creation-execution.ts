@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { realpathSync, statSync } from 'node:fs'
-import { relative, resolve, sep } from 'node:path'
+import { isAbsolute, relative, resolve } from 'node:path'
 
 import type { Asset, Evidence, WorkUnit } from '../core/model.js'
 import { canMarkCompleted } from '../core/model.js'
@@ -39,7 +39,7 @@ function cloneWorkUnit(unit: WorkUnit): WorkUnit {
 
 function pathInsideRoot(path: string, root: string): boolean {
   const rel = relative(root, path)
-  return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !resolve(rel).startsWith(sep))
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
 }
 
 function verifyArtifactPath(candidate: string, workspaceRoot: string): string {
