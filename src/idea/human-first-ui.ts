@@ -547,15 +547,9 @@ export const HUMAN_FIRST_APP_JS = `
     return PROVIDER_STATE;
   };
 
-  // Script type="module" is deferred but async — by the time the module
-  // executes, DOMContentLoaded may have already fired. Use readyState gate.
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', function () {
-      boot().catch(function (e) { console.error('boot failed:', e); });
-    });
-  } else {
-    boot().catch(function (e) { console.error('boot failed:', e); });
-  }
+  // Regular <script> (not type=module) is blocking — by the time it executes,
+  // the DOM is fully parsed and DOMContentLoaded has already fired.
+  boot().catch(function (e) { console.error('boot failed:', e); });
 })();
 `
 
@@ -699,7 +693,7 @@ export function renderHumanFirstHtml(requestToken: string): string {
       <p class="muted">页面没能和本地服务正常连接，请重新打开一次。</p>
     </section>
   </main>
-  <script src="/app.js" type="module"></script>
+  <script src="/app.js"></script>
 </body>
 </html>`;
 }
