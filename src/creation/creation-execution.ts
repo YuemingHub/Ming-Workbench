@@ -55,6 +55,10 @@ function verifyArtifactPath(candidate: string, workspaceRoot: string): string {
   return actual
 }
 
+function humanAcceptanceEvidenceId(unit: WorkUnit): string {
+  return `EV-${unit.id}-HUMAN-ACCEPTANCE`
+}
+
 function blockCreation(
   unit: WorkUnit,
   summary: string,
@@ -78,6 +82,10 @@ function blockCreation(
  *
  * Even after verification, the Work Unit remains `needs-human`: verification
  * proves the artifact exists, not that the person accepts it as their outcome.
+ * Each acceptance criterion therefore references BOTH artifact evidence and a
+ * deterministic human-acceptance evidence id that does not exist until the
+ * person explicitly accepts. Closing a gate in some other code path cannot make
+ * completion reachable by itself.
  */
 export async function executeCreationWorkUnit(
   options: ExecuteCreationOptions,
@@ -175,9 +183,10 @@ export async function executeCreationWorkUnit(
 
   next.evidence.push(...newEvidence)
   next.assets.push(...newAssets)
+  const requiredHumanEvidence = humanAcceptanceEvidenceId(next)
   next.acceptance = next.acceptance.map((criterion) => ({
     ...criterion,
-    evidenceIds: [...evidenceIds],
+    evidenceIds: [...evidenceIds, requiredHumanEvidence],
   }))
   next.state = 'needs-human'
   next.gate = {
@@ -200,10 +209,9 @@ export async function executeCreationWorkUnit(
 
 export function acceptCreationWorkUnit(
   unit: WorkUnit,
-  options: { now?: () => Date; idFactory?: () => string } = {},
+  options: { now?: () => Date } = {},
 ): WorkUnit {
   const now = options.now ?? (() => new Date())
-  const idFactory = options.idFactory ?? (() => randomUUID())
   if (unit.owner !== 'creation') throw new Error('Only Creation Work Units can use Creation acceptance.')
   if (unit.state !== 'needs-human' || unit.gate.kind !== 'human-decision' || !unit.gate.open) {
     throw new Error('Creation Work Unit is not waiting for human acceptance.')
@@ -211,8 +219,12 @@ export function acceptCreationWorkUnit(
 
   const next = cloneWorkUnit(unit)
   const timestamp = now().toISOString()
+  const evidenceId = humanAcceptanceEvidenceId(next)
+  if (!next.acceptance.every((criterion) => criterion.evidenceIds.includes(evidenceId))) {
+    throw new Error('Creation acceptance criteria are missing the required human-acceptance evidence reference.')
+  }
   next.evidence.push({
-    id: `EV-${next.id}-HUMAN-${idFactory()}`,
+    id: evidenceId,
     kind: 'human-confirmation',
     summary: 'The person explicitly accepted the verified Creation outcome.',
     observedAt: timestamp,
@@ -226,7 +238,7 @@ export function acceptCreationWorkUnit(
   next.updatedAt = timestamp
 
   if (!canMarkCompleted(next)) {
-    throw new Error('Creation Work Unit cannot complete without verification-backed acceptance evidence.')
+    throw new Error('Creation Work Unit cannot complete without artifact verification and explicit human acceptance evidence.')
   }
   return next
 }
@@ -248,7 +260,7 @@ export function rejectCreationWorkUnit(
   const next = cloneWorkUnit(unit)
   const timestamp = now().toISOString()
   next.evidence.push({
-    id: `EV-${next.id}-HUMAN-${idFactory()}`,
+    id: `EV-${next.id}-HUMAN-REJECTION-${idFactory()}`,
     kind: 'human-confirmation',
     summary: `The person did not accept this version and requested revision: ${trimmed}`,
     observedAt: timestamp,
