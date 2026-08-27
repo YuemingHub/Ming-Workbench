@@ -314,7 +314,7 @@ export const HUMAN_FIRST_APP_JS = `
       status.className = 'panel-status error';
       return;
     }
-    if (baseUrl && !/^https?:\/\//i.test(baseUrl)) {
+    if (baseUrl && !new RegExp('^https?:\\/\\/', 'i').test(baseUrl)) {
       status.textContent = '接口地址需要以 http:// 或 https:// 开头。';
       status.className = 'panel-status error';
       return;
