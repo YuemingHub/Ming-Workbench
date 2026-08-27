@@ -453,7 +453,9 @@ export const HUMAN_FIRST_APP_JS = `
   }
 
   async function boot() {
+    console.error('[HF-UI-DEBUG] boot() starting, isDesktopMode=' + isDesktopMode() + ', TOKEN=' + (TOKEN ? TOKEN.substring(0,8) + '...' : 'MISSING'));
     PROVIDER_STATE = await loadProviderState();
+    console.error('[HF-UI-DEBUG] boot() loadProviderState done, hasSecret=' + PROVIDER_STATE.hasSecret);
 
     // Event delegation: handle all data-action clicks (replaces inline onclick handlers
     // which don't work reliably with contextIsolation: true in Electron)

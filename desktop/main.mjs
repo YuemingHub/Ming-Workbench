@@ -458,6 +458,12 @@ function createWindow() {
     // Scripted smoke verification signal. Not product UI.
     console.log('MING_DESKTOP_WINDOW_READY')
   })
+  // Capture renderer console errors into startup.log for L3 journey diagnosis.
+  win.webContents.on('console-message', (_event, level, message, _line, _source) => {
+    if (level >= 2) { // error + warning
+      appendStartupLog(`[renderer] ${message}`)
+    }
+  })
   hardenWindow(win)
   return win
 }
