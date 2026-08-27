@@ -66,7 +66,6 @@
     },
     "compression": "store",
     "npmRebuild": false,
-    "electronDist": "node_modules/electron/dist",
     "publish": {
       "provider": "github",
       "owner": "YuemingHub",
