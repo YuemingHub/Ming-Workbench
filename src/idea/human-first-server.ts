@@ -119,7 +119,9 @@ function safeHostHeader(host: string | undefined, port: number): boolean {
 }
 
 function sameLoopbackOrigin(origin: string | undefined, port: number): boolean {
-  if (!origin) return true
+  // Opaque origins ("null") come from file:// or sandboxed iframes — they
+  // cannot be read or reused by cross-site scripts so they are safe to allow.
+  if (!origin || origin === 'null') return true
   try {
     const parsed = new URL(origin)
     if (parsed.protocol !== 'http:') return false
