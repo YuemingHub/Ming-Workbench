@@ -185,7 +185,15 @@ export async function startHumanFirstServer(
 
   const server = createServer(async (request, response) => {
     try {
+      const _pathname = request.url?.split('?')[0] ?? '/';
+      const _method = request.method ?? 'GET';
+      const _host = request.headers.host;
+      const _origin = request.headers.origin as string | undefined;
+      const _tokenHeader = request.headers['x-workbench-token'];
+      console.error(`[HF-DEBUG] ${_method} ${_pathname} host=${_host} origin=${_origin ?? '(none)'} tokenHeader=${_tokenHeader ? 'present' : 'MISSING'}`);
+
       if (!safeHostHeader(request.headers.host, boundPort)) {
+        console.error(`[HF-DEBUG] → 400 bad host header`);
         sendJson(response, 400, { status: 'bad-request' })
         return
       }
@@ -209,7 +217,9 @@ export async function startHumanFirstServer(
         sendJson(response, 404, { status: 'not-found' })
         return
       }
-      if (!hasRequestToken(request, requestToken)) {
+      const tokenOk = hasRequestToken(request, requestToken);
+      console.error(`[HF-DEBUG] tokenCheck=${tokenOk ? 'OK' : 'FAIL'}`);
+      if (!tokenOk) {
         sendJson(response, 403, { status: 'forbidden' })
         return
       }
@@ -220,7 +230,9 @@ export async function startHumanFirstServer(
         return
       }
 
-      if (method === 'POST' && !sameLoopbackOrigin(request.headers.origin, boundPort)) {
+      const originOk = sameLoopbackOrigin(request.headers.origin, boundPort);
+      console.error(`[HF-DEBUG] originCheck=${originOk ? 'OK' : 'FAIL'} (origin=${_origin ?? '(none)'})`);
+      if (method === 'POST' && !originOk) {
         sendJson(response, 403, { status: 'forbidden' })
         return
       }
