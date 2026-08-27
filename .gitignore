@@ -8,6 +8,7 @@ coverage/
 dist/
 dist-desktop/
 .tmp/
+.ming-workbench/
 .workbench/runtime/
 .workbench/vendor/deepseek-harness/
 .workbench/vendor/deepseek-harness-capsule/

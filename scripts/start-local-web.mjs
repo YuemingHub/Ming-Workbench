@@ -60,7 +60,9 @@ if (args.help) {
 
 const workbenchRoot = resolve(args['workbench-root'] ?? process.cwd())
 const port = args.port === undefined ? 0 : Number(args.port)
-const storeDir = args['store-dir'] ? resolve(args['store-dir']) : undefined
+const storeDir = args['store-dir']
+  ? resolve(args['store-dir'])
+  : resolve(workbenchRoot, '.ming-workbench', 'store')
 
 if (!Number.isInteger(port) || port < 0 || port > 65535) {
   console.error('--port must be an integer from 0 through 65535')

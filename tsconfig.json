@@ -6,8 +6,10 @@
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
+    "rootDir": "./src",
     "resolveJsonModule": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "types": ["node"]
   },
   "include": ["src/**/*.ts"]
 }

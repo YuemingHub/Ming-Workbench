@@ -6,6 +6,8 @@
   "type": "module",
   "main": "desktop/main.mjs",
   "scripts": {
+    "start": "npm run build:test && node scripts/start-local-web.mjs",
+    "web:local": "npm run build:test && node scripts/start-local-web.mjs",
     "check": "tsc --noEmit",
     "build:test": "tsc --noEmit false --outDir .tmp",
     "test": "npm run build:test && node --test test/*.test.mjs",

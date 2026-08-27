@@ -1,13 +1,12 @@
 /**
  * Human-first V1 entry — Idea Space persistence.
  *
- * A single small JSON file in the store directory (userData in desktop mode),
- * same discipline as the Work Unit store: best-effort writes, schema mismatch
- * treated as empty, persisted content is product state only and carries no
- * provider secrets.
+ * Small JSON files in the store directory (userData in desktop mode, or a
+ * local .ming-workbench store in pure web mode). Best-effort writes, schema
+ * mismatch treated as empty, persisted content is product state only.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
 import {
@@ -22,6 +21,9 @@ import {
 export const IDEA_STORE_FILE_NAME = 'human-first-idea.json'
 export const IDEA_STORE_VERSION = 1
 
+export const PROVIDER_SECRET_FILE_NAME = 'provider-secret.txt'
+export const PROVIDER_PREFS_FILE_NAME = 'provider-preferences.json'
+
 interface PersistedIdea {
   storeVersion: number
   idea: {
@@ -35,6 +37,106 @@ interface PersistedIdea {
     createdAt: string
     updatedAt: string
   }
+}
+
+/** Non-secret provider preferences (model + optional baseUrl). */
+export interface ProviderPreferences {
+  provider: string
+  model: string
+  baseUrl: string
+}
+
+function defaultProviderPreferences(): ProviderPreferences {
+  return { provider: 'deepseek-official', model: 'deepseek-v4-pro', baseUrl: '' }
+}
+
+function normalizeProviderPreferences(value: unknown): ProviderPreferences {
+  const base = defaultProviderPreferences()
+  if (!value || typeof value !== 'object') return base
+  const obj = value as Record<string, unknown>
+  const provider = typeof obj.provider === 'string' ? obj.provider.trim() : ''
+  const model = typeof obj.model === 'string' ? obj.model.trim() : ''
+  const baseUrl = typeof obj.baseUrl === 'string' ? obj.baseUrl.trim() : ''
+  const out = { ...base }
+  if (provider && provider.length <= 200) out.provider = provider
+  if (model && model.length <= 200) out.model = model
+  if (baseUrl.length <= 500) out.baseUrl = baseUrl
+  return out
+}
+
+function ensureDir(storeDir: string): void {
+  mkdirSync(storeDir, { recursive: true })
+}
+
+// ── Provider secret (file-based, pure-web safe) ───────────────────────────
+
+function secretPath(storeDir: string): string {
+  return join(storeDir, PROVIDER_SECRET_FILE_NAME)
+}
+
+export function loadProviderSecretFile(storeDir: string): string | null {
+  try {
+    if (!storeDir || !existsSync(secretPath(storeDir))) return null
+    const value = readFileSync(secretPath(storeDir), 'utf8').trim()
+    return value.length > 0 ? value : null
+  } catch {
+    return null
+  }
+}
+
+export function saveProviderSecretFile(storeDir: string, secret: string): void {
+  try {
+    if (!storeDir) return
+    ensureDir(storeDir)
+    writeFileSync(secretPath(storeDir), `${secret}\n`, 'utf8')
+  } catch {
+    // Best-effort.
+  }
+}
+
+export function clearProviderSecretFile(storeDir: string): void {
+  try {
+    if (!storeDir) return
+    const path = secretPath(storeDir)
+    if (existsSync(path)) rmSync(path, { force: true })
+  } catch {
+    // Best-effort.
+  }
+}
+
+// ── Provider preferences (non-secret, plain JSON) ──────────────────────────
+
+function prefsPath(storeDir: string): string {
+  return join(storeDir, PROVIDER_PREFS_FILE_NAME)
+}
+
+export function loadProviderPreferencesFile(storeDir: string): ProviderPreferences {
+  try {
+    if (!storeDir || !existsSync(prefsPath(storeDir))) return defaultProviderPreferences()
+    return normalizeProviderPreferences(JSON.parse(readFileSync(prefsPath(storeDir), 'utf8')))
+  } catch {
+    return defaultProviderPreferences()
+  }
+}
+
+export function saveProviderPreferencesFile(
+  storeDir: string,
+  prefs: ProviderPreferences,
+): ProviderPreferences {
+  const normalized = normalizeProviderPreferences(prefs)
+  try {
+    if (storeDir) {
+      ensureDir(storeDir)
+      writeFileSync(
+        prefsPath(storeDir),
+        `${JSON.stringify(normalized, null, 2)}\n`,
+        'utf8',
+      )
+    }
+  } catch {
+    // Best-effort.
+  }
+  return normalized
 }
 
 function isValidIdea(value: unknown): value is HumanFirstIdea {
