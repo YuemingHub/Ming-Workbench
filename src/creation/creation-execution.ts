@@ -256,6 +256,15 @@ export function rejectCreationWorkUnit(
     verifier: 'human-confirmation',
     verification: 'passed',
   })
+  // The verified artifact remains historical evidence, but human rejection
+  // explicitly revokes its ability to satisfy the CURRENT acceptance criteria.
+  // A revised artifact must earn fresh verification evidence before completion
+  // can become reachable again.
+  next.acceptance = next.acceptance.map((criterion) => ({
+    ...criterion,
+    satisfied: false,
+    evidenceIds: [],
+  }))
   next.state = 'ready'
   next.gate = { kind: 'none', open: false }
   next.nextFrontier = `Revise the Creation outcome using only the person's feedback: ${trimmed}`
