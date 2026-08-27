@@ -30,16 +30,43 @@ DeepSeek Harness is in developer preview. Do not silently float the commit.
 
 At the 2026-08-14 review point, the source repository reported `0.1.0-rc.5`, but Ming Workbench CI proved that exact version was not installable from npm (`ETARGET`). Workbench therefore uses an exact source checkout until a distribution channel is separately verified.
 
-## Quick start
+## Quick start — human-first entry (no Harness required)
 
-Requirements: Git and Node `^22.19.0` or `>=24`.
+Requirements: Node `^22.19.0` or `>=24`. Git is only needed when you connect a real project.
 
 ```bash
 npm install
-npm run harness:prepare
-npm run doctor:harness
-npm run check
-npm test
+npm start
+```
+
+`npm start` compiles the TypeScript and starts the human-first V1 entry on a local loopback port. A browser window opens automatically, or you can visit the URL printed to the terminal. The first time you try to send a message the UI will ask you to connect an AI service — paste your API key (and optionally a custom OpenAI-compatible endpoint) right there in the page. No terminal setup, no `harness:prepare`, no project directory.
+
+Environment-variable alternative (if you prefer that over the in-page UI):
+
+```bash
+DEEPSEEK_API_KEY=sk-xxxx MING_HARNESS_MODEL=deepseek-v4-pro npm start
+```
+
+A default OpenAI-compatible endpoint is used (`https://api.deepseek.com/v1`) unless you set `DEEPSEEK_BASE_URL`.
+
+## Quick start — desktop shell
+
+The Electron desktop shell wraps the same human-first entry and can also connect to a real project. It stores secrets via the OS keychain (Electron safeStorage) instead of a local file.
+
+```bash
+npm install
+npm run desktop:dev
+```
+
+## Quick start — project mode (requires Harness + Git)
+
+When you want to connect Ming Workbench to a real project and run the bounded execution chain:
+
+```bash
+npm install
+npm run harness:prepare     # clones the reviewed DeepSeek Harness commit
+npm run doctor:harness       # verifies Harness is ready
+npm run web:local -- --project /path/to/your/repo
 ```
 
 `harness:prepare` creates a Workbench-managed checkout under `.workbench/vendor/deepseek-harness`, fetches the exact reviewed commit, installs it with the reviewed pnpm version through `npx`, and verifies the source identity. No global pnpm installation or manual Harness clone is required.

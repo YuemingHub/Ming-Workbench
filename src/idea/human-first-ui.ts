@@ -137,6 +137,15 @@ export const HUMAN_FIRST_APP_JS = `
     });
   }
 
+  function httpGet(path) {
+    return fetch(path, {
+      headers: { 'x-workbench-token': TOKEN },
+    }).then(function (response) {
+      if (!response.ok) throw new Error('request failed');
+      return response.json();
+    });
+  }
+
   function el(id) { return document.getElementById(id); }
   function show(id) { el(id).classList.remove('hidden'); }
   function hide(id) { el(id).classList.add('hidden'); }
@@ -152,7 +161,19 @@ export const HUMAN_FIRST_APP_JS = `
   }
 
   async function loadProviderState() {
-    if (!isDesktopMode()) return { hasSecret: false, preferences: null, loaded: true };
+    if (!isDesktopMode()) {
+      try {
+        var result = await httpGet('/api/provider/state');
+        if (result && result.status === 'ok') {
+          return {
+            hasSecret: result.hasSecret === true,
+            preferences: result.preferences || null,
+            loaded: true,
+          };
+        }
+      } catch (e) {}
+      return { hasSecret: false, preferences: null, loaded: false };
+    }
     try {
       var hasSecretResult = await window.mingWorkbench.hasProviderSecret();
       var prefsResult = await window.mingWorkbench.getProviderPreferences();
@@ -241,14 +262,6 @@ export const HUMAN_FIRST_APP_JS = `
 
   function openProviderPanel() {
     mountProviderPanel();
-    if (!isDesktopMode()) {
-      var status = el('provider-panel-status');
-      if (status) {
-        status.textContent = '连接 AI 服务需要在桌面版 Ming Workbench 中使用。';
-        status.className = 'panel-status error';
-      }
-      return;
-    }
     prefillProviderPanel();
   }
 
@@ -258,19 +271,34 @@ export const HUMAN_FIRST_APP_JS = `
 
   async function prefillProviderPanel() {
     try {
-      var prefsResult = await window.mingWorkbench.getProviderPreferences();
-      if (prefsResult && prefsResult.ok) {
-        var p = prefsResult.preferences || {};
-        el('provider-base-url').value = p.baseUrl || '';
-        el('provider-model').value = p.model || '';
-        el('provider-key-input').value = '';
+      var prefs = null;
+      var hasSecret = false;
+      if (!isDesktopMode()) {
+        var httpResult = await httpGet('/api/provider/state');
+        if (httpResult && httpResult.status === 'ok') {
+          prefs = httpResult.preferences || null;
+          hasSecret = httpResult.hasSecret === true;
+        }
+      } else {
+        var prefsResult = await window.mingWorkbench.getProviderPreferences();
+        if (prefsResult && prefsResult.ok) {
+          prefs = prefsResult.preferences || null;
+        }
         var hasSecretResult = await window.mingWorkbench.hasProviderSecret();
-        var hasSecret = hasSecretResult.hasSecret === true;
-        var status = el('provider-panel-status');
-        status.textContent = hasSecret ? '✓ 已保存密钥（留空保留）' : '尚未保存密钥';
-        status.className = 'panel-status' + (hasSecret ? ' ok' : '');
-        el('provider-clear-button').classList.toggle('hidden', !hasSecret);
+        hasSecret = hasSecretResult.hasSecret === true;
       }
+      if (prefs) {
+        el('provider-base-url').value = prefs.baseUrl || '';
+        el('provider-model').value = prefs.model || '';
+      } else {
+        el('provider-base-url').value = '';
+        el('provider-model').value = '';
+      }
+      el('provider-key-input').value = '';
+      var status = el('provider-panel-status');
+      status.textContent = hasSecret ? '✓ 已保存密钥（留空保留）' : '尚未保存密钥';
+      status.className = 'panel-status' + (hasSecret ? ' ok' : '');
+      el('provider-clear-button').classList.toggle('hidden', !hasSecret);
     } catch (e) {}
   }
 
@@ -286,7 +314,7 @@ export const HUMAN_FIRST_APP_JS = `
       status.className = 'panel-status error';
       return;
     }
-    if (baseUrl && !/^https?:\\/\\//i.test(baseUrl)) {
+    if (baseUrl && !/^https?:\/\//i.test(baseUrl)) {
       status.textContent = '接口地址需要以 http:// 或 https:// 开头。';
       status.className = 'panel-status error';
       return;
@@ -297,25 +325,42 @@ export const HUMAN_FIRST_APP_JS = `
     status.className = 'panel-status';
 
     try {
-      if (key) {
-        var secretResult = await window.mingWorkbench.setProviderSecret(key);
-        if (!secretResult || !secretResult.ok) {
-          status.textContent = '密钥保存失败，请稍后重试。';
+      var result;
+      if (!isDesktopMode()) {
+        var httpBody = {
+          provider: 'deepseek-official',
+          model: model,
+          baseUrl: baseUrl,
+        };
+        if (key) httpBody.key = key;
+        result = await post('/api/provider/save', httpBody);
+        if (!result || result.status !== 'ok') {
+          status.textContent = (result && result.message) || '配置保存失败。';
           status.className = 'panel-status error';
           saveBtn.disabled = false;
           return;
         }
-      }
-      var prefsResult = await window.mingWorkbench.setProviderPreferences({
-        provider: 'deepseek-official',
-        model: model,
-        baseUrl: baseUrl,
-      });
-      if (!prefsResult || !prefsResult.ok) {
-        status.textContent = prefsResult ? prefsResult.message : '配置保存失败，请稍后重试。';
-        status.className = 'panel-status error';
-        saveBtn.disabled = false;
-        return;
+      } else {
+        if (key) {
+          var secretResult = await window.mingWorkbench.setProviderSecret(key);
+          if (!secretResult || !secretResult.ok) {
+            status.textContent = '密钥保存失败，请稍后重试。';
+            status.className = 'panel-status error';
+            saveBtn.disabled = false;
+            return;
+          }
+        }
+        var prefsResult = await window.mingWorkbench.setProviderPreferences({
+          provider: 'deepseek-official',
+          model: model,
+          baseUrl: baseUrl,
+        });
+        if (!prefsResult || !prefsResult.ok) {
+          status.textContent = prefsResult ? prefsResult.message : '配置保存失败，请稍后重试。';
+          status.className = 'panel-status error';
+          saveBtn.disabled = false;
+          return;
+        }
       }
       status.textContent = '已保存，正在重新连接…';
       status.className = 'panel-status ok';
@@ -336,7 +381,11 @@ export const HUMAN_FIRST_APP_JS = `
   async function clearProviderSecretAction() {
     if (!confirm('确定要移除已保存的密钥吗？')) return;
     try {
-      await window.mingWorkbench.clearProviderSecret();
+      if (!isDesktopMode()) {
+        await post('/api/provider/clear');
+      } else {
+        await window.mingWorkbench.clearProviderSecret();
+      }
       PROVIDER_STATE.hasSecret = false;
       closeProviderPanel();
       updateProviderCta();

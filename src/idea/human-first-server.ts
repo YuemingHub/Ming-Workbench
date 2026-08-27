@@ -19,7 +19,16 @@ import {
   confirmIdea,
   type HumanFirstIdea,
 } from './idea-space.js'
-import { loadIdea, saveIdea } from './persistence.js'
+import {
+  clearProviderSecretFile,
+  loadIdea,
+  loadProviderPreferencesFile,
+  loadProviderSecretFile,
+  saveIdea,
+  saveProviderPreferencesFile,
+  saveProviderSecretFile,
+  type ProviderPreferences,
+} from './persistence.js'
 import {
   synthesizeAgreement,
   synthesizeTurn,
@@ -33,6 +42,26 @@ import {
 
 const LOOPBACK_HOST = '127.0.0.1'
 const MAX_JSON_BODY_BYTES = 64 * 1024
+
+function buildProviderEndpoint(
+  envOverride: ProviderEndpoint | undefined,
+  storeDir: string | undefined,
+): ProviderEndpoint | undefined {
+  // Environment override takes precedence (e.g. desktop mode where Electron
+  // already resolved the credentials). Otherwise read from file storage so
+  // runtime UI changes take effect immediately.
+  if (storeDir) {
+    const secret = loadProviderSecretFile(storeDir)
+    const prefs = loadProviderPreferencesFile(storeDir)
+    if (secret) {
+      const baseUrl = prefs.baseUrl || 'https://api.deepseek.com/v1'
+      const model = prefs.model || 'deepseek-v4-pro'
+      return { baseUrl, apiKey: secret, model }
+    }
+  }
+  if (envOverride && envOverride.apiKey) return envOverride
+  return envOverride
+}
 
 export interface HumanFirstServerOptions {
   workbenchRoot: string
@@ -138,7 +167,7 @@ export async function startHumanFirstServer(
   options: HumanFirstServerOptions,
 ): Promise<HumanFirstServerHandle> {
   const storeDir = options.storeDir
-  const provider = options.provider
+  const envProvider = options.provider
   const requestedPort = options.port ?? 0
   const requestToken = randomBytes(24).toString('base64url')
   let boundPort = -1
@@ -146,6 +175,10 @@ export async function startHumanFirstServer(
   function persist(idea: HumanFirstIdea): HumanFirstIdea {
     if (storeDir) saveIdea(storeDir, idea)
     return idea
+  }
+
+  function currentProvider(): ProviderEndpoint | undefined {
+    return buildProviderEndpoint(envProvider, storeDir)
   }
 
   const server = createServer(async (request, response) => {
@@ -231,7 +264,7 @@ export async function startHumanFirstServer(
         }
         let idea = appendHumanTurn(loadIdea(storeDir ?? ''), text)
         try {
-          const result = await synthesizeTurn(provider, idea)
+          const result = await synthesizeTurn(currentProvider(), idea)
           if (result.ready && result.synthesis) {
             idea = applySynthesis(idea, result.synthesis, result.reply)
             idea.providerRequired = false
@@ -261,7 +294,7 @@ export async function startHumanFirstServer(
       if (method === 'POST' && url.pathname === '/api/idea/agreement') {
         const idea = loadIdea(storeDir ?? '')
         try {
-          const agreement = await synthesizeAgreement(provider, idea)
+          const agreement = await synthesizeAgreement(currentProvider(), idea)
           const next = applyAgreement(
             idea,
             agreement,
@@ -284,6 +317,58 @@ export async function startHumanFirstServer(
         } catch {
           sendJson(response, 409, { status: 'not-ready' })
         }
+        return
+      }
+
+      // ── Provider config endpoints ────────────────────────────────────────
+
+      if (method === 'GET' && url.pathname === '/api/provider/state') {
+        const hasSecret = Boolean(storeDir && loadProviderSecretFile(storeDir))
+        const preferences = storeDir
+          ? loadProviderPreferencesFile(storeDir)
+          : { provider: 'deepseek-official', model: '', baseUrl: '' }
+        // Strip secret from preferences — it's never returned to the client.
+        const publicPrefs = { provider: preferences.provider, model: preferences.model, baseUrl: preferences.baseUrl }
+        sendJson(response, 200, { status: 'ok', hasSecret, preferences: publicPrefs })
+        return
+      }
+
+      if (method === 'POST' && !sameLoopbackOrigin(request.headers.origin, boundPort)) {
+        sendJson(response, 403, { status: 'forbidden' })
+        return
+      }
+
+      if (method === 'POST' && url.pathname === '/api/provider/save') {
+        const bodyObj = body as { provider?: unknown; model?: unknown; baseUrl?: unknown; key?: unknown } | undefined
+        if (!bodyObj || typeof bodyObj !== 'object') {
+          sendJson(response, 400, { status: 'bad-request' })
+          return
+        }
+        const model = typeof bodyObj.model === 'string' ? bodyObj.model.trim() : ''
+        const baseUrl = typeof bodyObj.baseUrl === 'string' ? bodyObj.baseUrl.trim() : ''
+        const provider = typeof bodyObj.provider === 'string' ? bodyObj.provider.trim() : 'deepseek-official'
+        if (!model) {
+          sendJson(response, 400, { status: 'bad-request', message: 'model 是必填的' })
+          return
+        }
+        if (baseUrl && !/^https?:\/\//i.test(baseUrl)) {
+          sendJson(response, 400, { status: 'bad-request', message: '接口地址需要以 http:// 或 https:// 开头' })
+          return
+        }
+        const prefs: ProviderPreferences = { provider, model, baseUrl }
+        if (storeDir) {
+          saveProviderPreferencesFile(storeDir, prefs)
+          if (typeof bodyObj.key === 'string' && bodyObj.key.trim()) {
+            saveProviderSecretFile(storeDir, bodyObj.key.trim())
+          }
+        }
+        sendJson(response, 200, { status: 'ok' })
+        return
+      }
+
+      if (method === 'POST' && url.pathname === '/api/provider/clear') {
+        if (storeDir) clearProviderSecretFile(storeDir)
+        sendJson(response, 200, { status: 'ok' })
         return
       }
 
