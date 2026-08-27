@@ -4,7 +4,7 @@ import test from 'node:test'
 import {
   assertUserApprovedHandoffV0,
   validateUserApprovedHandoffV0,
-} from '../dist-test/handoff/external-handoff.js'
+} from '../.tmp/handoff/external-handoff.js'
 
 function validPacket() {
   return {
