@@ -1,3 +1,23 @@
+> ⚠️ **RETIREMENT / ABSORPTION NOTICE · 2026-09-25**
+>
+> Ming Workbench is no longer an active standalone execution/runtime product line.
+>
+> Its External Reuse & Kill Test (Issue #31) concluded that Creation Runtime, generic Agent/shell/Python execution, generic capability resolver/platform and related execution infrastructure should be **KILL / REPLACE with mature external capabilities**.
+>
+> What remains valuable is thin:
+>
+> - ordinary people express the reality they want, not tool jargon;
+> - borrow the best current capability;
+> - consequential authority remains human-owned;
+> - Agent/tool completion is not real-world completion;
+> - real outcome and human acceptance matter.
+>
+> Product direction belongs primarily to `YuemingHub/World-Space`; YueMing-proven cross-task Skills/Workflows/Recipes/Practices belong in `YuemingHub/agent-workspace`; execution/runtime capability is borrowed from the external ecosystem.
+>
+> Existing code/branches remain as research/provenance. Do not resume platform/runtime expansion here. See [RETIREMENT.md](./RETIREMENT.md).
+
+---
+
 # Ming Workbench
 
 > **Mandatory first read for every agent and contributor: [`MING_WORKBENCH_NORTH_STAR.md`](./MING_WORKBENCH_NORTH_STAR.md).** It defines the highest product direction: humans own reality, goals, values, and final responsibility; Ming Workbench owns understanding the goal, identifying required capabilities, finding and composing the best existing technology, controlling execution, and independently verifying that reality actually changed as intended.
